@@ -5,7 +5,11 @@ import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu
 import { connectionRowMenu } from './connectionRowMenu';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { api } from '../../api/atelier';
+import { api, getErrorMessage } from '../../api/atelier';
+import { notifyConnectionsChanged } from '../../state/connections';
+import { notifyReferenceRulesChanged } from '../references/useReferenceRules';
+import { notifyRowSummaryChanged } from '../rowSummary/useRowSummary';
+import { notify } from '../../theme/notifications';
 import { tlsWarning } from '../../utils/hostLocality';
 import { relativeTime } from '../../utils/relativeTime';
 import { useRovingHighlight } from '../../hooks/useRovingHighlight';
@@ -16,14 +20,18 @@ import { usePinnedConnections } from '../../state/usePinnedConnections';
 import { useConnectionTransfer } from './ConnectionTransferProvider';
 import { ConnectionExportDialog } from './ConnectionExportDialog';
 import { ConnectionDeleteDialog } from './ConnectionDeleteDialog';
-import type { Connection, ConnectionSummary } from '@shared/types';
+import { AddToFamilyDialog, LeaveFamilyDialog } from './FamilyDialogs';
+import { plural } from './familyCopy';
+import { FamilyView } from './FamilyView';
+import { ApplyFamilyExportDialog } from './ApplyFamilyExportDialog';
+import type { Connection, ConnectionFamily, ConnectionSummary } from '@shared/types';
 
 // the header row is built from this list (rather than each `Table.Th`
 // hand-written) so the empty-state row's and the detail row's `colSpan` —
 // derived below as `COLUMN_HEADERS.length` — cannot drift out of sync with
 // however many columns actually exist: adding or removing an entry here
 // updates both the header and every `colSpan` in the same edit.
-const COLUMN_HEADERS = ['Name', 'Host', 'Status', 'Last used', 'Actions'] as const;
+const COLUMN_HEADERS = ['Name', 'Family', 'Host', 'Status', 'Last used', 'Actions'] as const;
 
 // A fixed width for the trailing Actions column, reserved whether or not the
 // row is selected — see the comment on that `Table.Td` for why a shrink-to-
@@ -69,7 +77,56 @@ export interface ConnectionExpandedTableProps {
 }
 
 /** What is stacked on the table; the table keeps its own Escape only when nothing is. */
-type Stacked = 'export' | { deleting: string[]; tabCount: number } | null;
+type Stacked =
+  | 'export'
+  | { deleting: string[]; tabCount: number }
+  | { addToFamily: string[] }
+  | { leaveFamily: string[] }
+  | { family: string }
+  /** The apply dialog; `returnTo` is the Family view it was opened from, shown again when it closes. */
+  | { applyExport: { familyId: string | null; returnTo: string | null } }
+  | null;
+
+/**
+ * Renders the Family view once the family is in the loaded list, so a rename
+ * (which reloads the list) shows its new name; a family that is gone closes it.
+ */
+function FamilyViewHost({ family, connections, onClose, onChanged, onApplyExport }: {
+  family: ConnectionFamily | null;
+  connections: ConnectionSummary[];
+  onClose: () => void;
+  onChanged: () => void;
+  onApplyExport: (family: ConnectionFamily) => void;
+}) {
+  if (!family) return null;
+  const exportFamily = async () => {
+    try {
+      const res = await api.families.export({ familyId: family.id });
+      if (!res.saved) return;
+      notify.success(
+        res.ruleCount === 0 && res.rowSummaryCount === 0
+          ? `Saved an empty export: "${family.name}" shares nothing yet.`
+          : `Exported ${plural(res.ruleCount, 'rule')} and ${plural(res.rowSummaryCount, 'row summary')} from "${family.name}".`,
+      );
+    } catch (e) {
+      notify.error(getErrorMessage(e, 'Could not write the family export'));
+    }
+  };
+  return (
+    <FamilyView
+      family={family}
+      connections={connections}
+      onClose={onClose}
+      onRenamed={onChanged}
+      onDeleted={() => {
+        onChanged();
+        onClose();
+      }}
+      onExport={() => void exportFamily()}
+      onApplyExport={onApplyExport}
+    />
+  );
+}
 
 function formatConnectionType(t: ConnectionSummary['connectionType']): string {
   return t === 'srv' ? 'SRV' : 'Standard';
@@ -257,6 +314,25 @@ export function ConnectionExpandedTable({
   const [checked, setChecked] = React.useState<ReadonlySet<string>>(new Set());
   const [stacked, setStacked] = React.useState<Stacked>(null);
   const [menu, setMenu] = React.useState<ContextMenuState | null>(null);
+  // Family names are read off each row; the list itself feeds the picker and the Family view.
+  const [families, setFamilies] = React.useState<ConnectionFamily[]>([]);
+  const reloadFamilies = React.useCallback(async () => {
+    try {
+      setFamilies(await api.families.list());
+    } catch (e) {
+      notify.error(getErrorMessage(e, 'Could not load the families'));
+    }
+  }, []);
+  React.useEffect(() => {
+    queueMicrotask(() => void reloadFamilies());
+  }, [reloadFamilies]);
+  const familyChanged = React.useCallback(() => {
+    notifyConnectionsChanged();
+    // Membership decides which shared rules and Row Summary a Connection uses, so the mounted readers re-ask.
+    notifyReferenceRulesChanged();
+    notifyRowSummaryChanged();
+    void reloadFamilies();
+  }, [reloadFamilies]);
   // Paste URIs opens the app's one Import Wizard, which stacks on this table
   // without being part of it.
   const transfer = useConnectionTransfer();
@@ -289,6 +365,7 @@ export function ConnectionExpandedTable({
   // Only rows on screen: a search never leaves a hidden row checked (see the
   // search field), and a Connection deleted elsewhere simply drops out.
   const checkedIds = filtered.filter((c) => checked.has(c.id)).map((c) => c.id);
+  const checkedInFamily = filtered.filter((c) => checked.has(c.id) && c.familyId);
   const allChecked = filtered.length > 0 && checkedIds.length === filtered.length;
   const none = checkedIds.length === 0;
   const toggleChecked = (id: string) =>
@@ -428,6 +505,18 @@ export function ConnectionExpandedTable({
           {/* maxWidth: 0 + width: 100% is the table-cell idiom for "take the
               leftover width, then ellipsize": the other cells stay one line
               (nowrap) and this long host gives way instead of wrapping. */}
+          <Table.Td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+            {c.familyId && c.familyName ? (
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                title={`Open the ${c.familyName} family`}
+                onClick={() => setStacked({ family: c.familyId! })}
+              >
+                {c.familyName}
+              </Button>
+            ) : null}
+          </Table.Td>
           <Table.Td
             title={`${c.host}:${c.port} · ${formatConnectionType(c.connectionType)}`}
             style={{
@@ -505,7 +594,14 @@ export function ConnectionExpandedTable({
                     setMenu({
                       x: rect.left,
                       y: rect.bottom,
-                      items: connectionRowMenu(c, { onManage, onEdit, onDisconnect, onDelete }),
+                      items: connectionRowMenu(c, {
+                        onManage,
+                        onEdit,
+                        onDisconnect,
+                        onDelete,
+                        onAddToFamily: (id) => setStacked({ addToFamily: [id] }),
+                        onLeaveFamily: (id) => setStacked({ leaveFamily: [id] }),
+                      }),
                       returnFocusTo: e.currentTarget,
                     });
                   }}
@@ -636,6 +732,14 @@ export function ConnectionExpandedTable({
           >
             Import
           </Button>
+          <Button
+            size="compact-xs"
+            variant="default"
+            title="Add the shared reference rules and row summaries of a family export to a family"
+            onClick={() => setStacked({ applyExport: { familyId: null, returnTo: null } })}
+          >
+            Apply family export…
+          </Button>
         </div>
 
         {/* Drawn on the first check and gone with the last: it used to sit
@@ -644,6 +748,18 @@ export function ConnectionExpandedTable({
           <Group gap="xs" role="toolbar" aria-label="Checked connections">
             <Button size="compact-xs" variant="light" onClick={() => setStacked('export')}>
               Export
+            </Button>
+            <Button size="compact-xs" variant="light" onClick={() => setStacked({ addToFamily: checkedIds })}>
+              Add to family…
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="light"
+              disabled={checkedInFamily.length === 0}
+              title={checkedInFamily.length === 0 ? 'None of the checked connections is in a family' : undefined}
+              onClick={() => setStacked({ leaveFamily: checkedInFamily.map((c) => c.id) })}
+            >
+              Leave family
             </Button>
             <Button size="compact-xs" variant="light" color="red" onClick={requestDeleteChecked}>
               Delete
@@ -742,7 +858,47 @@ export function ConnectionExpandedTable({
 
       </div>
       {stacked === 'export' && <ConnectionExportDialog ids={checkedIds} onClose={() => setStacked(null)} />}
-      {stacked !== null && typeof stacked === 'object' && (
+      {stacked !== null && typeof stacked === 'object' && 'addToFamily' in stacked && (
+        <AddToFamilyDialog
+          connections={connections.filter((c) => stacked.addToFamily.includes(c.id))}
+          families={families}
+          onCancel={() => setStacked(null)}
+          onDone={(family) => {
+            setStacked(null);
+            familyChanged();
+            notify.success(`Added to "${family.name}".`);
+          }}
+        />
+      )}
+      {stacked !== null && typeof stacked === 'object' && 'leaveFamily' in stacked && (
+        <LeaveFamilyDialog
+          connections={connections.filter((c) => stacked.leaveFamily.includes(c.id))}
+          onCancel={() => setStacked(null)}
+          onDone={() => {
+            setStacked(null);
+            familyChanged();
+          }}
+        />
+      )}
+      {stacked !== null && typeof stacked === 'object' && 'family' in stacked && (
+        <FamilyViewHost
+          family={families.find((f) => f.id === stacked.family) ?? null}
+          connections={connections}
+          onClose={() => setStacked(null)}
+          onChanged={familyChanged}
+          onApplyExport={(f) => setStacked({ applyExport: { familyId: f.id, returnTo: f.id } })}
+        />
+      )}
+      {stacked !== null && typeof stacked === 'object' && 'applyExport' in stacked && (
+        <ApplyFamilyExportDialog
+          families={families}
+          connections={connections}
+          initialFamilyId={stacked.applyExport.familyId}
+          onClose={() => setStacked(stacked.applyExport.returnTo ? { family: stacked.applyExport.returnTo } : null)}
+          onApplied={familyChanged}
+        />
+      )}
+      {stacked !== null && typeof stacked === 'object' && 'deleting' in stacked && (
         <ConnectionDeleteDialog
           // One checked row is an ordinary delete: type its name, as anywhere else.
           name={

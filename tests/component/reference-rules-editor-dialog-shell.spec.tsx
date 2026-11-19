@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { ReferenceRulesEditor } from '../../src/features/references/ReferenceRulesEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule } from '@shared/types';
 
 /**
  * X15 T8 — the dialog shell and the unsaved-changes guard.
@@ -16,9 +16,10 @@ import type { ReferenceRule } from '@shared/types';
  * named as such.
  */
 
-const RULE: ReferenceRule = {
+const RULE: EffectiveReferenceRule = {
+  origin: 'local',
   id: 'rule-1',
-  connectionId: 'conn-1',
+  owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',
   sourceCollection: 'orders',
   sourceField: 'contact_id',
@@ -71,8 +72,8 @@ async function openNewRuleForm() {
   fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
   return {
     sourceField: (await screen.findByLabelText('Source field')) as HTMLInputElement,
-    targetCollection: screen.getByLabelText('Target collection') as HTMLInputElement,
-    targetDb: screen.getByLabelText('Target database') as HTMLInputElement,
+    targetCollection: screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement,
+    targetDb: screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement,
     displayTemplate: screen.getByLabelText('Display template') as HTMLInputElement,
     enabled: screen.getByLabelText('Enabled') as HTMLInputElement,
   };
@@ -173,7 +174,7 @@ describe('ReferenceRulesEditor — unsaved-changes guard (X15 T8)', () => {
     fireEvent.click(overlay());
     await settle();
 
-    expect((screen.getByLabelText('Target collection') as HTMLInputElement).value).toBe('contacts');
+    expect((screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement).value).toBe('contacts');
     expect(onClose).not.toHaveBeenCalled();
     expect(discardPrompt()).toBeNull();
   });
@@ -193,7 +194,7 @@ describe('ReferenceRulesEditor — unsaved-changes guard (X15 T8)', () => {
     await waitFor(() => expect(discardPrompt()).toBeNull());
     expect(onClose).not.toHaveBeenCalled();
     expect((screen.getByLabelText('Source field') as HTMLInputElement).value).toBe('contact_id');
-    expect((screen.getByLabelText('Target collection') as HTMLInputElement).value).toBe('contacts');
+    expect((screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement).value).toBe('contacts');
     expect((screen.getByLabelText('Display template') as HTMLInputElement).value).toBe('{name}');
   });
 
@@ -251,7 +252,7 @@ describe('ReferenceRulesEditor — unsaved-changes guard (X15 T8)', () => {
   it('an existing rule opened for edit is clean until it is changed', async () => {
     const { onClose } = renderEditor();
     fireEvent.click(await screen.findByLabelText('Edit rule'));
-    await screen.findByLabelText('Target collection');
+    await screen.findByRole('combobox', { name: 'Target collection' });
 
     fireEvent.click(within(editor()).getByRole('button', { name: 'Close' }));
 

@@ -1,5 +1,6 @@
 import type { ContextMenuItem } from '../../../components/ContextMenu';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { withFieldPath, type CopySource } from '../../../utils/copyOrigin';
 import { formatDocsForCopy, type CopyFormat } from '../../../utils/copyFormat';
 import { isRecord, valueToClipboardText } from '../../../utils/displayValue';
 import { getDocIdCopyText } from './docId';
@@ -13,6 +14,8 @@ export interface FieldMenuInput {
   /** Add to filter disables up front when the filter bar's text doesn't parse. */
   filterBarValid: boolean;
   onAddToFilter: (fieldPath: string, value: unknown) => Promise<void>;
+  /** Where Copy value copies from, so a later paste on another Connection can warn. */
+  origin?: CopySource;
 }
 
 /** Copy value / Copy field path / Add to filter — shared by the cell, field and header menus' field half. */
@@ -23,13 +26,14 @@ export function fieldMenuItems({
   isReadOnly,
   filterBarValid,
   onAddToFilter,
+  origin,
 }: FieldMenuInput): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (hasValue) {
     items.push({
       kind: 'item',
       label: 'Copy value',
-      onClick: () => void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.'),
+      onClick: () => void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.', withFieldPath(origin, fieldPath)),
     });
   }
   items.push({
@@ -62,6 +66,8 @@ export interface DocMenuInput {
   isReadOnly?: boolean;
   /** A view's document can only be looked at: Edit becomes View and the writes go. */
   isView?: boolean;
+  /** Where Copy document and Copy _id copy from. */
+  origin?: CopySource;
 }
 
 /** The document's menu, in the order W06 §8.7 gives. */
@@ -75,6 +81,7 @@ export function docMenuItems({
   onCollapseAll,
   isReadOnly,
   isView,
+  origin,
 }: DocMenuInput): ContextMenuItem[] {
   const hasId = isRecord(doc) && doc._id !== undefined && doc._id !== null;
   const items: ContextMenuItem[] = [
@@ -82,14 +89,15 @@ export function docMenuItems({
       kind: 'item',
       label: 'Copy document',
       onClick: () =>
-        void copyToClipboard(formatDocsForCopy([doc], copyFormat), 'Document copied to the clipboard.'),
+        void copyToClipboard(formatDocsForCopy([doc], copyFormat), 'Document copied to the clipboard.', origin),
     },
   ];
   if (hasId) {
     items.push({
       kind: 'item',
       label: 'Copy _id',
-      onClick: () => void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.'),
+      onClick: () =>
+        void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', withFieldPath(origin, '_id')),
     });
   }
   items.push({

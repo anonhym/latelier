@@ -1,4 +1,4 @@
-# X26 — Agent Access: read-only MCP access to shared Connections
+# X27 — Agent Access: read-only MCP access to shared Connections
 
 > **Status: Draft.**
 
@@ -6,7 +6,7 @@
 
 Users already ask AI coding agents (Claude Code, Claude Desktop, Cursor) questions whose answers sit in their MongoDB data: "how many orders failed yesterday", "what does a `subscription` document look like", "which index does this query use". Today the agent either gets a connection string, and with it everything the database user can do, or it gets nothing.
 
-L'Atelier already holds the user's connections, their credentials in the vault, and a main process that enforces read-only. X26 lets an **Agent** read through the app instead: it reaches only the Connections the user has explicitly shared, only while they are open, only for reads, and never sees a host, URI or credential. The app is the gate, and it records what every Agent read.
+L'Atelier already holds the user's connections, their credentials in the vault, and a main process that enforces read-only. X27 lets an **Agent** read through the app instead: it reaches only the Connections the user has explicitly shared, only while they are open, only for reads, and never sees a host, URI or credential. The app is the gate, and it records what every Agent read.
 
 The design was settled in a discussion that started from a study of the official MongoDB MCP server (`docs/research/mongodb-mcp-server.md`, §7 lists what is copied from it and what is not). An independent adversarial review then reshaped the read path, the pipeline rules, revocation and the Agent Read Log.
 
@@ -56,7 +56,7 @@ The design was settled in a discussion that started from a study of the official
 - [X13](./X13-operation-audit-log.md) and [ADR 0002](../docs/adr/0002-audit-log-scope.md): the Audit Log stays writes-only; the Agent Read Log is a separate table.
 - [X21](./X21-encryption-at-rest.md): column encryption for Mongo-derived values in the Agent Read Log.
 - [C13](./C13-connection-export-import.md): Connection Export must not carry the new flag.
-- X23 (Connection Families, on its own branch at the time of writing): Shared with Agents is a property of one Connection and is never shared through a Family or a Family Export.
+- [X23](./X23-connection-families.md) and [X24](./X24-family-export.md): Shared with Agents is a property of one Connection and is never shared through a Family or a Family Export.
 - [ADR 0005](../docs/adr/0005-read-only-connection-enforcement.md): read handles and their limits.
 - New dependency: the MCP TypeScript SDK. Its package name and major version are pinned at implementation, because v2 split the SDK into separate packages.
 

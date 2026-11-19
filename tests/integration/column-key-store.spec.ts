@@ -170,6 +170,10 @@ describe('column key store', () => {
       VALUES ('s', 'c1', 'd', 'c', 'find', 'n', x'01', ?, ?)`).run(now, now);
     tmp.db.prepare(`INSERT INTO recent_field_values (id, connection_id, db_name, collection, field, value, value_mac, val_type, last_used_at)
       VALUES ('v', 'c1', 'd', 'c', 'f', x'01', 'm', 'string', ?)`).run(now);
+    tmp.db.prepare(`INSERT INTO connection_families (id, name, created_at, updated_at) VALUES ('fam', 'Acme', ?, ?)`).run(now, now);
+    tmp.db.prepare(`INSERT INTO reference_rules (id, family_id, source_db, source_collection, source_field, target_db, target_collection, created_at, updated_at)
+      VALUES ('fr', 'fam', 'd', 'c', 'f', 'd', 't', ?, ?)`).run(now, now);
+    tmp.db.prepare(`INSERT INTO row_summaries (id, family_id, db_name, collection, fields_json, updated_at) VALUES ('rs', 'fam', 'd', 'c', '[]', ?)`).run(now);
     const appState = new AppStateService(new AppStateRepo(tmp.db));
     appState.set('ui.showSystemDbs', true);
     expect(appState.get('ui.showSystemDbs')).toBe(true);
@@ -178,7 +182,7 @@ describe('column key store', () => {
     appState.reset();
 
     for (const table of ['connections', 'connection_secrets', 'reference_rules', 'saved_queries', 'recent_queries',
-      'workspace_tabs', 'audit_log', 'recent_field_values', 'app_state']) {
+      'workspace_tabs', 'audit_log', 'recent_field_values', 'app_state', 'connection_families', 'row_summaries']) {
       expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
     }
     expect(appState.get('ui.showSystemDbs')).toBeNull();

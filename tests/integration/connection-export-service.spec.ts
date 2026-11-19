@@ -98,6 +98,38 @@ describe('ConnectionExportService', () => {
   });
 
   describe('export', () => {
+    it('carries no Family data for a member, and no shared configuration', async () => {
+      const a = install();
+      const prod = await a.conns.create(input());
+      const now = new Date().toISOString();
+      a.tmp.db
+        .prepare("INSERT INTO connection_families (id, name, created_at, updated_at) VALUES ('fam-1', 'Secret Family Name', ?, ?)")
+        .run(now, now);
+      a.tmp.db.prepare('UPDATE connections SET family_id = ? WHERE id = ?').run('fam-1', prod.id);
+      a.tmp.db
+        .prepare(
+          `INSERT INTO reference_rules
+             (id, connection_id, family_id, source_db, source_collection, source_field,
+              target_db, target_collection, created_at, updated_at)
+           VALUES ('shared-rule', NULL, 'fam-1', 'shop', 'orders', 'shared_field', 'shop', 'customers', ?, ?)`,
+        )
+        .run(now, now);
+      a.tmp.db
+        .prepare(
+          `INSERT INTO row_summaries (id, connection_id, family_id, db_name, collection, fields_json, updated_at)
+           VALUES ('shared-summary', NULL, 'fam-1', 'shop', 'orders', '["shared_summary_field"]', ?)`,
+        )
+        .run(now);
+
+      await a.service.export({ ids: [prod.id], includeSecrets: false });
+
+      const text = fs.readFileSync(file, 'utf8');
+      for (const leaked of ['Secret Family Name', 'fam-1', 'family', 'Family', 'shared_field', 'shared_summary_field']) {
+        expect(text).not.toContain(leaked);
+      }
+      expect(Object.keys(JSON.parse(text).connections[0]).filter((k) => /famil/i.test(k))).toEqual([]);
+    });
+
     it('writes the chosen connections as a 0600 file with no credential paths and no ids', async () => {
       const a = install();
       const prod = await a.conns.create(

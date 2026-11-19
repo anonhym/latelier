@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { use } from 'react';
 import { ActionIcon } from '@mantine/core';
 import { I } from '../../../icons';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { withFieldPath } from '../../../utils/copyOrigin';
 import { isRecord } from '../../../utils/displayValue';
 import { getDocId, getDocIdCopyText, getDocIdText } from './docId';
 import { useCopyFormat } from './useCopyFormat';
+import { CollectionWorkspaceContext } from '../context';
 
 /**
  * A row's visible id (W06 §8.4): plain monospace in the neutral text colour,
@@ -17,6 +19,8 @@ export function DocIdLabel({ doc }: { doc: unknown }) {
   const short = getDocId(doc);
   const full = getDocIdText(doc);
   const [copyFormat] = useCopyFormat();
+  // Rendered inside a workspace, which names the tab the id is copied in; a bare render has none.
+  const origin = use(CollectionWorkspaceContext)?.meta;
   const hasId = isRecord(doc) && doc._id !== undefined && doc._id !== null;
   return (
     <span
@@ -50,7 +54,7 @@ export function DocIdLabel({ doc }: { doc: unknown }) {
           title="Copy _id"
           onClick={(e) => {
             e.stopPropagation();
-            void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.');
+            void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', withFieldPath(origin, '_id'));
           }}
           style={{ opacity: shown ? 1 : 0 }}
         >

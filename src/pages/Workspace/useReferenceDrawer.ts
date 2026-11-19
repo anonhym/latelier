@@ -42,6 +42,14 @@ export function useReferenceDrawer(
   const [refEditorOpen, setRefEditorOpen] = React.useState(false);
   const [refHover, setRefHover] = React.useState<ReferenceDrawerState['refHover']>(null);
 
+  // The hover callback is stable (no deps), so it reads the active tab's
+  // Connection through a ref. A shared rule names no server of its own.
+  const activeConnectionIdRef = React.useRef<string | null>(null);
+  const activeConnectionId = allTabs.find((t) => t.id === activeTabId)?.connectionId ?? null;
+  React.useEffect(() => {
+    activeConnectionIdRef.current = activeConnectionId;
+  }, [activeConnectionId]);
+
   const hoverReqIdRef = React.useRef(0);
   // Tab-scoped resolve cache so repeated hovers on the same chip don't
   // re-hit IPC. Cleared when the Focused Tab changes.
@@ -59,6 +67,8 @@ export function useReferenceDrawer(
     if (activeTabIdRef.current === activeTabId) return;
     activeTabIdRef.current = activeTabId;
     resolveCacheRef.current.clear();
+    // A hover still pending on the previous tab must not settle into this one's cache.
+    hoverReqIdRef.current++;
     setRefHover(null);
     if (refDrawerPinned) return;
     const tab = allTabs.find((t) => t.id === activeTabId);
@@ -76,6 +86,8 @@ export function useReferenceDrawer(
           rule: p.rule,
           value: ejsonParse(p.valueEjson),
           label: p.label,
+          // A stack belongs to its tab, so a frame saved without a Connection was opened on the tab's.
+          connectionId: p.connectionId ?? tab?.connectionId,
         });
       } catch {
         // Skip: the frame is unrecoverable, but the rest of the stack is fine.
@@ -116,6 +128,7 @@ export function useReferenceDrawer(
       rule: f.rule,
       valueEjson: ejsonStringify(f.value),
       label: f.label,
+      ...(f.connectionId !== undefined ? { connectionId: f.connectionId } : {}),
     }));
     patchCollectionStateRef.current(targetId, {
       referenceDrawer: { stack: persisted },
@@ -126,7 +139,7 @@ export function useReferenceDrawer(
     async (rule: ReferenceRule, value: unknown, rect: DOMRect) => {
       const reqId = ++hoverReqIdRef.current;
       const valueEjson = ejsonStringify(value);
-      const cacheKey = `${rule.id}:${valueEjson}`;
+      const cacheKey = `${activeConnectionIdRef.current ?? ''}:${rule.id}:${valueEjson}`;
       const cached = resolveCacheRef.current.get(cacheKey);
       if (cached) {
         setRefHover({ rule, anchorRect: rect, result: cached, loading: false, error: null });
@@ -134,7 +147,11 @@ export function useReferenceDrawer(
       }
       setRefHover({ rule, anchorRect: rect, result: null, loading: true, error: null });
       try {
-        const result = await api.refs.resolve({ ruleId: rule.id, valueEjson });
+        const result = await api.refs.resolve({
+          ruleId: rule.id,
+          connectionId: activeConnectionIdRef.current ?? undefined,
+          valueEjson,
+        });
         if (reqId !== hoverReqIdRef.current) return;
         resolveCacheRef.current.set(cacheKey, result);
         setRefHover((prev) =>
@@ -167,8 +184,8 @@ export function useReferenceDrawer(
     (rule: ReferenceRule, field: string, value: unknown) => {
       setRefHover(null);
       setRefStack((prev) => {
-        if (isSameReferenceTarget(prev[prev.length - 1], rule, value)) return prev;
-        return [{ id: makeFrameId(rule), rule, value, label: field }];
+        if (isSameReferenceTarget(prev[prev.length - 1], rule, value, activeConnectionIdRef.current ?? undefined)) return prev;
+        return [{ id: makeFrameId(rule), rule, value, label: field, connectionId: activeConnectionIdRef.current ?? undefined }];
       });
     },
     [],

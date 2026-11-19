@@ -116,6 +116,16 @@ describe('pasted line breaks', () => {
     expect(onPatch).toHaveBeenCalledWith({ value: 'a b c' }, 'value');
   });
 
+  it('drops line breaks at the end instead of leaving a trailing space, and keeps the inner ones as spaces', () => {
+    const onPatch = mountWithSpy({ valType: 'string' });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'abc\n' } });
+    expect(onPatch).toHaveBeenLastCalledWith({ value: 'abc' }, 'value');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'a\r\nb\r\n' } });
+    expect(onPatch).toHaveBeenLastCalledWith({ value: 'a b' }, 'value');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'abc\n\n' } });
+    expect(onPatch).toHaveBeenLastCalledWith({ value: 'abc' }, 'value');
+  });
+
   it('leaves single-line text untouched', () => {
     const onPatch = mountWithSpy({ valType: 'string' });
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'plain text' } });

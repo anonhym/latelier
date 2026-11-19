@@ -18,8 +18,14 @@ import type { AggregationTabState, AggStagePreview } from '@shared/types';
 // CodeMirror needs layout APIs jsdom lacks; an <input> stands in, forwarding
 // the props the stage card uses. Mod-Shift-Enter is claimed (preventDefault)
 // the way CodeMirror's keymap claims a handled key.
+const completionSources = vi.hoisted(
+  () => new Map<string, () => import('@codemirror/autocomplete').CompletionSource>(),
+);
+
 vi.mock('../../src/components/ScriptEditor', () => ({
-  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel }: import('../../src/components/ScriptEditor').ScriptEditorProps) => (
+  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel, completionSource }: import('../../src/components/ScriptEditor').ScriptEditorProps) => {
+    if (testId && completionSource) completionSources.set(testId, completionSource);
+    return (
     <input
       data-testid={testId}
       aria-label={ariaLabel}
@@ -33,7 +39,8 @@ vi.mock('../../src/components/ScriptEditor', () => ({
         }
       }}
     />
-  ),
+    );
+  },
 }));
 
 // Spied so each write path can be checked for dropping the cached enum suggestions.
@@ -1268,6 +1275,69 @@ describe('AggregationTab — regions (A01 §9.1)', () => {
   });
 });
 
+describe('AggregationTab — several stages open', () => {
+  const expanded = (id: number) => summary(id).getAttribute('aria-expanded');
+  const toggle = () => screen.getByRole('switch', { name: 'Several stages open' }) as HTMLInputElement;
+
+  it('keeps the single-open accordion by default', () => {
+    renderStatefulTab(twoStages);
+    expect(toggle().checked).toBe(false);
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    expect([expanded(1), expanded(2)]).toEqual(['false', 'true']);
+  });
+
+  it('opens two stages at once once the toggle is on, and the preview follows the last one', () => {
+    renderStatefulTab(twoStages);
+    fireEvent.click(toggle());
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+    expect(previewHeading()).toMatch(/^Stage 2 output/);
+  });
+
+  it('turning it on seeds the selected stage, and off collapses to the selected one', () => {
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    fireEvent.click(toggle());
+    expect([expanded(1), expanded(2)]).toEqual(['false', 'true']);
+    fireEvent.click(summary(1));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+    fireEvent.click(toggle());
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'false']);
+  });
+
+  it('patches the toggle and the open stages into the tab state', () => {
+    const onPatch = vi.fn();
+    render(
+      <DarkCtx.Provider value={false}>
+        <AggregationTab
+          connectionId="c1"
+          dbName="app"
+          collection="orders"
+          state={{ ...twoStages, activeStageId: 1 }}
+          darkMode={false}
+          sourceCount={42}
+          onPatch={onPatch}
+        />
+      </DarkCtx.Provider>,
+    );
+    fireEvent.click(toggle());
+    expect(onPatch).toHaveBeenCalledWith({ multiOpen: true, openStageIds: [1] });
+  });
+
+  it('removing an open stage leaves the others open, and a stage added afterwards opens', async () => {
+    renderStatefulTab(twoStages);
+    fireEvent.click(toggle());
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    await deleteStage(2);
+    expect(expanded(1)).toBe('true');
+    fireEvent.click(screen.getAllByRole('button', { name: /Add stage/ }).at(-1)!);
+    fireEvent.click(await screen.findByRole('option', { name: /\$sort/ }));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+  });
+});
+
 describe('AggregationTab — selection drives the preview (A01 §9.4)', () => {
   const ran: AggregationTabState = {
     ...twoStages,
@@ -1285,16 +1355,16 @@ describe('AggregationTab — selection drives the preview (A01 §9.4)', () => {
     const previewUpToStage = vi.fn();
     installAtelierMock({ agg: { run, previewUpToStage } as never });
     renderStatefulTab(ran);
-    expect(previewHeading()).toMatch(/^Output/);
+    expect(previewHeading()).toMatch(/^Full aggregation/);
 
     fireEvent.click(summary(2));
-    expect(previewHeading()).toMatch(/^Stage 2 · \$group · 3 docs/);
+    expect(previewHeading()).toMatch(/^Stage 2 output · \$group · first 1 of 3 docs · unordered/);
     const preview = screen.getByRole('region', { name: 'Preview' });
     expect(preview.textContent).toContain('grouped');
     expect(preview.textContent).not.toContain('final');
 
     fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
-    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/);
     expect(preview.textContent).toContain('final');
 
     expect(run).not.toHaveBeenCalled();
@@ -1391,6 +1461,35 @@ describe('AggregationTab — a stage preview is not a run', () => {
       count,
     }));
 
+  it('the next stage\'s editor offers the previous preview\'s fields until that stage is edited', async () => {
+    installAtelierMock({ agg: { previewUpToStage: preview([{ city: 'p' }], 1) } });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [
+        { id: 1, op: '$replaceRoot', body: '{ newRoot: "$address" }', enabled: true },
+        { id: 2, op: '$project', body: '{ a: "$" }', enabled: true },
+      ],
+      activeStageId: 1,
+      multiOpen: true,
+      openStageIds: [1, 2],
+    });
+    const offered = async () => {
+      const source = completionSources.get('stage-body-editor-2')!();
+      const doc = '{ a: "$" }';
+      const result = await source({ pos: 7, explicit: false, state: { doc: { toString: () => doc } } } as never);
+      return result?.options.map((o) => o.label) ?? [];
+    };
+    expect(await offered()).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('"p"'));
+    expect(await offered()).toEqual(['$city']);
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{ newRoot: "$other" }' } });
+    await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
+    expect(await offered()).toEqual([]);
+  });
+
   it('a preview with no run before it is fresh, and leaves the Output row with nothing to show', async () => {
     installAtelierMock({ agg: { previewUpToStage: preview([{ _id: 'p' }], 1) } });
     renderStatefulTab(DEFAULT_AGGREGATION_TAB_STATE);
@@ -1422,7 +1521,7 @@ describe('AggregationTab — a stage preview is not a run', () => {
     });
     renderStatefulTab({ ...twoStages, activeStageId: 2 });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 · \$group · 1 docs$/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 2 output · \$group · 1 docs · unordered$/));
 
     fireEvent.change(screen.getByTestId('stage-body-editor-2'), { target: { value: '{"_id": "$b"}' } });
     await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
@@ -1446,7 +1545,7 @@ describe('AggregationTab — a stage preview is not a run', () => {
     });
     renderStatefulTab({ ...twoStages, activeStageId: 1 });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 · \$match · 2 docs$/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Stage 1 output · \$match · first 1 of 2 docs$/));
 
     fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{"a": 1}' } });
 
@@ -1484,11 +1583,11 @@ describe('AggregationTab — a late preview never overwrites a newer result (#77
     fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     fireEvent.click(screen.getByRole('button', { name: /^Output/ }));
-    await waitFor(() => expect(previewHeading()).toMatch(/^Output · 1 docs/));
+    await waitFor(() => expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/));
 
     await act(async () => late.resolve({ stageId: 1, sample: [{ _id: 'stale-preview' }], count: 9 }));
 
-    expect(previewHeading()).toMatch(/^Output · 1 docs/);
+    expect(previewHeading()).toMatch(/^Full aggregation · 1 docs/);
     expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('from-run');
     expect(screen.getByRole('group', { name: 'Stage 1: $match' }).textContent).not.toContain('9');
   });

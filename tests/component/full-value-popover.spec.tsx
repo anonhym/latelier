@@ -14,6 +14,7 @@ import { DocFieldTree } from '../../src/pages/Workspace/views/DocFieldTree';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { CollectionTabState } from '@shared/types';
+import { getCopyOrigin } from '../../src/utils/copyOrigin';
 
 const LONG = 'x'.repeat(300);
 const DOC = { _id: 1, note: LONG };
@@ -152,5 +153,45 @@ describe('the field tree\'s Full value popover', () => {
 
     expect(within(dialog).queryByRole('button', { name: 'Open in editor' })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeTruthy();
+  });
+});
+
+describe('the Full value popover and the Copy Origin', () => {
+  const META = { connectionId: 'conn-a', dbName: 'shop', collection: 'orders' };
+
+  it('a Table cell\'s Copy records the value for its tab', async () => {
+    render(
+      <CollectionWorkspaceProvider state={state()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta(META)}>
+        <TableView documents={[DOC]} onColumnResize={vi.fn()} onRowExpand={vi.fn()} />
+      </CollectionWorkspaceProvider>,
+    );
+    const cell = screen.getByTitle(/Drag to add "note/);
+    fireEvent.mouseEnter(cell);
+    await userEvent.click(within(cell).getByRole('button', { name: 'Expand cell value' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Full value' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG, fieldPath: 'note' }));
+  });
+
+  it('a field tree leaf\'s Copy records the value for its tab too', async () => {
+    render(
+      <CollectionWorkspaceProvider state={state()} actions={emptyWorkspaceActions()} meta={emptyWorkspaceMeta(META)}>
+        <DocFieldTree
+          doc={{ outer: { note: LONG } }}
+          docId="doc1"
+          expandedPaths={new Set(['doc1::outer'])}
+          onToggle={vi.fn()}
+          copiedPath={null}
+          onCopy={vi.fn()}
+          onOpenMenu={vi.fn()}
+        />
+      </CollectionWorkspaceProvider>,
+    );
+    const row = document.getElementById('field-row-doc1::outer.note')!;
+    fireEvent.mouseEnter(row);
+    await userEvent.click(within(row).getByRole('button', { name: 'Expand field value' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Full value' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG, fieldPath: 'outer.note' }));
   });
 });

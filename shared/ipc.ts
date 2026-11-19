@@ -65,6 +65,26 @@ import type {
   RecentKind,
   RecentQuery,
   ValType,
+  ConnectionFamily,
+  EffectiveRowSummary,
+  FamilyApplyInput,
+  FamilyApplyPlan,
+  FamilyApplyPlanInput,
+  FamilyApplyResult,
+  FamilyCreateInput,
+  FamilyDeleteInput,
+  FamilyExportInput,
+  FamilyExportResult,
+  FamilyOverrides,
+  FamilyReadExportResult,
+  FamilyRenameInput,
+  FamilySettings,
+  FamilySetMembershipInput,
+  RefsOverrideInput,
+  RowSummary,
+  RowSummaryClearInput,
+  RowSummaryGetInput,
+  RowSummarySetInput,
   ReferenceAutodetectCandidate,
   ReferenceAutodetectInput,
   ReferenceResolveInput,
@@ -193,6 +213,11 @@ export interface CollectionInfo {
   sizeBytes?: number;
   indexCount?: number;
   lastModified?: string;
+  /**
+   * The figures above were read earlier this session, not by this call: shown
+   * as they were, until the database is opened or refreshed.
+   */
+  countsCached?: boolean;
   capped: boolean;
 }
 
@@ -382,7 +407,12 @@ export interface IpcApi {
 
   meta: {
     listDatabases: (input: { connectionId: string; includeSystem?: boolean }) => Promise<DbInfo[]>;
-    listCollections: (input: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>;
+    listCollections: (input: {
+      connectionId: string;
+      dbName: string;
+      /** Default true. False skips the per-collection storage stats; see `CollectionInfo.countsCached`. */
+      includeStats?: boolean;
+    }) => Promise<CollectionInfo[]>;
     collectionDetails: (input: {
       connectionId: string;
       dbName: string;
@@ -520,14 +550,50 @@ export interface IpcApi {
   };
 
   refs: {
-    /** A connection's rules, or one collection's: `dbName` and `collection` come together. */
-    list: (input: { connectionId: string } | { connectionId: string; dbName: string; collection: string }) => Promise<ReferenceRule[]>;
+    /**
+     * A connection's own rules, or one collection's: `dbName` and `collection` come together.
+     * With `effective: true`, what the connection actually uses: its own rules plus its
+     * Family's shared ones it does not override; every row is then an `EffectiveReferenceRule`
+     * (`origin`, `sharedRuleId`), which the return type cannot say without breaking every mock.
+     */
+    list: (input: RefsListInput) => Promise<ReferenceRule[]>;
     get: (input: { id: string }) => Promise<ReferenceRule>;
     create: (input: ReferenceRuleCreateInput) => Promise<ReferenceRule>;
     update: (input: { id: string; patch: ReferenceRuleUpdateInput }) => Promise<ReferenceRule>;
     delete: (input: { id: string }) => Promise<void>;
     resolve: (input: ReferenceResolveInput) => Promise<ReferenceResolveResult>;
     autodetect: (input: ReferenceAutodetectInput) => Promise<ReferenceAutodetectCandidate[]>;
+    /** Replace a shared rule on one connection, or switch it off there (`patch: { enabled: false }`). */
+    override: (input: RefsOverrideInput) => Promise<ReferenceRule>;
+    /** Delete a connection's Override so the shared rule takes over again. */
+    resetToShared: (input: { id: string }) => Promise<void>;
+  };
+
+  /** Connection Families (X23): named sets of connections that share reference rules and row summaries. */
+  families: {
+    list: () => Promise<ConnectionFamily[]>;
+    create: (input: FamilyCreateInput) => Promise<ConnectionFamily>;
+    rename: (input: FamilyRenameInput) => Promise<ConnectionFamily>;
+    /** Join a family, or leave the current one with `familyId: null`. Returns every family. */
+    setMembership: (input: FamilySetMembershipInput) => Promise<ConnectionFamily[]>;
+    delete: (input: FamilyDeleteInput) => Promise<void>;
+    /** For each shared setting of a family, the members that override it; settings nobody overrides are left out. */
+    overrides: (input: { id: string }) => Promise<FamilyOverrides>;
+    /** The shared Reference Rules and Row Summaries a Family owns, for its view. */
+    settings: (input: { id: string }) => Promise<FamilySettings>;
+    /** Family Export (X24): write a Family's shared settings to a file main asks the user to name. */
+    export: (input: FamilyExportInput) => Promise<FamilyExportResult>;
+    /** Pick a Family Export file; main validates it and holds it under a token. */
+    readExport: () => Promise<FamilyReadExportResult>;
+    planApply: (input: FamilyApplyPlanInput) => Promise<FamilyApplyPlan>;
+    apply: (input: FamilyApplyInput) => Promise<FamilyApplyResult>;
+  };
+
+  /** The fields a collapsed Tree row shows, saved per collection (X23). */
+  rowSummary: {
+    get: (input: RowSummaryGetInput) => Promise<EffectiveRowSummary | null>;
+    set: (input: RowSummarySetInput) => Promise<RowSummary>;
+    clear: (input: RowSummaryClearInput) => Promise<void>;
   };
 
   /** In-process Node REPL reusing the pool's already-open MongoClient — no external mongosh. */
@@ -743,6 +809,24 @@ export const IPC_CHANNELS = {
   refsDelete:     'refs:delete',
   refsResolve:    'refs:resolve',
   refsAutodetect: 'refs:autodetect',
+  refsOverride:      'refs:override',
+  refsResetToShared: 'refs:resetToShared',
+
+  // Connection Families ---------------------------------------
+  familiesList:          'families:list',
+  familiesCreate:        'families:create',
+  familiesRename:        'families:rename',
+  familiesSetMembership: 'families:setMembership',
+  familiesDelete:        'families:delete',
+  familiesOverrides:     'families:overrides',
+  familiesSettings:      'families:settings',
+  familiesExport:        'families:export',
+  familiesReadExport:    'families:readExport',
+  familiesPlanApply:     'families:planApply',
+  familiesApply:         'families:apply',
+  rowSummaryGet:         'rowSummary:get',
+  rowSummarySet:         'rowSummary:set',
+  rowSummaryClear:       'rowSummary:clear',
 
   // Mongo shell pane -----------------------------------------
   mshellStart:       'mshell:start',
@@ -804,10 +888,17 @@ type PassThroughSig = {
 /** What preload sends for a method that takes no argument but posts `{}`. */
 type EmptyObject = Record<string, never>;
 
+/** `refs:list` input: a connection's rules, or one collection's (`dbName` and `collection` come together). */
+type RefsListInput =
+  | { connectionId: string; effective?: boolean }
+  | { connectionId: string; dbName: string; collection: string; effective?: boolean };
+
 // Bindings preload adapts: positional arguments wrapped into an object, `{}`
 // sent for a method that takes nothing, a channel named apart from its
 // method, or a result parsed from a wire form.
 interface AdaptedSig {
+  'families:list':           { in: EmptyObject; out: ApiOut<'families', 'list'> };
+  'families:readExport':     { in: EmptyObject; out: ApiOut<'families', 'readExport'> };
   'conn:importOpen':         { in: EmptyObject; out: ApiOut<'conn', 'importOpen'> };
   'app:diagnosticBundle':    { in: EmptyObject; out: ApiOut<'app', 'diagnosticBundle'> };
   'app:getInfo':             { in: EmptyObject; out: ApiOut<'app', 'getInfo'> };

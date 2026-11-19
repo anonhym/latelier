@@ -45,6 +45,10 @@ const SET_SCHEMAS = new Map<string, z.ZodType>([
   ['whatsNew.lastSeenVersion', z.string().max(32)],
   // The version the away-from-workspace update toast last showed for (X22 §4): once per version.
   ['update.toastShownFor', z.string().max(32)],
+  // Warn when a value copied on another Connection is pasted into a query (X25 §5). X25 names the key, so it has no `ui.` prefix.
+  ['warnings.crossConnectionPaste', z.boolean()],
+  // Reference pairs the user chose Never for (X26 §6): `connectionId|` then the six names as a JSON array (or a hash of it when longer than the cap below, `MAX_PAIR_KEY_LENGTH` in `src/utils/referenceDiscovery.ts`), oldest first.
+  ['refs.discovery.never', z.array(z.string().max(1024)).max(500)],
 ]);
 
 // Connection ids are `crypto.randomUUID()`. One bounded character class and an

@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { use } from 'react';
 import { ActionIcon, Button, Popover, VisuallyHidden } from '@mantine/core';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { withFieldPath } from '../../../utils/copyOrigin';
+import { CollectionWorkspaceContext } from '../context';
 
 interface FullValuePopoverProps {
   /** The value's display text, untruncated. */
@@ -47,6 +49,8 @@ export function FullValuePopover({
   ariaLabel = 'Expand cell value',
   tabIndex,
 }: FullValuePopoverProps) {
+  // Table cells and Tree leaves both sit in a workspace, which names the tab the value is copied in.
+  const origin = use(CollectionWorkspaceContext)?.meta;
   const labelId = React.useId();
   // A stable callback ref runs once per mount of the dropdown, which the
   // popover's transition renders a commit or more after `opened` flips.
@@ -144,7 +148,13 @@ export function FullValuePopover({
           <Button
             size="compact-xs"
             variant="default"
-            onClick={() => void copyToClipboard(display, 'Value copied to the clipboard.')}
+            onClick={() =>
+              void copyToClipboard(
+                display,
+                'Value copied to the clipboard.',
+                fieldPath === undefined ? origin : withFieldPath(origin, fieldPath),
+              )
+            }
           >
             Copy
           </Button>

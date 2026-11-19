@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  EffectiveReferenceRule,
   ReferenceAutodetectCandidate,
   ReferenceAutodetectInput,
   ReferenceResolveInput,
@@ -7,8 +8,12 @@ import type {
   ReferenceRule,
   ReferenceRuleCreateInput,
   ReferenceRuleUpdateInput,
+  RefsOverrideInput,
+  SettingOwner,
 } from '@shared/types';
-import { NotFoundError } from '../errors.ts';
+import { NotFoundError, ValidationError } from '../errors.ts';
+import { effectiveRules } from './effectiveRules.ts';
+import { targetFieldProblem } from './familyExportFormat.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { ejsonEncode, parseEjsonField } from '../mongo/ejson.ts';
 import type { MongoPool } from '../mongo/MongoPool.ts';
@@ -16,6 +21,7 @@ import { matchKey, pairInSourceOrder, valuesAtPath } from './referencePairing.ts
 import { EXACT_BSON } from '../mongo/undo.ts';
 import { ownSet } from '../ownProperty.ts';
 import type {
+  ReferenceRuleInsert,
   ReferenceRulePatch,
   ReferenceRulesRepo,
 } from '../db/repositories/ReferenceRulesRepo.ts';
@@ -92,6 +98,25 @@ export function detectCandidateFieldsFromDocs(
   return [...seen.entries()].map(([sourceField, stem]) => ({ sourceField, stem }));
 }
 
+function buildInsert(input: ReferenceRuleCreateInput): ReferenceRuleInsert {
+  const now = nowIso();
+  return {
+    id: randomUUID(),
+    owner: input.owner,
+    source_db: input.sourceDb,
+    source_collection: input.sourceCollection,
+    source_field: input.sourceField,
+    target_db: input.targetDb,
+    target_collection: input.targetCollection,
+    target_field: input.targetField ?? '_id',
+    projection_json: JSON.stringify(normalizeProjection(input.projection)),
+    display_template: input.displayTemplate === undefined || input.displayTemplate === '' ? null : input.displayTemplate,
+    enabled: input.enabled === false ? 0 : 1,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 export class ReferenceRulesService {
   private repo: ReferenceRulesRepo;
   private pool: MongoPool;
@@ -101,16 +126,38 @@ export class ReferenceRulesService {
     this.pool = pool;
   }
 
+  /** The rules a Connection owns itself, Family-shared ones left out. */
   list(connectionId: string): ReferenceRule[] {
-    return this.repo.listByConnection(connectionId);
+    return this.repo.listByOwner({ connectionId });
   }
 
+  /** One Collection's rules a Connection owns itself, Family-shared ones left out. */
   listForCollection(
     connectionId: string,
     sourceDb: string,
     sourceCollection: string,
   ): ReferenceRule[] {
-    return this.repo.listForCollection(connectionId, sourceDb, sourceCollection);
+    return this.repo.listForOwnerCollection({ connectionId }, sourceDb, sourceCollection);
+  }
+
+  /**
+   * What a Connection uses: its own rules, then its Family's shared rules that
+   * it does not override. Every surface that reads rules goes through here.
+   */
+  effective(
+    connectionId: string,
+    dbName?: string,
+    collection?: string,
+  ): EffectiveReferenceRule[] {
+    const familyId = this.repo.familyIdOfConnection(connectionId);
+    const read = (owner: SettingOwner): ReferenceRule[] =>
+      dbName !== undefined && collection !== undefined
+        ? this.repo.listForOwnerCollection(owner, dbName, collection)
+        : this.repo.listByOwner(owner);
+    return effectiveRules(
+      read({ connectionId }),
+      familyId === null ? [] : read({ familyId }),
+    );
   }
 
   get(id: string): ReferenceRule {
@@ -118,23 +165,62 @@ export class ReferenceRulesService {
   }
 
   create(input: ReferenceRuleCreateInput): ReferenceRule {
-    const projection = normalizeProjection(input.projection);
-    const now = nowIso();
-    return this.repo.insert({
-      id: randomUUID(),
-      connection_id: input.connectionId,
-      source_db: input.sourceDb,
-      source_collection: input.sourceCollection,
-      source_field: input.sourceField,
-      target_db: input.targetDb,
-      target_collection: input.targetCollection,
-      target_field: input.targetField ?? '_id',
-      projection_json: JSON.stringify(projection),
-      display_template: input.displayTemplate ?? null,
-      enabled: input.enabled === false ? 0 : 1,
-      created_at: now,
-      updated_at: now,
-    });
+    return this.repo.insert(buildInsert(input));
+  }
+
+  /**
+   * Replace a shared rule on one Connection, or switch it off there. The
+   * Override is a Connection-owned row with the shared rule's key; asking
+   * again for the same key updates it.
+   */
+  override(input: RefsOverrideInput): ReferenceRule {
+    const shared = this.repo.findByIdOrThrow(input.sharedRuleId);
+    if (!('familyId' in shared.owner)) {
+      throw new ValidationError(`reference rule ${shared.id} is not a shared rule`);
+    }
+    if (!this.repo.connectionExists(input.connectionId)) {
+      throw new NotFoundError(`connection ${input.connectionId} not found`);
+    }
+    if (this.repo.familyIdOfConnection(input.connectionId) !== shared.owner.familyId) {
+      throw new ValidationError(
+        `reference rule ${shared.id} is not shared with connection ${input.connectionId}`,
+      );
+    }
+    const own = this.repo
+      .listForOwnerCollection({ connectionId: input.connectionId }, shared.sourceDb, shared.sourceCollection)
+      .find((r) => r.sourceField === shared.sourceField);
+    if (own) return this.update(own.id, input.patch);
+    return this.repo.insert(
+      buildInsert({
+        owner: { connectionId: input.connectionId },
+        sourceDb: shared.sourceDb,
+        sourceCollection: shared.sourceCollection,
+        sourceField: shared.sourceField,
+        targetDb: input.patch.targetDb ?? shared.targetDb,
+        targetCollection: input.patch.targetCollection ?? shared.targetCollection,
+        targetField: input.patch.targetField ?? shared.targetField,
+        projection: input.patch.projection ?? shared.projection,
+        displayTemplate: input.patch.displayTemplate ?? shared.displayTemplate,
+        enabled: input.patch.enabled ?? shared.enabled,
+      }),
+    );
+  }
+
+  /** Delete a Connection's Override so the shared rule takes over again. */
+  resetToShared(id: string): void {
+    const rule = this.repo.findByIdOrThrow(id);
+    if (!('connectionId' in rule.owner)) {
+      throw new ValidationError(`reference rule ${id} is not owned by a connection`);
+    }
+    const familyId = this.repo.familyIdOfConnection(rule.owner.connectionId);
+    const shared =
+      familyId === null
+        ? undefined
+        : this.repo
+            .listForOwnerCollection({ familyId }, rule.sourceDb, rule.sourceCollection)
+            .find((r) => r.sourceField === rule.sourceField);
+    if (!shared) throw new ValidationError(`reference rule ${id} does not override a shared rule`);
+    this.delete(id);
   }
 
   update(id: string, patch: ReferenceRuleUpdateInput): ReferenceRule {
@@ -158,9 +244,21 @@ export class ReferenceRulesService {
   }
 
   async resolve(input: ReferenceResolveInput): Promise<ReferenceResolveResult> {
-    const rule = this.repo.findByIdOrThrow(input.ruleId);
+    const stored = this.repo.findByIdOrThrow(input.ruleId);
+    const connectionId = this.connectionToResolveOn(stored, input.connectionId);
+    // The rule in effect on this Connection: an Override stands in for the
+    // shared rule it replaces, and a rule nothing resolves to is refused.
+    const rule = this.effective(connectionId, stored.sourceDb, stored.sourceCollection).find(
+      (r) => r.id === stored.id || r.sharedRuleId === stored.id,
+    );
+    if (!rule) {
+      throw new ValidationError(`reference rule ${stored.id} does not apply to connection ${connectionId}`);
+    }
+    // A row saved before the handlers refused such a field is still never run as an operator query.
+    const fieldProblem = targetFieldProblem(rule.targetField);
+    if (fieldProblem !== null) throw new ValidationError(`reference rule ${stored.id}: ${fieldProblem}`);
     const value = parseEjsonField<unknown>(input.valueEjson, 'valueEjson');
-    const db = await this.pool.readDb(rule.connectionId, rule.targetDb);
+    const db = await this.pool.readDb(connectionId, rule.targetDb);
     const coll = db.collection(rule.targetCollection);
     const projection = projectionToMongo(rule.projection);
     const t0 = Date.now();
@@ -170,7 +268,7 @@ export class ReferenceRulesService {
       // that pairs with no source value is kept, after the ordered ones.
       if (Array.isArray(value)) {
         if (value.length === 0) {
-          return { ruleId: rule.id, found: false, documents: [], durationMs: Date.now() - t0 };
+          return { ruleId: input.ruleId, found: false, documents: [], durationMs: Date.now() - t0 };
         }
         const filter = { [rule.targetField]: { $in: value } } as Record<string, unknown>;
         const docs = await coll.find(filter, { ...EXACT_BSON, projection }).toArray();
@@ -192,7 +290,7 @@ export class ReferenceRulesService {
           keyDocs.map((k) => valuesAtPath(k, rule.targetField)),
         );
         return {
-          ruleId: rule.id,
+          ruleId: input.ruleId,
           found: ordered.length > 0,
           documents: ordered.map((d) => ejsonEncode(d, false)),
           durationMs: Date.now() - t0,
@@ -203,7 +301,7 @@ export class ReferenceRulesService {
         { ...EXACT_BSON, projection },
       );
       return {
-        ruleId: rule.id,
+        ruleId: input.ruleId,
         found: doc !== null,
         documents: doc ? [ejsonEncode(doc, false)] : [],
         durationMs: Date.now() - t0,
@@ -213,10 +311,26 @@ export class ReferenceRulesService {
     }
   }
 
+  /** The Connection a rule is read through: its owner, or the caller's choice for a Family's rule. */
+  private connectionToResolveOn(rule: ReferenceRule, requested: string | undefined): string {
+    if ('connectionId' in rule.owner) {
+      if (requested !== undefined && requested !== rule.owner.connectionId) {
+        throw new ValidationError(`reference rule ${rule.id} belongs to another connection`);
+      }
+      return rule.owner.connectionId;
+    }
+    if (requested === undefined) {
+      throw new ValidationError(`reference rule ${rule.id} is shared: pass the connection to resolve on`);
+    }
+    if (this.repo.familyIdOfConnection(requested) !== rule.owner.familyId) {
+      throw new ValidationError(`reference rule ${rule.id} is not shared with connection ${requested}`);
+    }
+    return requested;
+  }
+
   async autodetect(input: ReferenceAutodetectInput): Promise<ReferenceAutodetectCandidate[]> {
     const existingByField = new Map(
-      this.repo
-        .listForCollection(input.connectionId, input.dbName, input.collection)
+      this.effective(input.connectionId, input.dbName, input.collection)
         .map((r) => [r.sourceField, r]),
     );
 

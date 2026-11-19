@@ -1,5 +1,6 @@
 import type React from 'react';
 import { copyToClipboard } from '../../../utils/clipboard';
+import type { CopySource } from '../../../utils/copyOrigin';
 import { formatDocsForCopy, type CopyFormat } from '../../../utils/copyFormat';
 
 /**
@@ -21,6 +22,6 @@ function isTextTarget(target: EventTarget): boolean {
 }
 
 /** Copy one document in `format`, with the shared "Copied" toast. */
-export function copyDocument(doc: unknown, format: CopyFormat): Promise<boolean> {
-  return copyToClipboard(formatDocsForCopy([doc], format), 'Document copied to the clipboard.');
+export function copyDocument(doc: unknown, format: CopyFormat, origin?: CopySource): Promise<boolean> {
+  return copyToClipboard(formatDocsForCopy([doc], format), 'Document copied to the clipboard.', origin);
 }

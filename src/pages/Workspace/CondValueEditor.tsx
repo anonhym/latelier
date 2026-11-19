@@ -26,6 +26,7 @@ import { pickHelperLine, type HelperCandidate } from './helperLine';
 import { splitPastedList } from './listPaste';
 import { useGrowToLines } from './useGrowToLines';
 import { RegexOptionToggles } from './RegexOptionToggles';
+import { useCrossPaste } from './crossPaste';
 import { regexOptionsText } from './regexOptions';
 import { fieldTypeSplit, type TypeShare } from './fieldTypeSplit';
 import {
@@ -54,6 +55,13 @@ function keepEscapeInBox(e: React.KeyboardEvent<HTMLElement>, setSuggesting: (op
   e.stopPropagation();
   setSuggesting(false);
   if (listWasClosed) e.currentTarget.blur();
+}
+
+/** One line: line breaks at the very end are dropped, any others become one space. */
+function singleLine(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
+  return text.slice(0, end).replace(/[\r\n]+/g, ' ');
 }
 
 /**
@@ -242,11 +250,14 @@ function ValueBox({
   invalid,
   placement,
   onPasteCapture,
+  onPasteSeen,
   children,
 }: {
   invalid: boolean;
   placement: React.CSSProperties;
   onPasteCapture?: React.ClipboardEventHandler<HTMLDivElement>;
+  /** Observes every paste into the box, before `onPasteCapture` can stop it. Never prevents it. */
+  onPasteSeen?: React.ClipboardEventHandler<HTMLDivElement>;
   children: React.ReactNode;
 }) {
   const T = themeVars;
@@ -254,7 +265,10 @@ function ValueBox({
   return (
     <div
       data-value-box=""
-      onPasteCapture={onPasteCapture}
+      onPasteCapture={(e) => {
+        onPasteSeen?.(e);
+        onPasteCapture?.(e);
+      }}
       onFocus={() => setFocused(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
@@ -352,6 +366,7 @@ export function CondValueEditor({
   sampleWarning?: string;
 }) {
   const T = themeVars;
+  const onValuePaste = useCrossPaste('builder');
   const kind = condValueKind(node);
   const split = React.useMemo(() => (sampleEntry ? fieldTypeSplit(sampleEntry) : []), [sampleEntry]);
   const isListOp = ARRAY_VALUE_OPS.has(node.op);
@@ -635,7 +650,7 @@ export function CondValueEditor({
     };
     return (
       <>
-        <ValueBox invalid={!!problem} placement={boxPlacement} onPasteCapture={onPasteChips}>
+        <ValueBox invalid={!!problem} placement={boxPlacement} onPasteCapture={onPasteChips} onPasteSeen={onValuePaste}>
           <TagsInput
             aria-label="Values"
             ref={chipInputRef}
@@ -720,7 +735,7 @@ export function CondValueEditor({
 
   return (
     <>
-      <ValueBox invalid={!!problem} placement={boxPlacement}>
+      <ValueBox invalid={!!problem} placement={boxPlacement} onPasteSeen={onValuePaste}>
         <Textarea
           ref={valueInputRef}
           variant="unstyled"
@@ -734,8 +749,10 @@ export function CondValueEditor({
           onChange={(e) => {
             if (isListOp) setListAsText(true);
             // The box is a textarea so long text wraps, but a value is one
-            // line: pasted line breaks become a single space.
-            onPatch({ value: e.target.value.replace(/[\r\n]+/g, ' ') }, 'value');
+            // line: pasted line breaks become a single space. Line breaks at
+            // the very end are dropped instead, as a copy from a terminal
+            // ends with one and a trailing space would match nothing.
+            onPatch({ value: singleLine(e.target.value) }, 'value');
             if (!suggesting) setSuggesting(true);
           }}
           onFocus={() => setSuggesting(true)}

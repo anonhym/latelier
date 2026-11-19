@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor } from '../helpers/render';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule } from '@shared/types';
 import { ReferenceRulesEditor } from '../../src/features/references/ReferenceRulesEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 
@@ -10,9 +10,10 @@ function withTheme(ui: React.ReactElement) {
   return ui;
 }
 
-const RULE: ReferenceRule = {
+const RULE: EffectiveReferenceRule = {
+  origin: 'local',
   id: 'rule-1',
-  connectionId: 'conn-1',
+  owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',
   sourceCollection: 'orders',
   sourceField: 'contact_id',
@@ -204,5 +205,98 @@ describe('ReferenceRulesEditor — focus after the rule form closes', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expectFocusOnNewRuleButton());
+  });
+});
+
+describe('ReferenceRulesEditor — target database and collection suggestions', () => {
+  const listDatabases = vi.fn();
+  const listCollections = vi.fn();
+  const create = vi.fn();
+
+  beforeEach(() => {
+    listDatabases.mockReset().mockResolvedValue([{ name: 'shop' }, { name: 'crm' }]);
+    listCollections
+      .mockReset()
+      .mockImplementation(async ({ dbName }: { dbName: string }) =>
+        dbName === 'crm' ? [{ name: 'contacts' }, { name: 'accounts' }] : [{ name: 'orders' }],
+      );
+    create.mockReset().mockResolvedValue(RULE);
+    installAtelierMock({
+      meta: { listDatabases, listCollections, sampleSchema: async () => ({ docs: [] }) } as never,
+      refs: { list: (async () => []) as never, create: create as never } as never,
+    });
+  });
+
+  afterEach(() => {
+    uninstallAtelierMock();
+  });
+
+  async function openForm() {
+    const user = userEvent.setup();
+    render(<ReferenceRulesEditor connectionId="conn-1" dbName="shop" collection="orders" onClose={() => {}} />);
+    await user.click(await screen.findByRole('button', { name: 'New rule' }));
+    await screen.findByRole('combobox', { name: 'Target database' });
+    return user;
+  }
+
+  it('offers the connection\'s databases and fills the field from the one picked', async () => {
+    const user = await openForm();
+    const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
+    await user.clear(db);
+    await user.click(db);
+    await user.click(await screen.findByRole('option', { name: 'crm' }));
+    expect(db.value).toBe('crm');
+    expect(listDatabases).toHaveBeenCalledWith({ connectionId: 'conn-1' });
+  });
+
+  it('asks for the typed database\'s collections and offers them', async () => {
+    const user = await openForm();
+    const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
+    await user.clear(db);
+    await user.type(db, 'crm');
+    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm', includeStats: false }));
+    expect(listCollections).not.toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'c', includeStats: false });
+    const coll = screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement;
+    await user.click(coll);
+    await user.click(await screen.findByRole('option', { name: 'accounts' }));
+    expect(coll.value).toBe('accounts');
+  });
+
+  it('keeps a database and collection that are in no list, and saves them', async () => {
+    const user = await openForm();
+    const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
+    await user.clear(db);
+    await user.type(db, 'brand_new');
+    await user.type(screen.getByLabelText('Source field'), 'contact_id');
+    await user.type(screen.getByRole('combobox', { name: 'Target collection' }), 'not_yet_there');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(create.mock.calls[0]![0]).toMatchObject({ targetDb: 'brand_new', targetCollection: 'not_yet_there' });
+  });
+
+  it('says so when the lists cannot be read, and typing still works', async () => {
+    listDatabases.mockRejectedValue(new Error('not authorized'));
+    listCollections.mockRejectedValue(new Error('not authorized'));
+    const user = await openForm();
+    expect(await screen.findByText('Could not list databases; type a name.')).toBeTruthy();
+    const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
+    await user.clear(db);
+    await user.type(db, 'crm');
+    expect(db.value).toBe('crm');
+    expect(await screen.findByText('Could not list collections; type a name.')).toBeTruthy();
+    await user.type(screen.getByRole('combobox', { name: 'Target collection' }), 'contacts');
+    expect((screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement).value).toBe('contacts');
+  });
+
+  it('asks for a database\'s collections once, however often it is typed again', async () => {
+    const user = await openForm();
+    const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
+    await user.clear(db);
+    await user.type(db, 'crm');
+    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm', includeStats: false }));
+    await user.clear(db);
+    await user.type(db, 'crm');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(listCollections.mock.calls.filter(([a]) => (a as { dbName: string }).dbName === 'crm')).toHaveLength(1);
   });
 });

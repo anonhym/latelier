@@ -1,9 +1,19 @@
 import React from 'react';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule, ReferenceRule } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
 
+// A Family change (joining, leaving, deleting, applying an export) happens in a
+// dialog with no common parent to the mounted readers, so it announces itself
+// here and every reader re-asks for what its Connection now uses.
+const changed = new EventTarget();
+
+export function notifyReferenceRulesChanged(): void {
+  changed.dispatchEvent(new Event('changed'));
+}
+
 export interface UseReferenceRulesResult {
-  rules: ReferenceRule[];
+  /** What the Connection uses: its own rules plus its Family's shared ones it does not override. */
+  rules: EffectiveReferenceRule[];
   byField: Map<string, ReferenceRule>;
   loading: boolean;
   error: string | null;
@@ -20,11 +30,15 @@ export function useReferenceRules(
   dbName: string | null,
   collection: string | null,
 ): UseReferenceRulesResult {
-  const [rules, setRules] = React.useState<ReferenceRule[]>([]);
+  const [rules, setRules] = React.useState<EffectiveReferenceRule[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Only the newest read may settle: a slower answer for the previous Collection must not overwrite this one's.
+  const latest = React.useRef(0);
+
   const reload = React.useCallback(async () => {
+    const mine = ++latest.current;
     if (!connectionId || !dbName || !collection) {
       setRules([]);
       return;
@@ -32,13 +46,21 @@ export function useReferenceRules(
     setLoading(true);
     setError(null);
     try {
-      const rows = await api.refs.list({ connectionId, dbName, collection });
-      setRules(rows.filter((r) => r.enabled));
+      // `effective` makes every row an `EffectiveReferenceRule`; the bridge types it as the base rule.
+      const rows = (await api.refs.list({
+        connectionId,
+        dbName,
+        collection,
+        effective: true,
+      })) as EffectiveReferenceRule[];
+      if (mine === latest.current) setRules(rows.filter((r) => r.enabled));
     } catch (err) {
-      setError(isIpcError(err) ? err.message : String(err));
-      setRules([]);
+      if (mine === latest.current) {
+        setError(isIpcError(err) ? err.message : String(err));
+        setRules([]);
+      }
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [connectionId, dbName, collection]);
 
@@ -46,6 +68,12 @@ export function useReferenceRules(
     queueMicrotask(() => {
       void reload();
     });
+  }, [reload]);
+
+  React.useEffect(() => {
+    const onChanged = () => void reload();
+    changed.addEventListener('changed', onChanged);
+    return () => changed.removeEventListener('changed', onChanged);
   }, [reload]);
 
   const byField = React.useMemo(() => {

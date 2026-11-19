@@ -140,16 +140,16 @@ test('aggregation: starter chip, run, run up to stage 1, export the result', asy
 
       await win.getByRole('button', { name: 'Run', exact: true }).click();
 
-      // The Output row shows the full run. The heading's title carries the
-      // count at every width; its text drops it in a narrow column.
+      // The Output row shows the full run, and the heading says so. Its title
+      // carries the count at every width; its text drops it in a narrow column.
       await win.getByRole('button', { name: /^Output/ }).click();
-      await expect(heading).toHaveAttribute('title', /^Output · 1 docs/, { timeout: 8000 });
+      await expect(heading).toHaveAttribute('title', /^Full aggregation · 1 docs/, { timeout: 8000 });
       await expect(preview).toContainText('totalCount');
 
       // Stage 1, run up to: its preview reads the two paid orders.
       await win.locator('[data-stage-summary="1"]').click();
       await win.getByRole('button', { name: 'Run to here' }).click();
-      await expect(heading).toHaveAttribute('title', 'Stage 1 · $match · 2 docs', { timeout: 8000 });
+      await expect(heading).toHaveAttribute('title', 'Stage 1 output · $match · 2 docs', { timeout: 8000 });
       await expect(preview.getByText('apple-001').first()).toBeVisible();
       await expect(preview.getByText('cherry-003').first()).toBeVisible();
       await expect(preview.getByText('banana-002')).toHaveCount(0);

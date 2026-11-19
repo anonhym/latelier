@@ -20,6 +20,7 @@ import { getDocId } from './docId';
 import { SelectToggle } from './SelectToggle';
 import { ContextMenu } from '../../../components/ContextMenu';
 import { docMenuItems } from './menuItems';
+import { useResultCopyOrigin } from './useResultCopyOrigin';
 import { useDocMenu } from './useDocMenu';
 import { useScrollMemory } from './useScrollMemory';
 import { useCopyFormat } from './useCopyFormat';
@@ -477,6 +478,7 @@ export function JsonView({ documents }: JsonViewProps) {
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
   const onDuplicateDoc = actions.openDuplicate;
+  const onResultCopy = useResultCopyOrigin(meta);
   // The keys the committed projection keeps off the wire, as Table hides them
   // (`resolveColumns`) — display-only, so Copy/Edit/Delete below always act on
   // the untouched `doc`. Redacted per document rather than by the column list's
@@ -518,12 +520,12 @@ export function JsonView({ documents }: JsonViewProps) {
   const copyDoc = React.useCallback((doc: unknown, idx: number) => {
     // The badge is the success feedback, so it waits for the write to
     // resolve. A failure toasts and leaves no badge behind.
-    void copyToClipboard(formatDocsForCopy([doc], copyFormat)).then((ok) => {
+    void copyToClipboard(formatDocsForCopy([doc], copyFormat), undefined, meta).then((ok) => {
       if (!ok) return;
       setCopiedIdx(idx);
       setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1200);
     });
-  }, [copyFormat]);
+  }, [copyFormat, meta]);
 
   // "More actions" per-card menu: the card's Duplicate and Delete path.
   const { docMenu, openDocMenu: handleOpenRowMenu, closeDocMenu } = useDocMenu();
@@ -653,6 +655,7 @@ export function JsonView({ documents }: JsonViewProps) {
         onFocus={roving.containerProps.onFocus}
         onBlur={roving.containerProps.onBlur}
         onKeyDown={handleListKeyDown}
+        onCopy={onResultCopy}
         rowComponent={JsonRow}
         rowCount={documents.length}
         rowHeight={rowHeight}
@@ -680,6 +683,7 @@ export function JsonView({ documents }: JsonViewProps) {
               onDelete: onDeleteDoc,
               isReadOnly: meta.isReadOnly,
               isView: meta.isView,
+              origin: meta,
             }),
           }}
           onClose={closeDocMenu}

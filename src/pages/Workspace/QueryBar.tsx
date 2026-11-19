@@ -31,6 +31,9 @@ import type { SuggestionContext } from '../../features/fieldSuggestions/types';
 import { FieldAutocompleteInput } from '../../features/fieldSuggestions/FieldAutocompleteInput';
 import { useTextareaAutocomplete } from '../../features/fieldSuggestions/useTextareaAutocomplete';
 import { useCollectionWorkspace } from './context';
+import { useCrossPaste } from './crossPaste';
+import { PasteWarningStrip } from './PasteWarningStrip';
+import { ReferenceDiscoveryStrip } from './ReferenceDiscoveryStrip';
 import {
   consumeSavedRename,
   consumeTabRequest,
@@ -256,6 +259,8 @@ function QueryBarInner({
   const onPatch = actions.patch;
   const onRun = actions.run;
   const onCancel = actions.cancel;
+  const onFilterPaste = useCrossPaste('filter');
+  const onSortPaste = useCrossPaste('sort');
   const onSave = actions.openSave;
   const queryRaw = state.queryRaw;
   const builder = state.builder;
@@ -612,6 +617,7 @@ function QueryBarInner({
       context={suggestionContext}
       mode="token"
       onBlur={handleSortBlur}
+      onPaste={onSortPaste}
       placeholder='{"_id":-1}'
       dataTestid="query-bar-sort"
       ariaLabelledBy="query-bar-sort-label"
@@ -931,6 +937,7 @@ function QueryBarInner({
             onClick={autocomplete.probe}
             onFocus={autocomplete.probe}
             onBlur={handleBlur}
+            onPaste={onFilterPaste}
             onScroll={(e) => {
               if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
             }}
@@ -1474,6 +1481,13 @@ function QueryBarInner({
           </div>
         </div>
       )}
+
+      <PasteWarningStrip
+        tabId={meta.tabId}
+        connectionId={meta.connectionId}
+        surfaces={['filter', 'sort', 'projection']}
+      />
+      <ReferenceDiscoveryStrip tabId={meta.tabId} />
 
       {expandOpen && (
         <QueryExpandModal

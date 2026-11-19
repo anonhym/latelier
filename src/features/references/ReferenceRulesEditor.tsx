@@ -1,16 +1,20 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { ActionIcon, Button, Modal, Tooltip } from '@mantine/core';
+import { ActionIcon, Autocomplete, Button, Modal, Tooltip } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
+import { useNamespaceSuggestions } from './useNamespaceSuggestions';
+import { notifyReferenceRulesChanged } from './useReferenceRules';
+import { useConnectionFamily } from '../connections/useConnectionFamily';
+import { ORIGIN_BADGE } from './originBadge';
 import type {
+  EffectiveReferenceRule,
   ReferenceAutodetectCandidate,
-  ReferenceRule,
   ReferenceRuleCreateInput,
   ReferenceRuleUpdateInput,
 } from '@shared/types';
@@ -35,7 +39,12 @@ type FormState = {
   projectionText: string;
   displayTemplate: string;
   enabled: boolean;
+  /** How the rule being edited reached this Connection; absent on a new rule. */
+  origin?: EffectiveReferenceRule['origin'];
 };
+
+/** Who a save applies to, once the choice is made. */
+type SaveScope = 'family' | 'connection';
 
 function emptyForm(dbName: string): FormState {
   return {
@@ -49,8 +58,9 @@ function emptyForm(dbName: string): FormState {
   };
 }
 
-function ruleToForm(r: ReferenceRule): FormState {
+function ruleToForm(r: EffectiveReferenceRule): FormState {
   return {
+    origin: r.origin,
     id: r.id,
     sourceField: r.sourceField,
     targetDb: r.targetDb,
@@ -79,7 +89,14 @@ export function ReferenceRulesEditor({
   onChanged,
 }: ReferenceRulesEditorProps) {
   const T = themeVars;
-  const [rules, setRules] = React.useState<ReferenceRule[]>([]);
+  const [rules, setRules] = React.useState<EffectiveReferenceRule[]>([]);
+  // The Family this Connection belongs to, if any: a new rule is shared with it by default.
+  const family = useConnectionFamily(connectionId);
+  // Editing a shared rule asks first: change it for the whole family, or override it here.
+  const [choosingScope, setChoosingScope] = React.useState(false);
+  // A duplicate rule for the same source field, named so the editor can point at it.
+  const [conflict, setConflict] = React.useState<{ field: string; scope: SaveScope } | null>(null);
+  const [resettingId, setResettingId] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<FormState | null>(null);
@@ -100,6 +117,8 @@ export function ReferenceRulesEditor({
   const newRuleRef = React.useRef<HTMLButtonElement>(null);
   const closeForm = () => {
     setForm(null);
+    setChoosingScope(false);
+    setConflict(null);
     setFormInitial(null);
     newRuleRef.current?.focus();
   };
@@ -136,7 +155,13 @@ export function ReferenceRulesEditor({
     setLoading(true);
     setError(null);
     try {
-      const rows = await api.refs.list({ connectionId, dbName, collection });
+      // `effective` makes every row an `EffectiveReferenceRule`; the bridge types it as the base rule.
+      const rows = (await api.refs.list({
+        connectionId,
+        dbName,
+        collection,
+        effective: true,
+      })) as EffectiveReferenceRule[];
       setRules(rows);
     } catch (err) {
       setError(isIpcError(err) ? err.message : String(err));
@@ -153,17 +178,25 @@ export function ReferenceRulesEditor({
 
   const refresh = async () => {
     await loadRules();
+    // Every host of this editor has readers of the same rules mounted elsewhere (the open tab's chips); a host's own `onChanged` is not what keeps them current.
+    notifyReferenceRulesChanged();
     onChanged?.();
   };
 
-  const handleSave = async () => {
+  const handleSave = async (scope?: SaveScope) => {
     if (!form || saving) return;
     if (!form.sourceField || !form.targetCollection) {
       setError('Source field and target collection are required');
       return;
     }
+    // A shared rule is edited for everyone or overridden here: ask which.
+    if (form.id && form.origin === 'shared' && scope === undefined) {
+      setChoosingScope(true);
+      return;
+    }
     setSaving(true);
     setError(null);
+    setConflict(null);
     try {
       const projection = parseFieldList(form.projectionText);
       if (form.id) {
@@ -175,10 +208,16 @@ export function ReferenceRulesEditor({
           displayTemplate: form.displayTemplate,
           enabled: form.enabled,
         };
-        await api.refs.update({ id: form.id, patch });
+        if (form.origin === 'shared' && scope === 'connection') {
+          await api.refs.override({ connectionId, sharedRuleId: form.id, patch });
+        } else {
+          await api.refs.update({ id: form.id, patch });
+        }
       } else {
+        // Shared by default on a Connection in a Family; "This connection only" keeps it here.
+        const owner = family && scope !== 'connection' ? { familyId: family.id } : { connectionId };
         const input: ReferenceRuleCreateInput = {
-          connectionId,
+          owner,
           sourceDb: dbName,
           sourceCollection: collection,
           sourceField: form.sourceField,
@@ -194,9 +233,26 @@ export function ReferenceRulesEditor({
       closeForm();
       await refresh();
     } catch (err) {
-      setError(isIpcError(err) ? err.message : getErrorMessage(err, 'Failed to save'));
+      if (!form.id && isIpcError(err) && err.code === 'CONFLICT') {
+        setConflict({ field: form.sourceField, scope: family && scope !== 'connection' ? 'family' : 'connection' });
+      } else {
+        setError(isIpcError(err) ? err.message : getErrorMessage(err, 'Failed to save'));
+      }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleReset = async (id: string) => {
+    if (resettingId) return;
+    setResettingId(id);
+    try {
+      await api.refs.resetToShared({ id });
+      await refresh();
+    } catch (err) {
+      setError(isIpcError(err) ? err.message : getErrorMessage(err, 'Failed to reset'));
+    } finally {
+      setResettingId(null);
     }
   };
 
@@ -401,9 +457,24 @@ export function ReferenceRulesEditor({
                   {!r.enabled && (
                     <span style={{ fontSize: T.fsXs, color: T.textGhost }}>disabled</span>
                   )}
+                  <span
+                    title={ORIGIN_BADGE[r.origin].hint}
+                    style={{
+                      fontSize: T.fsXs,
+                      color: r.origin === 'local' ? T.textMuted : T.accent,
+                      border: `1px solid ${T.border}`,
+                      borderRadius: T.rs,
+                      padding: '0 6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {ORIGIN_BADGE[r.origin].label}
+                  </span>
                   {confirmDeleteId === r.id ? (
                     <>
-                      <span style={{ fontSize: T.fsXs, color: T.red }}>Delete?</span>
+                      <span style={{ fontSize: T.fsXs, color: T.red }}>
+                        {r.origin === 'shared' ? 'Delete for the whole family?' : 'Delete?'}
+                      </span>
                       <SubmitButton
                         onClick={() => void handleDelete(r.id)}
                         aria-label="Confirm delete"
@@ -436,17 +507,30 @@ export function ReferenceRulesEditor({
                           {I.edit}
                         </ActionIcon>
                       </Tooltip>
-                      <Tooltip label="Delete rule" withArrow openDelay={400}>
-                        <ActionIcon
-                          onClick={() => setConfirmDeleteId(r.id)}
-                          aria-label="Delete rule"
+                      {r.origin === 'override' ? (
+                        // Deleting an Override and resetting it are the same act; only the second says so.
+                        <SubmitButton
+                          onClick={() => void handleReset(r.id)}
+                          aria-label={`Reset ${r.sourceField} to shared`}
+                          submitting={resettingId === r.id}
+                          size="compact-xs"
                           variant="default"
-                          c={T.red}
-                          size="sm"
                         >
-                          {I.trash}
-                        </ActionIcon>
-                      </Tooltip>
+                          Reset to shared
+                        </SubmitButton>
+                      ) : (
+                        <Tooltip label="Delete rule" withArrow openDelay={400}>
+                          <ActionIcon
+                            onClick={() => setConfirmDeleteId(r.id)}
+                            aria-label="Delete rule"
+                            variant="default"
+                            c={T.red}
+                            size="sm"
+                          >
+                            {I.trash}
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
                     </>
                   )}
                 </div>
@@ -458,9 +542,21 @@ export function ReferenceRulesEditor({
             <RuleForm
               form={form}
               onChange={setForm}
-              onSave={handleSave}
+              onSave={(scope) => void handleSave(scope)}
               onCancel={closeForm}
               saving={saving}
+              familyName={family?.name ?? null}
+              choosingScope={choosingScope}
+              onDismissChoice={() => setChoosingScope(false)}
+              conflict={conflict}
+              onShowExisting={(field) => {
+                const existing = rules.find((r) => r.sourceField === field);
+                if (existing) {
+                  setConflict(null);
+                  openForm(ruleToForm(existing));
+                }
+              }}
+              hasExisting={(field) => rules.some((r) => r.sourceField === field)}
               connectionId={connectionId}
               sourceDb={dbName}
               sourceCollection={collection}
@@ -475,9 +571,18 @@ export function ReferenceRulesEditor({
 interface RuleFormProps {
   form: FormState;
   onChange: (f: FormState) => void;
-  onSave: () => void;
+  /** `scope` is set by the family buttons; a plain Save passes none. */
+  onSave: (scope?: SaveScope) => void;
   onCancel: () => void;
   saving: boolean;
+  /** The Family a new rule is shared with by default; `null` when there is none. */
+  familyName: string | null;
+  /** The edit prompt for a shared rule is open. */
+  choosingScope: boolean;
+  onDismissChoice: () => void;
+  conflict: { field: string; scope: SaveScope } | null;
+  onShowExisting: (field: string) => void;
+  hasExisting: (field: string) => boolean;
   connectionId: string;
   sourceDb: string;
   sourceCollection: string;
@@ -489,6 +594,12 @@ function RuleForm({
   onSave,
   onCancel,
   saving,
+  familyName,
+  choosingScope,
+  onDismissChoice,
+  conflict,
+  onShowExisting,
+  hasExisting,
   connectionId,
   sourceDb,
   sourceCollection,
@@ -510,7 +621,11 @@ function RuleForm({
     fontSize: T.fsSm,
     fontFamily: 'monospace',
   };
+  // A span, not a <label>: Mantine also points the options list at a label, so a label would name two elements.
+  const labelTextStyle: React.CSSProperties = { fontSize: T.fsXs, color: T.textMuted };
+  const hintStyle: React.CSSProperties = { fontSize: T.fsXs, color: T.warn };
   const editing = !!form.id;
+  const namespaces = useNamespaceSuggestions(connectionId, form.targetDb);
 
   // Source-collection context: drives autocomplete on the "Source field" input.
   const sourceCtx = React.useMemo<SuggestionContext>(
@@ -558,23 +673,31 @@ function RuleForm({
             style={{ ...inputStyle, opacity: editing ? 0.6 : 1 }}
           />
         </label>
-        <label style={labelStyle}>
-          Target collection
-          <input
-            value={form.targetCollection}
-            onChange={(e) => onChange({ ...form, targetCollection: e.target.value })}
-            placeholder="contacts"
-            style={inputStyle}
-          />
-        </label>
-        <label style={labelStyle}>
-          Target database
-          <input
+        <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapXs }}>
+          <span style={labelTextStyle}>Target database</span>
+          <Autocomplete
+            aria-label="Target database"
             value={form.targetDb}
-            onChange={(e) => onChange({ ...form, targetDb: e.target.value })}
-            style={inputStyle}
+            onChange={(v) => onChange({ ...form, targetDb: v })}
+            data={namespaces.databases}
+            limit={50}
+            styles={{ input: inputStyle }}
           />
-        </label>
+          {namespaces.databasesFailed && <span style={hintStyle}>Could not list databases; type a name.</span>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapXs }}>
+          <span style={labelTextStyle}>Target collection</span>
+          <Autocomplete
+            aria-label="Target collection"
+            value={form.targetCollection}
+            onChange={(v) => onChange({ ...form, targetCollection: v })}
+            data={namespaces.collections}
+            limit={50}
+            placeholder="contacts"
+            styles={{ input: inputStyle }}
+          />
+          {namespaces.collectionsFailed && <span style={hintStyle}>Could not list collections; type a name.</span>}
+        </div>
         <label style={labelStyle}>
           Target field
           <FieldAutocompleteInput
@@ -628,14 +751,56 @@ function RuleForm({
         />
         Enabled
       </label>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: T.gapSm, marginTop: 14 }}>
-        <Button size="compact-xs" variant="subtle" onClick={onCancel} disabled={saving}>
-          Cancel
-        </Button>
-        <SubmitButton size="compact-xs" variant="filled" onClick={onSave} submitting={saving}>
-          {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
-        </SubmitButton>
-      </div>
+      {!editing && familyName && (
+        <div style={{ fontSize: T.fsXs, color: T.textMuted, marginTop: 12 }}>
+          Shared with every connection in the {familyName} family. &quot;This connection only&quot; keeps it here.
+        </div>
+      )}
+      {conflict && (
+        <div role="alert" style={{ fontSize: T.fsSm, color: T.warn, marginTop: 12 }}>
+          {conflict.scope === 'family' ? 'This family' : 'This connection'} already has a rule for{' '}
+          <code>{conflict.field}</code>.{' '}
+          {hasExisting(conflict.field) && (
+            <Button size="compact-xs" variant="subtle" onClick={() => onShowExisting(conflict.field)}>
+              Show it
+            </Button>
+          )}
+        </div>
+      )}
+      {choosingScope ? (
+        <div
+          role="group"
+          aria-label="Apply this change to"
+          style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: T.gapSm, marginTop: 14, flexWrap: 'wrap' }}
+        >
+          <span style={{ fontSize: T.fsXs, color: T.textMuted, flex: 1 }}>
+            This rule is shared with the family.
+          </span>
+          <Button size="compact-xs" variant="subtle" onClick={onDismissChoice} disabled={saving}>
+            Back
+          </Button>
+          <SubmitButton size="compact-xs" variant="default" onClick={() => onSave('connection')} submitting={saving}>
+            Override on this connection
+          </SubmitButton>
+          <SubmitButton size="compact-xs" variant="filled" onClick={() => onSave('family')} submitting={saving}>
+            Change for the whole family
+          </SubmitButton>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: T.gapSm, marginTop: 14 }}>
+          <Button size="compact-xs" variant="subtle" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          {!editing && familyName && (
+            <SubmitButton size="compact-xs" variant="default" onClick={() => onSave('connection')} submitting={saving}>
+              This connection only
+            </SubmitButton>
+          )}
+          <SubmitButton size="compact-xs" variant="filled" onClick={() => onSave()} submitting={saving}>
+            {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
+          </SubmitButton>
+        </div>
+      )}
     </div>
   );
 }

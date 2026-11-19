@@ -84,8 +84,9 @@ When the stage list is narrower than 640 px, the editor sits above a full-width 
 
 ## 3. Interactions
 
-- Clicking the collapsed header expands/collapses; exactly ONE stage is expanded at a time (accordion). Clicking another stage closes the first.
-- `activeStageId` in pipeline state reflects the expanded stage.
+- Clicking the collapsed header expands/collapses; by default exactly ONE stage is expanded at a time (accordion). Clicking another stage closes the first.
+- `activeStageId` in pipeline state is the selected stage, the one the preview shows; in the default accordion it is also the expanded one.
+- A per-tab switch, "Several stages open", lifts the one-at-a-time rule. It is persisted in the tab state as `multiOpen`, with the expanded cards in `openStageIds`; both are optional, so older state loads as the default accordion. In that mode a click on a closed card opens it and selects it, a click on an open card that is not selected selects it, and a click on the selected open card closes it and clears the selection. Added, duplicated and restored stages open. Turning the switch off collapses to the selected card alone.
 - Escape in the editor unfocuses.
 
 ## 4. Add-stage pill + `StageOpPicker` (T2.1)
@@ -153,7 +154,7 @@ Any `$out` or `$merge` stage shows a warning strip across the stage header: "Thi
 
 ## 6. Acceptance criteria
 
-- Expanding a stage activates it in the outline; only one stage is expanded at a time.
+- Expanding a stage activates it in the outline; by default only one stage is expanded at a time.
 - Editing the body and unfocusing validates as EJSON; invalid shows inline error.
 - `Format` pretty-prints valid bodies; silently no-ops on invalid.
 - The add-stage pill picker supports keyboard navigation and search.

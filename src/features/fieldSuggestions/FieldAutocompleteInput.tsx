@@ -55,6 +55,8 @@ interface FieldAutocompleteInputProps {
   ariaInvalid?: boolean;
   ariaDescribedBy?: string;
   dataTestid?: string;
+  /** Observes a paste; the caller must not prevent it. */
+  onPaste?: React.ClipboardEventHandler;
 }
 
 interface TokenInfo {
@@ -146,6 +148,7 @@ export function FieldAutocompleteInput({
   ariaInvalid,
   ariaDescribedBy,
   dataTestid,
+  onPaste,
 }: FieldAutocompleteInputProps) {
   const localRef = React.useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const ref = (inputRef as React.RefObject<HTMLInputElement | HTMLTextAreaElement>) ?? localRef;
@@ -217,6 +220,7 @@ export function FieldAutocompleteInput({
     onKeyDown,
     onKeyUp: syncCaret,
     onClick: syncCaret,
+    onPaste,
     placeholder,
     disabled,
     'aria-label': ariaLabel,

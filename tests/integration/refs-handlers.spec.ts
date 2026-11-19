@@ -44,7 +44,7 @@ const ACME = new ObjectId();
 const GLOBEX = new ObjectId();
 
 const ruleInput = (overrides: Record<string, unknown> = {}) => ({
-  connectionId: CONN,
+  owner: { connectionId: CONN },
   sourceDb: DB,
   sourceCollection: 'orders',
   sourceField: 'customer_id',
@@ -108,7 +108,7 @@ describe('refs:* channels via router', () => {
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.data).toMatchObject({
-        connectionId: CONN,
+        owner: { connectionId: CONN },
         sourceField: 'customer_id',
         targetCollection: 'customers',
         targetField: '_id',
@@ -116,6 +116,41 @@ describe('refs:* channels via router', () => {
         projection: [],
       });
       expect(env.data.id).toEqual(expect.any(String));
+    });
+
+    it.each([
+      ['both a connection and a family', { owner: { connectionId: CONN, familyId: 'f' } }],
+      ['no owner', { owner: undefined }],
+      ['the old top-level connectionId', { owner: undefined, connectionId: CONN }],
+      ['an empty owner id', { owner: { connectionId: '' } }],
+    ])('refuses an owner naming %s with VALIDATION', async (_name, over) => {
+      const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput(over));
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it.each(['$where', '$expr', 'a.$where', '.a', 'a.', 'a..b'])(
+      'refuses a target field of %j with VALIDATION, on create and on update',
+      async (field) => {
+        const created = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ targetField: field }));
+        expect(created.ok).toBe(false);
+        if (created.ok) return;
+        expect(created.error.code).toBe('VALIDATION');
+        const rule = await createRule();
+        const updated = await shim.invoke(IPC_CHANNELS.refsUpdate, { id: rule.id, patch: { targetField: field } });
+        expect(updated.ok).toBe(false);
+        if (updated.ok) return;
+        expect(updated.error.code).toBe('VALIDATION');
+      },
+    );
+
+    it('answers NOT_FOUND for a family that does not exist', async () => {
+      const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ owner: { familyId: 'no-such-family' } }));
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('NOT_FOUND');
+      expect(env.error.message).toContain('family no-such-family not found');
     });
 
     it('answers CONFLICT for a second rule on the same source field', async () => {
@@ -129,7 +164,7 @@ describe('refs:* channels via router', () => {
     it('answers NOT_FOUND for a connection that does not exist', async () => {
       const env = await shim.invoke(
         IPC_CHANNELS.refsCreate,
-        ruleInput({ connectionId: 'no-such-conn' }),
+        ruleInput({ owner: { connectionId: 'no-such-conn' } }),
       );
       expect(env.ok).toBe(false);
       if (env.ok) return;
@@ -179,7 +214,7 @@ describe('refs:* channels via router', () => {
     it('returns every rule of the connection and none of another', async () => {
       await createRule({ sourceField: 'customer_id' });
       await createRule({ sourceCollection: 'invoices', sourceField: 'customer_id' });
-      await createRule({ connectionId: GHOST_CONN });
+      await createRule({ owner: { connectionId: GHOST_CONN } });
       const env = await shim.invoke<ReferenceRule[]>(IPC_CHANNELS.refsList, {
         connectionId: CONN,
       });
@@ -307,6 +342,40 @@ describe('refs:* channels via router', () => {
       });
     });
 
+    it('refuses a rule a Family Export file could not carry back in', async () => {
+      for (const over of [
+        { displayTemplate: 'x'.repeat(2001) },
+        { sourceField: 'f'.repeat(256) },
+        { projection: Array.from({ length: 201 }, (_, i) => `p${i}`) },
+        { projection: ['p'.repeat(256)] },
+      ]) {
+        const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput(over));
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      }
+      const edge = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ displayTemplate: 'x'.repeat(2000), projection: ['p'.repeat(255)] }));
+      expect(edge.ok).toBe(true);
+    });
+
+    it('accepts the rule owner as connectionId and rejects an empty one at the schema', async () => {
+      const rule = await createRule();
+      const ok = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
+        ruleId: rule.id,
+        valueEjson: oidEjson(ACME),
+        connectionId: CONN,
+      });
+      expect(ok.ok).toBe(true);
+      if (ok.ok) expect(ok.data).toMatchObject({ ruleId: rule.id, found: true });
+
+      const empty = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
+        ruleId: rule.id,
+        valueEjson: oidEjson(ACME),
+        connectionId: '',
+      });
+      expect(empty.ok).toBe(false);
+      if (!empty.ok) expect(empty.error.code).toBe('VALIDATION');
+    });
+
     it('reports found: false for a value no document has', async () => {
       const rule = await createRule();
       const env = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
@@ -382,7 +451,7 @@ describe('refs:* channels via router', () => {
     });
 
     it('answers NOT_FOUND when the rule belongs to a connection the pool does not know', async () => {
-      const rule = await createRule({ connectionId: GHOST_CONN });
+      const rule = await createRule({ owner: { connectionId: GHOST_CONN } });
       const env = await shim.invoke(IPC_CHANNELS.refsResolve, {
         ruleId: rule.id,
         valueEjson: oidEjson(ACME),

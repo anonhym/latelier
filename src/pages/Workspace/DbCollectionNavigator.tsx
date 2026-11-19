@@ -481,7 +481,7 @@ export function DbCollectionNavigator({
       if (!connectionId || !cache.dbs) return;
       for (const db of cache.dbs) {
         if (!ownGet(cache.colls, db.name) && !ownGet(cache.collsLoading, db.name)) {
-          void loadColls(connectionId, db.name);
+          void loadColls(connectionId, db.name, { stats: false });
         }
       }
     });
@@ -492,11 +492,13 @@ export function DbCollectionNavigator({
       if (!connectionId) return;
       const next = !ownGet(dbExpanded, db);
       dispatch({ type: 'dbExpandedSet', connectionId, dbName: db, value: next });
-      if (next && (isConnected || !ownGet(cache.colls, db)) && !ownGet(cache.collsLoading, db)) {
+      // No `collsLoading` guard: a names-only listing (the filter's sweep) may be what is in flight, and opening the
+      // database must still ask for its counts. `loadColls` joins an in-flight listing of the same kind itself.
+      if (next && (isConnected || !ownGet(cache.colls, db))) {
         void loadColls(connectionId, db);
       }
     },
-    [connectionId, dbExpanded, cache.colls, cache.collsLoading, loadColls, isConnected, dispatch],
+    [connectionId, dbExpanded, cache.colls, loadColls, isConnected, dispatch],
   );
 
   // Expanding one root collapses whichever was open (both persisted); expanding

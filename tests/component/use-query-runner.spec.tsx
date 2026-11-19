@@ -8,6 +8,8 @@ import type { RunnerTarget } from '../../src/pages/Workspace/useQueryRunner';
 import { CANCELLED_NOTICE_MS, _resetRunClocksForTests, useRunClock } from '../../src/pages/Workspace/runClock';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState } from '@shared/types';
+import { getPasteWarning, showPasteWarning } from '../../src/state/pasteWarning';
+import { armDiscovery, getReferenceSuggestion } from '../../src/state/referenceDiscovery';
 
 function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
   return {
@@ -1667,5 +1669,71 @@ describe('useQueryRunner — the run clock', () => {
     // two ticks of the new count, the running clock is still there.
     act(() => { vi.advanceTimersByTime(CANCELLED_NOTICE_MS - 300); });
     expect(clock.result.current?.kind).toBe('running');
+  });
+});
+
+describe('useQueryRunner: the Cross-Connection Paste warning', () => {
+  const FROM = { connectionId: 'other', dbName: 'shop', collection: 'orders' };
+
+  async function runWith(find: IpcApi['query']['find']) {
+    installAtelierMock({ query: { find, count: async () => ({ count: 0 }) } });
+    showPasteWarning('t1', 'filter', FROM);
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: makeTarget(), patchCollectionState: vi.fn(), loadingDelayMs: 0 }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+  }
+
+  it('is cleared by a run that returns documents', async () => {
+    await runWith(async () => ({ documents: [{ _id: 1 }], durationMs: 1, hasMore: false }));
+    expect(getPasteWarning('t1')).toBeUndefined();
+  });
+
+  it('turns emphatic after a run that returns none', async () => {
+    await runWith(async () => ({ documents: [], durationMs: 1, hasMore: false }));
+    expect(getPasteWarning('t1')).toMatchObject({ surface: 'filter', emphasised: true });
+  });
+
+  it('is left alone by a run that fails: an error is not an empty result', async () => {
+    await runWith(async () => {
+      throw Object.assign(new Error('boom'), { code: 'MONGO_OP' });
+    });
+    expect(getPasteWarning('t1')).toMatchObject({ emphasised: false });
+  });
+});
+
+describe('useQueryRunner: reference discovery', () => {
+  const ID = '507f1f77bcf86cd799439011';
+
+  async function runWith(find: IpcApi['query']['find']) {
+    installAtelierMock({
+      query: { find, count: async () => ({ count: 0 }) },
+      prefs: { get: async () => null, set: async (_k: string, v: unknown) => v } as unknown as IpcApi['prefs'],
+      refs: { list: (async () => []) as unknown as IpcApi['refs']['list'] },
+    });
+    armDiscovery('t1', { origin: { dbName: 'app', collection: 'orders', field: 'userId' }, seq: 1, values: [ID] });
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: makeTarget(), patchCollectionState: vi.fn(), loadingDelayMs: 0 }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+    return result;
+  }
+
+  it('offers the rule when the run returns a document holding the pasted value', async () => {
+    await runWith(async () => ({ documents: [{ _id: { $oid: ID } }], durationMs: 1, hasMore: false }));
+    await waitFor(() => expect(getReferenceSuggestion('t1')).toBeDefined());
+    expect(getReferenceSuggestion('t1')?.key).toBe('c1|["app","orders","userId","app","users","_id"]');
+  });
+
+  it('offers nothing for a run that returns no match', async () => {
+    const result = await runWith(async () => ({ documents: [{ _id: { $oid: 'f'.repeat(24) } }], durationMs: 1, hasMore: false }));
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(getReferenceSuggestion('t1')).toBeUndefined();
   });
 });

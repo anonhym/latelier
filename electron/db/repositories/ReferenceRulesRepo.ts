@@ -1,11 +1,13 @@
 import type { Database } from 'better-sqlite3';
-import type { ReferenceRule } from '@shared/types';
+import type { ReferenceRule, SettingOwner } from '@shared/types';
 import { ConflictError, NotFoundError } from '../../errors.ts';
-import { isUniqueConstraintError, rethrowMissingConnection } from '../sqliteErrors.ts';
+import { isForeignKeyConstraintError, isUniqueConstraintError } from '../sqliteErrors.ts';
+import { columnsOwner, ownerColumns } from './settingOwner.ts';
 
 interface ReferenceRuleRow {
   id: string;
-  connection_id: string;
+  connection_id: string | null;
+  family_id: string | null;
   source_db: string;
   source_collection: string;
   source_field: string;
@@ -21,7 +23,7 @@ interface ReferenceRuleRow {
 
 export interface ReferenceRuleInsert {
   id: string;
-  connection_id: string;
+  owner: SettingOwner;
   source_db: string;
   source_collection: string;
   source_field: string;
@@ -48,7 +50,7 @@ export interface ReferenceRulePatch {
 function rowToRule(row: ReferenceRuleRow): ReferenceRule {
   return {
     id: row.id,
-    connectionId: row.connection_id,
+    owner: columnsOwner(row, `reference rule ${row.id}`),
     sourceDb: row.source_db,
     sourceCollection: row.source_collection,
     sourceField: row.source_field,
@@ -71,17 +73,18 @@ export class ReferenceRulesRepo {
   }
 
   insert(row: ReferenceRuleInsert): ReferenceRule {
+    const { owner, ...rest } = row;
     try {
       this.db.prepare(`
         INSERT INTO reference_rules
-          (id, connection_id, source_db, source_collection, source_field,
+          (id, connection_id, family_id, source_db, source_collection, source_field,
            target_db, target_collection, target_field, projection_json,
            display_template, enabled, created_at, updated_at)
         VALUES
-          (@id, @connection_id, @source_db, @source_collection, @source_field,
+          (@id, @connection_id, @family_id, @source_db, @source_collection, @source_field,
            @target_db, @target_collection, @target_field, @projection_json,
            @display_template, @enabled, @created_at, @updated_at)
-      `).run(row);
+      `).run({ ...rest, ...ownerColumns(owner) });
     } catch (err) {
       if (isUniqueConstraintError(err)) {
         throw new ConflictError(
@@ -89,7 +92,15 @@ export class ReferenceRulesRepo {
           { field: 'sourceField' },
         );
       }
-      rethrowMissingConnection(err, row.connection_id);
+      if (isForeignKeyConstraintError(err)) {
+        // The owner is the only foreign key the caller controls.
+        throw new NotFoundError(
+          'connectionId' in owner
+            ? `connection ${owner.connectionId} not found`
+            : `family ${owner.familyId} not found`,
+        );
+      }
+      throw err;
     }
     return this.findByIdOrThrow(row.id);
   }
@@ -134,26 +145,44 @@ export class ReferenceRulesRepo {
     return rule;
   }
 
-  listByConnection(connectionId: string): ReferenceRule[] {
+  listByOwner(owner: SettingOwner): ReferenceRule[] {
+    const cols = ownerColumns(owner);
     const rows = this.db
-      .prepare('SELECT * FROM reference_rules WHERE connection_id = ? ORDER BY source_db, source_collection, source_field')
-      .all(connectionId) as ReferenceRuleRow[];
+      .prepare(`
+        SELECT * FROM reference_rules
+        WHERE connection_id IS @connection_id AND family_id IS @family_id
+        ORDER BY source_db, source_collection, source_field
+      `)
+      .all(cols) as ReferenceRuleRow[];
     return rows.map(rowToRule);
   }
 
-  listForCollection(
-    connectionId: string,
+  listForOwnerCollection(
+    owner: SettingOwner,
     sourceDb: string,
     sourceCollection: string,
   ): ReferenceRule[] {
     const rows = this.db
       .prepare(`
         SELECT * FROM reference_rules
-        WHERE connection_id = ? AND source_db = ? AND source_collection = ?
+        WHERE connection_id IS @connection_id AND family_id IS @family_id
+          AND source_db = @source_db AND source_collection = @source_collection
         ORDER BY source_field
       `)
-      .all(connectionId, sourceDb, sourceCollection) as ReferenceRuleRow[];
+      .all({ ...ownerColumns(owner), source_db: sourceDb, source_collection: sourceCollection }) as ReferenceRuleRow[];
     return rows.map(rowToRule);
+  }
+
+  connectionExists(connectionId: string): boolean {
+    return this.db.prepare('SELECT 1 FROM connections WHERE id = ?').get(connectionId) !== undefined;
+  }
+
+  /** The Family a Connection belongs to, or `null` when it has none or does not exist. */
+  familyIdOfConnection(connectionId: string): string | null {
+    const row = this.db
+      .prepare('SELECT family_id FROM connections WHERE id = ?')
+      .get(connectionId) as { family_id: string | null } | undefined;
+    return row?.family_id ?? null;
   }
 
   deleteById(id: string): number {

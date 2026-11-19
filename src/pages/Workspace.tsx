@@ -23,6 +23,7 @@ import { ONE_PANEL_BUILDER_PX } from './Workspace/sidePanels';
 import type { CollectionView, SavedQuerySummary, ServerSection, WorkspaceTab } from '@shared/types';
 import { DEFAULT_AGGREGATION_TAB_STATE, DEFAULT_SCHEMA_TAB_STATE } from '@shared/defaults';
 import { useReferenceRules } from '../features/references/useReferenceRules';
+import { onSuggestionSaved } from './Workspace/referenceDiscovery';
 import { useReferenceDrawer } from './Workspace/useReferenceDrawer';
 import { groupTabsByConnection } from './Workspace/tabGroups';
 import {
@@ -264,6 +265,10 @@ function WorkspaceInner() {
     activeCollection?.dbName ?? null,
     activeCollection?.collection ?? null,
   );
+
+  // A rule saved from the discovery strip is not saved through the rules editor, so nothing else tells this reader.
+  const reloadReferenceRules = referenceRules.reload;
+  React.useEffect(() => onSuggestionSaved(() => void reloadReferenceRules()), [reloadReferenceRules]);
 
   const {
     refStack,
@@ -538,7 +543,7 @@ function WorkspaceInner() {
     if (!target || activeView !== 'structure') return;
     structureScrollRef.current = null;
     const find = () =>
-      document.querySelector<HTMLElement>(`[role="region"][aria-label="${target}"]`);
+      document.querySelector<HTMLElement>(`[data-structure-section="${target}"]`);
     // jsdom has no scrollIntoView.
     const scroll = (el: HTMLElement) => el.scrollIntoView?.({ block: 'start' });
     const now = find();
@@ -1129,7 +1134,8 @@ function WorkspaceInner() {
       done.add(d.name);
       relist?.delete(d.name);
       inFlight++;
-      void loadColls(sweepId, d.name);
+      // Names only: the sweep completes the palette, it does not need counts.
+      void loadColls(sweepId, d.name, { stats: false });
     }
   }, [
     sweepId,

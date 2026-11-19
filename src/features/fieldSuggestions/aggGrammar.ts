@@ -154,11 +154,16 @@ function resolveValueTarget(
   return operator ? { field: segments.join('.'), operator } : { field: segments.join('.') };
 }
 
-export function detectAggGrammar(
-  value: string,
-  caret: number,
-  stageOp?: string,
-): GrammarHit | null {
+interface ScanState {
+  scopes: Scope[];
+  inString: boolean;
+  stringStart: number;
+  prevModeAtStringStart: 'key' | 'value' | 'arr' | 'top';
+  prevKeyAtStringStart: string | null;
+}
+
+/** Reads `value` up to `caret`, tracking the open objects, arrays and string. */
+function scan(value: string, caret: number): ScanState {
   const scopes: Scope[] = [];
   let inString = false;
   // Stryker disable next-line UnaryOperator: stringStart is always assigned
@@ -265,6 +270,16 @@ export function detectAggGrammar(
     }
   }
 
+  return { scopes, inString, stringStart, prevModeAtStringStart, prevKeyAtStringStart };
+}
+
+export function detectAggGrammar(
+  value: string,
+  caret: number,
+  stageOp?: string,
+): GrammarHit | null {
+  const { scopes, inString, stringStart, prevModeAtStringStart, prevKeyAtStringStart } = scan(value, caret);
+
   if (inString) {
     const inner = value.substring(stringStart + 1, caret);
     const replaceStart = stringStart + 1;
@@ -324,4 +339,59 @@ export function detectAggGrammar(
   }
 
   return null;
+}
+
+/** A value position, where a field of the documents may be named. */
+export interface ValueSlot {
+  /** Keys from the body's root to the slot; `[]` stands for an array. Empty for a string body. */
+  path: string[];
+  /** What is typed in the slot so far, without its opening quote. */
+  token: string;
+  quoted: boolean;
+  replaceStart: number;
+  replaceEnd: number;
+}
+
+function slotPath(scopes: Scope[]): string[] {
+  return scopes.map((s) => (s.type === 'arr' ? '[]' : (s.lastKey ?? '')));
+}
+
+/**
+ * Whether the caret sits where a value goes (a string, or the start of an
+ * unquoted one) and the key path that leads there. What the value may hold is
+ * for the stage to say (`fieldSlot`). A key position is not a slot.
+ */
+export function detectValueSlot(value: string, caret: number): ValueSlot | null {
+  const { scopes, inString, stringStart, prevModeAtStringStart } = scan(value, caret);
+  if (inString) {
+    if (prevModeAtStringStart === 'key') return null;
+    const replaceStart = stringStart + 1;
+    return {
+      path: slotPath(scopes),
+      token: value.substring(replaceStart, caret),
+      quoted: true,
+      replaceStart,
+      replaceEnd: caret,
+    };
+  }
+  const s = scopes[scopes.length - 1];
+  if (!s || (s.type === 'obj' && s.mode !== 'value')) return null;
+  let start = caret;
+  while (start > 0 && IDENT.test(value[start - 1] ?? '')) start--;
+  return {
+    path: slotPath(scopes),
+    token: value.substring(start, caret),
+    quoted: false,
+    replaceStart: start,
+    replaceEnd: caret,
+  };
+}
+
+/**
+ * The keys and arrays around the caret, outermost first (`[]` for an array),
+ * whatever sits at the caret: a key position, a value, or a string. The
+ * innermost object's own key is included, empty while a key is being typed.
+ */
+export function detectScopePath(value: string, caret: number): string[] {
+  return slotPath(scan(value, caret).scopes);
 }

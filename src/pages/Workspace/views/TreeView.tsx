@@ -31,7 +31,10 @@ import { allExpandablePaths } from './docFieldFlatten';
 import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
+import { useResultCopyOrigin } from './useResultCopyOrigin';
 import { useDeepPaths } from './useDeepPaths';
+import { summaryPairs } from '../../../features/rowSummary/rowSummaryDraft';
+import { useRowSummary } from '../../../features/rowSummary/useRowSummary';
 
 interface TreeViewProps {
   documents: unknown[];
@@ -51,12 +54,7 @@ function getPreviewFields(
   override?: string[] | null,
 ): Array<[string, unknown]> {
   if (!isRecord(doc)) return [];
-  if (override != null) {
-    return override
-      .filter((k) => k !== '_id' && k in doc)
-      .slice(0, 4)
-      .map((k) => [k, doc[k]] as [string, unknown]);
-  }
+  if (override != null) return summaryPairs(doc, override);
   const allKeys = Object.keys(doc).filter((k) => k !== '_id');
   return allKeys.slice(0, 4).map((k) => [k, doc[k]]);
 }
@@ -193,7 +191,7 @@ interface DocRowProps {
   onToggleSelect: (index: number) => void;
   toggleDeepPath: (path: string) => void;
   setDeepPaths: (paths: string[], expanded: boolean) => void;
-  handleCopy: (path: string, value: unknown) => void;
+  handleCopy: (path: string, value: unknown, fieldPath?: string) => void;
   handleOpenMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -365,8 +363,9 @@ function DocRowImpl({
 
         <DocIdLabel doc={doc} />
 
+        {/* The redacted document: a saved Row Summary may name a field the projection or Fields list hides. */}
         <CollapsedRowPreview
-          doc={doc}
+          doc={shownDoc}
           previewFields={previewFields}
         />
 
@@ -484,12 +483,18 @@ export function TreeView({
   );
   const hasHidden = React.useMemo(() => hiddenFieldNames(documents, hide).length > 0, [documents, hide]);
   const hasFieldConfig = (columnConfig?.order?.length ?? 0) > 0 || hasHidden;
+  // A saved Row Summary (this Connection's or its Family's) wins; with none the
+  // strip is what it always was. It is independent of the Fields list: neither
+  // reads the other.
+  const { summary: rowSummary } = useRowSummary(meta.connectionId, meta.dbName, meta.collection);
+  const rowSummaryFields = rowSummary?.fields ?? null;
   const previewFields = React.useMemo(() => {
+    if (rowSummaryFields) return rowSummaryFields;
     if (!hasFieldConfig) return null;
     const derived = deriveColumns(documents);
     const ordered = orderFields(derived, columnConfig?.order);
     return ordered.filter((f) => f !== '_id' && !hide?.(f));
-  }, [hasFieldConfig, documents, columnConfig?.order, hide]);
+  }, [rowSummaryFields, hasFieldConfig, documents, columnConfig?.order, hide]);
   const onEditDoc = actions.openEdit;
   const onDeleteDoc = actions.openDelete;
   const canDelete = !meta.isView && !meta.isReadOnly;
@@ -497,7 +502,8 @@ export function TreeView({
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
   const { deepPaths, toggleDeepPath, setDeepPathsExpanded } = useDeepPaths(documents);
-  const { copied: copiedPath, flash } = useCopiedFlash<string>();
+  const { copied: copiedPath, flash } = useCopiedFlash<string>(meta);
+  const onResultCopy = useResultCopyOrigin(meta);
   const [contextMenu, setContextMenu] = React.useState<{
     x: number;
     y: number;
@@ -515,7 +521,7 @@ export function TreeView({
   );
 
   const handleCopy = React.useCallback(
-    (path: string, value: unknown) => flash(valueToClipboardText(value), path),
+    (path: string, value: unknown, fieldPath?: string) => flash(valueToClipboardText(value), path, fieldPath),
     [flash],
   );
 
@@ -599,7 +605,7 @@ export function TreeView({
       if (copyShortcutOf(e) !== null) {
         if (documents.length === 0) return;
         e.preventDefault();
-        void copyDocument(documents[roving.activeIndex], copyFormat);
+        void copyDocument(documents[roving.activeIndex], copyFormat, meta);
         return;
       }
       if (isContextMenuKey(e)) {
@@ -799,6 +805,7 @@ export function TreeView({
           onFocus={roving.containerProps.onFocus}
           onBlur={roving.containerProps.onBlur}
           onKeyDown={handleTreeKeyDown}
+          onCopy={onResultCopy}
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRowImpl}
           rowCount={documents.length}
@@ -858,6 +865,7 @@ export function TreeView({
               isReadOnly: meta.isReadOnly,
               filterBarValid,
               onAddToFilter: handleAddToFilter,
+              origin: meta,
             }),
           }}
           onClose={closeContextMenu}
@@ -879,6 +887,7 @@ export function TreeView({
               onCollapseAll: handleCollapseAll,
               isReadOnly: meta.isReadOnly,
               isView: meta.isView,
+              origin: meta,
             }),
           }}
           onClose={closeDocMenu}

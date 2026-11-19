@@ -6,12 +6,14 @@ import { PaneState } from '../../../components/PaneState';
 import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip, VisuallyHidden } from '@mantine/core';
 import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { copyToClipboard } from '../../../utils/clipboard';
+import type { CopySource } from '../../../utils/copyOrigin';
 import { api, getErrorMessage } from '../../../api/atelier';
 import { notify } from '../../../theme/notifications';
 import { resizeKeyStep } from '../resizeKeyStep';
 import { useElementWidth } from '../../../hooks/useElementWidth';
 import { formatShortcut } from '../../../commands/shortcutLabel';
 import { isMacRenderer } from '../../../utils/platform';
+import { runMeta, stagePreviewMeta } from './resultScope';
 
 /** The stage card selected in the stages column, when one is. */
 export interface PreviewStage {
@@ -24,6 +26,8 @@ export interface PreviewStage {
   /** Its latest "run up to here" sample, or the full run's; undefined when never run. */
   sample?: unknown[];
   count?: number;
+  /** The documents leave this stage in no defined order (a `$group` with no `$sort` after it). */
+  unordered: boolean;
 }
 
 interface OutputPanelProps {
@@ -38,6 +42,8 @@ interface OutputPanelProps {
   outputStale: boolean;
   running: boolean;
   pipelineName: string | null;
+  /** The full run's documents come in no defined order. */
+  outputUnordered: boolean;
   /** The selected stage, or null for the whole pipeline's output. */
   stage: PreviewStage | null;
   onRunToStage: (id: number) => void;
@@ -51,6 +57,8 @@ interface OutputPanelProps {
   onRun: () => void;
   /** Why Run cannot start (`runBlockedReason`), or null when it can. */
   runBlockedReason: string | null;
+  /** The pipeline's source collection: where Copy output copies from. */
+  source: CopySource;
 }
 
 const DEFAULT_HEIGHT = 260;
@@ -65,10 +73,6 @@ function maxHeight(): number {
 
 function clampHeight(px: number): number {
   return Math.max(MIN_HEIGHT, Math.min(maxHeight(), px));
-}
-
-function fmt(n: number): string {
-  return n.toLocaleString('en-US');
 }
 
 /** The whole error, server details included, since nothing else shows them. */
@@ -100,6 +104,7 @@ export function OutputPanel({
   outputStale,
   running,
   pipelineName,
+  outputUnordered,
   stage,
   onRunToStage,
   onHeightChange,
@@ -109,6 +114,7 @@ export function OutputPanel({
   onSaveAsView,
   onRun,
   runBlockedReason,
+  source,
 }: OutputPanelProps) {
   const T = themeVars;
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
@@ -201,7 +207,7 @@ export function OutputPanel({
 
   const copyAll = () => {
     if (rows.length === 0) return;
-    void copyToClipboard(safeStringifyArray(rows), 'Output copied to the clipboard.');
+    void copyToClipboard(safeStringifyArray(rows), 'Output copied to the clipboard.', source);
   };
 
   const download = async () => {
@@ -222,12 +228,22 @@ export function OutputPanel({
   let meta = '';
   let stale: boolean;
   if (stage) {
-    heading = `Stage ${stage.index + 1} · ${stage.op}`;
-    if (typeof stageCount === 'number') meta = `${fmt(stageCount)} docs`;
+    heading = `Stage ${stage.index + 1} output`;
+    // A disabled stage has no output to describe.
+    meta = stage.enabled
+      ? stagePreviewMeta({ op: stage.op, shown: sample?.length ?? 0, count: stageCount, unordered: stage.unordered })
+      : '';
     stale = stage.stale && sample !== undefined;
   } else {
-    heading = 'Output';
-    if (lastRun) meta = `${rows.length} docs · ${lastRun.durationMs} ms`;
+    heading = 'Full aggregation';
+    if (lastRun) {
+      meta = runMeta({
+        rows: rows.length,
+        durationMs: lastRun.durationMs,
+        hasMore: lastRun.hasMore === true,
+        unordered: outputUnordered,
+      });
+    }
     stale = outputStale;
   }
 

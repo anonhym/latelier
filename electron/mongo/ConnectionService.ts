@@ -41,8 +41,10 @@ export class ConnectionService {
 
   list(): ConnectionSummary[] {
     const rows = this.repo.list();
+    const families = this.repo.familiesByConnection();
     return rows.map((row) => {
       const runtime = this.pool.status(row.id);
+      const family = families.get(row.id);
       return {
         id: row.id,
         name: row.name,
@@ -57,6 +59,8 @@ export class ConnectionService {
         connectedAt: runtime.connectedAt,
         readOnly: row.read_only === 1,
         lostReason: runtime.lostReason,
+        familyId: family?.familyId ?? null,
+        familyName: family?.familyName ?? null,
       };
     });
   }
@@ -137,6 +141,7 @@ export class ConnectionService {
       }
 
       if (mongoRelevantFieldsChanged(existing, merged)) {
+        this.pool.emit('connection-identity-changed', id);
         await this.pool.disconnect(id);
       }
       return this.get(id);
@@ -147,6 +152,7 @@ export class ConnectionService {
     return this.withMutex(id, async () => {
       const existing = this.repo.findById(id);
       if (!existing) throw new NotFoundError(`connection ${id} not found`);
+      this.pool.emit('connection-identity-changed', id);
       await this.pool.disconnect(id);
       this.repo.deleteById(id); // FK cascade wipes dependents
     });

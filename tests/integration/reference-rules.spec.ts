@@ -58,7 +58,7 @@ describe('ReferenceRulesService', () => {
 
   it('create + list + get round-trips a rule', () => {
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -87,7 +87,7 @@ describe('ReferenceRulesService', () => {
 
   it('rejects duplicate rules on the same source field', () => {
     const base = {
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -101,7 +101,7 @@ describe('ReferenceRulesService', () => {
   it('create for an unknown connection throws NotFoundError, not the raw foreign-key error', () => {
     const create = () =>
       svc.create({
-        connectionId: 'no-such-conn',
+        owner: { connectionId: 'no-such-conn' },
         sourceDb: DB_NAME,
         sourceCollection: 'orders',
         sourceField: 'contact_id',
@@ -110,12 +110,12 @@ describe('ReferenceRulesService', () => {
       });
     expect(create).toThrow(NotFoundError);
     expect(create).toThrow('connection no-such-conn not found');
-    expect(repo.listByConnection('no-such-conn')).toEqual([]);
+    expect(repo.listByOwner({ connectionId: 'no-such-conn' })).toEqual([]);
   });
 
   it('update mutates allowed fields and bumps updated_at', async () => {
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -137,7 +137,7 @@ describe('ReferenceRulesService', () => {
 
   it('delete removes the rule', () => {
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -162,7 +162,7 @@ describe('ReferenceRulesService', () => {
     });
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -195,7 +195,7 @@ describe('ReferenceRulesService', () => {
     });
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'productId',
@@ -216,7 +216,7 @@ describe('ReferenceRulesService', () => {
     const client = await pool.write(CONN_ID).client();
     await client.db(DB_NAME).collection('contacts').deleteMany({});
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -248,7 +248,7 @@ describe('ReferenceRulesService', () => {
     ]);
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -284,7 +284,7 @@ describe('ReferenceRulesService', () => {
     ] as unknown as Document[]);
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -313,7 +313,7 @@ describe('ReferenceRulesService', () => {
     } as unknown as Document);
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_code',
@@ -349,7 +349,7 @@ describe('ReferenceRulesService', () => {
     ] as unknown as Document[]);
 
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -395,7 +395,7 @@ describe('ReferenceRulesService', () => {
       { code: 'a', name: 'A' },
     ]);
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_codes',
@@ -419,7 +419,7 @@ describe('ReferenceRulesService', () => {
       { n: { k: 'a' }, name: 'A' },
     ]);
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_keys',
@@ -441,7 +441,7 @@ describe('ReferenceRulesService', () => {
       { n: { k: 'a' }, name: 'A' },
     ]);
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_keys',
@@ -466,7 +466,7 @@ describe('ReferenceRulesService', () => {
       { _id: new Int32(1), name: 'plain' },
     ] as unknown as Document[]);
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -486,7 +486,7 @@ describe('ReferenceRulesService', () => {
       { code: 'a', name: 'A2' },
     ]);
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_codes',
@@ -502,7 +502,7 @@ describe('ReferenceRulesService', () => {
 
   it('returns an empty list for an empty array source', async () => {
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -522,7 +522,7 @@ describe('ReferenceRulesService', () => {
     const db = client.db(DB_NAME);
     await db.collection('items').deleteMany({});
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'item_ids',
@@ -550,7 +550,7 @@ describe('ReferenceRulesService', () => {
 
     function itemsRule(targetField: string, projection?: string[]) {
       return svc.create({
-        connectionId: CONN_ID,
+        owner: { connectionId: CONN_ID },
         sourceDb: DB_NAME,
         sourceCollection: 'orders',
         sourceField: 'item_ids',
@@ -722,7 +722,7 @@ describe('ReferenceRulesService', () => {
 
   it('rejects malformed EJSON values', async () => {
     const rule = svc.create({
-      connectionId: CONN_ID,
+      owner: { connectionId: CONN_ID },
       sourceDb: DB_NAME,
       sourceCollection: 'orders',
       sourceField: 'contact_id',
@@ -754,5 +754,18 @@ describe('ReferenceRulesService', () => {
     const byField = Object.fromEntries(candidates.map((c) => [c.sourceField, c]));
     expect(byField.contact_id?.targetCollection).toBe('contacts');
     expect(byField.productId?.targetCollection).toBe('products');
+  });
+
+  it('never runs a stored rule whose target field is an operator as a query', async () => {
+    const rule = svc.create({
+      owner: { connectionId: CONN_ID },
+      sourceDb: DB_NAME,
+      sourceCollection: 'orders',
+      sourceField: 'item_code',
+      targetDb: DB_NAME,
+      targetCollection: 'items',
+      targetField: '$where',
+    });
+    await expect(svc.resolve({ ruleId: rule.id, valueEjson: '"return true"' })).rejects.toThrow(/target field/);
   });
 });

@@ -75,7 +75,7 @@ export function SelectionActionBar({ onDeleteSelected, connectionLost }: Selecti
     // The button's own "Copied" label is the success feedback, so it waits
     // for the write to resolve. A failure toasts and leaves the label
     // alone.
-    void copyToClipboard(text).then((ok) => {
+    void copyToClipboard(text, undefined, meta).then((ok) => {
       if (!ok) return;
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);

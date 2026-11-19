@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type { Router } from '../router.ts';
-import { NonEmpty, zodValidator } from '../validators.ts';
+import { NonEmpty, SettingOwnerSchema, zodValidator } from '../validators.ts';
 import type { ReferenceRulesService } from '../../services/ReferenceRulesService.ts';
+import { MAX_NAME, MAX_PATHS, MAX_TEMPLATE, TargetField } from '../../services/familyExportFormat.ts';
+
+// What a rule may hold is what a Family Export file can carry back in.
+const Name = NonEmpty.max(MAX_NAME);
+const Projection = z.array(z.string().max(MAX_NAME)).max(MAX_PATHS);
+const Template = z.string().max(MAX_TEMPLATE);
 
 // A namespace is both names or neither: `dbName` alone used to fall through
 // to the whole connection's rules, answering a question nobody asked.
@@ -10,6 +16,7 @@ const ListInputSchema = z.object({
   connectionId: NonEmpty,
   dbName: NonEmpty.optional(),
   collection: NonEmpty.optional(),
+  effective: z.boolean().optional(),
 }).refine((i) => (i.dbName === undefined) === (i.collection === undefined), {
   message: 'dbName and collection must be given together',
 });
@@ -18,32 +25,43 @@ const GetInputSchema = z.object({ id: NonEmpty });
 const DeleteInputSchema = z.object({ id: NonEmpty });
 
 const CreateInputSchema = z.object({
-  connectionId: NonEmpty,
-  sourceDb: NonEmpty,
-  sourceCollection: NonEmpty,
-  sourceField: NonEmpty,
-  targetDb: NonEmpty,
-  targetCollection: NonEmpty,
-  targetField: NonEmpty.optional(),
-  projection: z.array(z.string()).optional(),
-  displayTemplate: z.string().optional(),
+  owner: SettingOwnerSchema,
+  sourceDb: Name,
+  sourceCollection: Name,
+  sourceField: Name,
+  targetDb: Name,
+  targetCollection: Name,
+  targetField: TargetField.optional(),
+  projection: Projection.optional(),
+  displayTemplate: Template.optional(),
+  enabled: z.boolean().optional(),
+});
+
+const PatchSchema = z.object({
+  targetDb: Name.optional(),
+  targetCollection: Name.optional(),
+  targetField: TargetField.optional(),
+  projection: Projection.optional(),
+  displayTemplate: Template.optional(),
   enabled: z.boolean().optional(),
 });
 
 const UpdateInputSchema = z.object({
   id: NonEmpty,
-  patch: z.object({
-    targetDb: NonEmpty.optional(),
-    targetCollection: NonEmpty.optional(),
-    targetField: NonEmpty.optional(),
-    projection: z.array(z.string()).optional(),
-    displayTemplate: z.string().optional(),
-    enabled: z.boolean().optional(),
-  }),
+  patch: PatchSchema,
 });
+
+const OverrideInputSchema = z.object({
+  connectionId: NonEmpty,
+  sharedRuleId: NonEmpty,
+  patch: PatchSchema,
+});
+
+const ResetToSharedInputSchema = z.object({ id: NonEmpty });
 
 const ResolveInputSchema = z.object({
   ruleId: NonEmpty,
+  connectionId: NonEmpty.optional(),
   valueEjson: z.string(),
 });
 
@@ -61,7 +79,8 @@ export function registerRefsChannels(
   router.register(
     IPC_CHANNELS.refsList,
     zodValidator(ListInputSchema),
-    ({ connectionId, dbName, collection }) => {
+    ({ connectionId, dbName, collection, effective }) => {
+      if (effective) return svc.effective(connectionId, dbName, collection);
       if (dbName && collection) {
         return svc.listForCollection(connectionId, dbName, collection);
       }
@@ -106,5 +125,20 @@ export function registerRefsChannels(
     IPC_CHANNELS.refsAutodetect,
     zodValidator(AutodetectInputSchema),
     (input) => svc.autodetect(input),
+  );
+
+  router.register(
+    IPC_CHANNELS.refsOverride,
+    zodValidator(OverrideInputSchema),
+    (input) => svc.override(input),
+  );
+
+  router.register(
+    IPC_CHANNELS.refsResetToShared,
+    zodValidator(ResetToSharedInputSchema),
+    ({ id }) => {
+      svc.resetToShared(id);
+      return undefined;
+    },
   );
 }

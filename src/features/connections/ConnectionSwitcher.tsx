@@ -221,7 +221,7 @@ function ConnectionRow({
           `aria-describedby` can point at and that re-renders when a status
           event lands. */}
       <VisuallyHidden id={descriptionId}>
-        {`${conn.host}. ${presentation.spoken}${conn.readOnly ? '. Read-only connection' : ''}${isPinned ? '. Pinned' : ''}`}
+        {`${conn.host}. ${presentation.spoken}${conn.readOnly ? '. Read-only connection' : ''}${isPinned ? '. Pinned' : ''}${conn.familyName ? `. Family: ${conn.familyName}` : ''}`}
       </VisuallyHidden>
       <span
         aria-hidden
@@ -243,6 +243,17 @@ function ConnectionRow({
         >
           {conn.name}
         </Text>
+        {/* Read-only: the Connection's Family, after its name. */}
+        {conn.familyName && (
+          <Text
+            truncate
+            aria-hidden
+            title={`Family: ${conn.familyName}`}
+            style={{ fontSize: T.fsXs, color: T.textMuted, flexShrink: 1, minWidth: 0, maxWidth: '30%' }}
+          >
+            {conn.familyName}
+          </Text>
+        )}
         <Text
           truncate
           title={conn.status === 'connected' && conn.serverVersion ? `MongoDB ${conn.serverVersion}` : undefined}

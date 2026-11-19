@@ -3,6 +3,7 @@ import type { CollectionDetails, CollectionInfo, DbInfo } from '@shared/ipc';
 import type { ValidationAction, ValidationLevel } from '@shared/types';
 import { NotFoundError } from '../errors.ts';
 import { ejsonEncodeArray, ejsonStringify } from './ejson.ts';
+import { CollectionCountCache } from './CollectionCountCache.ts';
 import { classifyMongoOpError, isMaxTimeMSExpired } from './errors.ts';
 import type { Logger } from '../log.ts';
 import type { MongoPool } from './MongoPool.ts';
@@ -31,6 +32,12 @@ export interface ListDatabasesInput {
 export interface ListCollectionsInput {
   connectionId: string;
   dbName: string;
+  /**
+   * Default true. False lists names, types and cappedness only, with no
+   * `$collStats`; figures read earlier this session come back marked
+   * `countsCached`.
+   */
+  includeStats?: boolean;
 }
 
 export interface CollectionDetailsInput {
@@ -49,10 +56,14 @@ export interface SampleSchemaInput {
 export class MetaService {
   private pool: MongoPool;
   private log: Logger | undefined;
+  private counts = new CollectionCountCache();
 
   constructor(pool: MongoPool, log?: Logger) {
     this.pool = pool;
     this.log = log;
+    // A deleted connection, or one now pointing at another server, owns none
+    // of the figures read through it.
+    pool.on('connection-identity-changed', (id: string) => this.counts.clearConnection(id));
   }
 
   async listDatabases(input: ListDatabasesInput): Promise<DbInfo[]> {
@@ -117,6 +128,9 @@ export class MetaService {
   }
 
   async listCollections(input: ListCollectionsInput): Promise<CollectionInfo[]> {
+    // Taken before the first await: a repoint that lands while this listing is
+    // in flight must not have the old server's figures stored afterwards.
+    const generation = this.counts.generation(input.connectionId);
     const client = await this.pool.readClient(input.connectionId);
     const db = client.db(input.dbName);
     const listCursor = db.listCollections({}, { nameOnly: false });
@@ -126,6 +140,12 @@ export class MetaService {
     } catch (err) {
       throw classifyMongoOpError(err);
     }
+    const includeStats = input.includeStats !== false;
+    if (includeStats) {
+      if (generation === this.counts.generation(input.connectionId)) {
+        this.counts.deleteMissing(input.connectionId, input.dbName, new Set(specs.map((s) => s.name)));
+      }
+    }
     return mapWithConcurrency(specs, LIST_COLLECTIONS_CONCURRENCY, async (s): Promise<CollectionInfo> => {
       const info: CollectionInfo = {
         name: s.name,
@@ -134,12 +154,23 @@ export class MetaService {
       };
       // A view has no storage of its own, and `$collStats` fails on one.
       if (info.type === 'view') return info;
+      if (!includeStats) {
+        const cached = this.counts.get(input.connectionId, input.dbName, s.name);
+        if (cached) Object.assign(info, cached, { countsCached: true });
+        return info;
+      }
       try {
         const stats = await readStorageStats(db, s.name, this.log);
         if (stats.documentCount !== undefined) info.documentCount = stats.documentCount;
         if (stats.sizeBytes !== undefined) info.sizeBytes = stats.sizeBytes;
         if (stats.indexCount !== undefined) info.indexCount = stats.indexCount;
         if (stats.lastModified) info.lastModified = stats.lastModified;
+        this.counts.set(input.connectionId, input.dbName, s.name, {
+          ...(info.documentCount !== undefined ? { documentCount: info.documentCount } : {}),
+          ...(info.sizeBytes !== undefined ? { sizeBytes: info.sizeBytes } : {}),
+          ...(info.indexCount !== undefined ? { indexCount: info.indexCount } : {}),
+          ...(info.lastModified ? { lastModified: info.lastModified } : {}),
+        }, generation);
       } catch (err) {
         // One collection's stats must not sink the whole list the navigator
         // blocks on. Its figures stay absent, which the UI shows as a dash:

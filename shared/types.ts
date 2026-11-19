@@ -179,6 +179,13 @@ export interface ConnectionSummary {
   readOnly: boolean;
   /** See `ConnectionRuntime.lostReason`. */
   lostReason?: string;
+  /**
+   * The Connection Family this Connection belongs to. Main always sends both
+   * (`null` for none); they are optional only so a hand-built summary in a
+   * fixture need not name them.
+   */
+  familyId?: string | null;
+  familyName?: string | null;
 }
 
 /**
@@ -944,7 +951,12 @@ export interface AggregationTabState {
   name?: string;
   savedId?: string;
   stages: Stage[];
+  /** The card the preview shows; also the one expanded card unless `multiOpen`. */
   activeStageId: number | null;
+  /** Several stage cards may be expanded at once. Absent means the single-open accordion. */
+  multiOpen?: boolean;
+  /** The expanded cards while `multiOpen`. */
+  openStageIds?: number[];
   outputHeight: number;
   outputView: ResultViewMode;
   /** Never persisted (rows and stage samples are user documents). */
@@ -1098,7 +1110,8 @@ export interface ScriptRunResultWire {
  */
 export interface ReferenceRule {
   id: string;
-  connectionId: string;
+  /** Who the rule belongs to: one Connection, or a Connection Family it shares across its members. */
+  owner: SettingOwner;
   sourceDb: string;
   sourceCollection: string;
   /** Dotted field path on the source document (e.g. `contact_id`, `items.productId`). */
@@ -1117,7 +1130,7 @@ export interface ReferenceRule {
 }
 
 export interface ReferenceRuleCreateInput {
-  connectionId: string;
+  owner: SettingOwner;
   sourceDb: string;
   sourceCollection: string;
   sourceField: string;
@@ -1141,8 +1154,201 @@ export type ReferenceRuleUpdateInput = Partial<
   >
 >;
 
+// ─── Connection Families (X23) ───────────────────────────────────────────────
+
+export interface ConnectionFamily {
+  id: string;
+  /** Unique (case-insensitive), trimmed, 1-80 characters. */
+  name: string;
+  /** Connection ids, sorted by Connection name via `localeCompare`. */
+  memberIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Who a stored setting belongs to. Exactly one. */
+export type SettingOwner = { connectionId: string } | { familyId: string };
+
+/** How a rule or Row Summary reached the Connection that is reading it. */
+export type SettingOrigin = 'local' | 'shared' | 'override';
+
+/** What a Connection actually uses once its own rules and its Family's are resolved. */
+export interface EffectiveReferenceRule extends ReferenceRule {
+  origin: SettingOrigin;
+  /** On an `override`, the shared rule it replaces. */
+  sharedRuleId?: string;
+}
+
+/** The fields a collapsed Tree row shows, saved per Collection. */
+export interface RowSummary {
+  id: string;
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+  /** Dotted paths, 1-4 entries, no duplicates, never `_id`. */
+  fields: string[];
+  updatedAt: string;
+}
+
+export interface EffectiveRowSummary extends RowSummary {
+  origin: SettingOrigin;
+  /** On an `override`, the shared Row Summary it replaces. */
+  sharedId?: string;
+}
+
+export interface FamilyCreateInput {
+  name: string;
+  memberIds?: string[];
+}
+
+export interface FamilyRenameInput {
+  id: string;
+  name: string;
+}
+
+export interface FamilySetMembershipInput {
+  connectionIds: string[];
+  /** The Family to join, or `null` to leave the current one. */
+  familyId: string | null;
+  /** Copy the shared settings a leaving Connection has no Override for onto it as local ones. */
+  keepAsLocal?: boolean;
+}
+
+export interface FamilyDeleteInput {
+  id: string;
+  /** Copy the shared settings onto every member as local ones before they go. */
+  keepAsLocal: boolean;
+}
+
+/** The members whose own row replaces one shared setting. */
+export interface FamilyRuleOverride {
+  ruleId: string;
+  connectionIds: string[];
+}
+
+export interface FamilyRowSummaryOverride {
+  summaryId: string;
+  connectionIds: string[];
+}
+
+export interface FamilyOverrides {
+  rules: FamilyRuleOverride[];
+  rowSummaries: FamilyRowSummaryOverride[];
+}
+
+/** What a Family itself owns: the shared Reference Rules and Row Summaries, whoever overrides them. */
+export interface FamilySettings {
+  rules: ReferenceRule[];
+  rowSummaries: RowSummary[];
+}
+
+// ─── Family Export (X24) ─────────────────────────────────────────────────────
+
+export type FamilyExportItemKind = 'rule' | 'rowSummary';
+
+/** One shared setting as the Apply flow shows it. `key` is its natural key and what a resolution is filed under. */
+export interface FamilyExportItem {
+  key: string;
+  kind: FamilyExportItemKind;
+  dbName: string;
+  collection: string;
+  /** The source field, on a rule. */
+  field?: string;
+  /** What the setting does, in words: the target and projection of a rule, the fields of a Row Summary. */
+  detail: string;
+}
+
+export interface FamilyExportInput {
+  familyId: string;
+}
+
+export type FamilyExportResult =
+  | { saved: false }
+  | { saved: true; path: string; ruleCount: number; rowSummaryCount: number };
+
+export type FamilyReadExportResult =
+  | { cancelled: true }
+  | { cancelled?: undefined; token: string; familyName: string; ruleCount: number; rowSummaryCount: number };
+
+/** Where an Apply lands: any existing Family, or a new one made with this name. */
+export type FamilyApplyTarget = { familyId: string } | { newName: string };
+
+export interface FamilyApplyPlanInput {
+  token: string;
+  target: FamilyApplyTarget;
+}
+
+export interface FamilyApplyConflict {
+  key: string;
+  current: FamilyExportItem;
+  incoming: FamilyExportItem;
+}
+
+export interface FamilyApplyPlan {
+  added: FamilyExportItem[];
+  unchanged: FamilyExportItem[];
+  conflicts: FamilyApplyConflict[];
+}
+
+export type FamilyApplyChoice = 'keep' | 'take';
+
+export interface FamilyApplyInput {
+  token: string;
+  target: FamilyApplyTarget;
+  /** One choice per conflict of the plan, filed under the conflict's `key`. */
+  resolutions: Record<string, FamilyApplyChoice>;
+}
+
+/** A member whose own row hides a setting this Apply added or replaced. */
+export interface FamilyApplyOverriddenBy {
+  connectionId: string;
+  keys: string[];
+  items: FamilyExportItem[];
+}
+
+export interface FamilyApplyResult {
+  familyId: string;
+  added: number;
+  replaced: number;
+  kept: number;
+  unchanged: number;
+  overriddenBy: FamilyApplyOverriddenBy[];
+}
+
+export interface RefsOverrideInput {
+  connectionId: string;
+  sharedRuleId: string;
+  /** Applied on top of the shared rule; `{ enabled: false }` switches it off on this Connection only. */
+  patch: ReferenceRuleUpdateInput;
+}
+
+export interface RowSummaryGetInput {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+}
+
+export interface RowSummarySetInput {
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+  fields: string[];
+}
+
+export interface RowSummaryClearInput {
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+}
+
 export interface ReferenceResolveInput {
   ruleId: string;
+  /**
+   * The Connection to read the target through. Required for a rule a Family
+   * owns, since the rule alone names no server; for a Connection-owned rule it
+   * may be left out and defaults to the owner.
+   */
+  connectionId?: string;
   /** EJSON canonical string of the field's value (ObjectId, string, etc.). */
   valueEjson: string;
 }
@@ -1192,6 +1398,8 @@ export interface PersistedReferenceFrame {
   rule: ReferenceRule;
   valueEjson: string;
   label: string;
+  /** The Connection the frame was opened on; a frame saved without one belongs to its tab's. */
+  connectionId?: string;
 }
 
 export interface PersistedDrawerState {

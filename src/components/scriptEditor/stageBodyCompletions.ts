@@ -4,12 +4,16 @@ import type {
   CompletionResult,
   CompletionSource,
 } from '@codemirror/autocomplete';
-import { detectAggGrammar } from '../../features/fieldSuggestions/aggGrammar';
+import { detectAggGrammar, detectScopePath, detectValueSlot, type ValueSlot } from '../../features/fieldSuggestions/aggGrammar';
+import { fieldSlot, isPlainKey, lookupFrom, subPipelinePath, subPipelineText, type FieldSlot } from '../../features/fieldSuggestions/stageFieldPositions';
+import { shapeBefore, shapeFields, stagesInPipelineText, type ShapeField, type ShapeStage } from '../../features/fieldSuggestions/stageShape';
 import { VALUE_SUGGESTION_OPS } from '../../features/fieldSuggestions/operators';
 import {
   DEFAULT_FIELD_SOURCES,
   DEFAULT_VALUE_SOURCES,
+  lastRunSource,
   operatorSource,
+  sampleSchemaSource,
 } from '../../features/fieldSuggestions/sources';
 import type {
   FieldSuggestion,
@@ -38,18 +42,41 @@ export interface StageBodyCompletionOpts {
    * pattern in `ScriptEditor`).
    */
   getStageOp: () => string | undefined;
+  /**
+   * The pipeline around the stage being edited, so the fields offered are the
+   * ones that reach it: its enabled stages, its position, and the documents of
+   * the previous enabled stage's preview when that is fresh. Absent (or null),
+   * every field of the source collection is offered.
+   */
+  getStageShape?: () => StageShapeInput | null;
+}
+
+export interface StageShapeInput {
+  stages: readonly ShapeStage[];
+  index: number;
+  previewDocs?: unknown[];
 }
 
 /** What can extend a token typed inside a quoted string. */
 const QUOTED_VALID_FOR = /^[^"'\n]*$/;
 
-function fieldToCompletion(s: FieldSuggestion): Completion {
+function fieldToCompletion(s: FieldSuggestion, quotedKey: boolean): Completion {
   return {
     label: s.path,
     type: 'property',
     detail: s.type,
     boost: Math.min(s.frequency ?? 0, 50) / 50,
+    // An unquoted key such as `address.city` does not parse; it needs its quotes.
+    ...(!quotedKey && !isPlainKey(s.path) ? { apply: `"${s.path}"` } : {}),
   };
+}
+
+/** What the popover shows beside a field the pipeline's shape offers. */
+function shapeDetail(f: ShapeField, unknownShape: boolean): string | undefined {
+  if (unknownShape) return 'unknown shape';
+  if (f.origin === 'derived') return 'from an earlier stage';
+  if (f.origin === 'preview') return 'from the preview';
+  return f.type;
 }
 
 function operatorToCompletion(s: OperatorSuggestion): Completion {
@@ -72,8 +99,14 @@ function operatorToCompletion(s: OperatorSuggestion): Completion {
  * names (e.g. `$eq`, both a query operator and an aggregation expression)
  * appear more than once in the catalog with different `validIn` sets.
  */
-async function collectOptions(ctx: SuggestionContext): Promise<Completion[]> {
-  const batches = await Promise.all(KEY_POSITION_SOURCES.map((src) => src(ctx)));
+async function collectOptions(
+  ctx: SuggestionContext,
+  choice: { shape: FieldChoice | null; withFields: boolean; quotedKey: boolean },
+): Promise<Completion[]> {
+  // With the pipeline's shape known it supplies the fields, and only the
+  // operators come from the sources.
+  const sources = choice.shape ? [operatorSource] : KEY_POSITION_SOURCES;
+  const batches = await Promise.all(sources.map((src) => src(ctx)));
 
   const fields = new Map<string, FieldSuggestion>();
   const operators = new Map<string, OperatorSuggestion>();
@@ -114,9 +147,48 @@ async function collectOptions(ctx: SuggestionContext): Promise<Completion[]> {
   }
 
   const options: Completion[] = [];
-  for (const f of fields.values()) options.push(fieldToCompletion(f));
+  // A key that starts with `$` is an operator; fields cannot start with one.
+  if (choice.withFields) {
+    for (const f of fields.values()) options.push(fieldToCompletion(f, choice.quotedKey));
+    for (const f of choice.shape?.fields ?? []) {
+      options.push({
+        ...fieldToCompletion({ kind: 'field', path: f.path, source: f.origin, frequency: f.frequency }, choice.quotedKey),
+        detail: shapeDetail(f, choice.shape!.unknownShape),
+      });
+    }
+  }
   for (const o of operators.values()) options.push(operatorToCompletion(o));
   return options;
+}
+
+/** The fields that reach a stage, and whether their shape is a guess. */
+interface FieldChoice {
+  fields: ShapeField[];
+  unknownShape: boolean;
+}
+
+const sourceFieldsOf = async (ctx: SuggestionContext): Promise<ShapeField[]> =>
+  (await sampleSchemaSource({ ...ctx, recentDocs: undefined }))
+    .filter((s): s is FieldSuggestion => s.kind === 'field')
+    .map((s) => ({ path: s.path, type: s.type, frequency: s.frequency, origin: 'source' as const }));
+
+/**
+ * The fields at the edited stage: what the pipeline before it leaves, from its
+ * text and the previous stage's preview. Null without a pipeline to read.
+ */
+async function pipelineFields(
+  ctx: SuggestionContext,
+  input: StageShapeInput | null,
+): Promise<FieldChoice | null> {
+  if (!input) return null;
+  const shape = shapeBefore(input.stages, input.index);
+  const preview = lastRunSource({ ...ctx, recentDocs: input.previewDocs }) as FieldSuggestion[];
+  const { fields, unknownShape } = shapeFields(
+    shape,
+    await sourceFieldsOf(ctx),
+    preview.map((s) => s.path),
+  );
+  return { fields, unknownShape };
 }
 
 /**
@@ -167,6 +239,100 @@ function stringContentEnd(doc: string, from: number, quote: string | undefined):
 }
 
 /**
+ * The fields a `$lookup` sub-pipeline stage sees: the joined collection's, as
+ * the sub-pipeline's own earlier stages leave them. Null when the body names
+ * no `from` collection.
+ */
+async function subPipelineFields(
+  suggestionCtx: SuggestionContext,
+  doc: string,
+  pos: number,
+): Promise<FieldChoice | null> {
+  const from = lookupFrom(doc);
+  const text = subPipelineText(doc, pos);
+  if (from === null || text === null) return null;
+  const source = await sourceFieldsOf({ ...suggestionCtx, collection: from });
+  const shape = shapeBefore(stagesInPipelineText(text), Number.MAX_SAFE_INTEGER);
+  return shapeFields(shape, source, []);
+}
+
+/**
+ * What one field offered in a value slot inserts: `$field` or a bare `field`,
+ * inside the quotes already typed; an unquoted slot takes the quotes with it.
+ */
+function slotOption(path: string, slot: ValueSlot, form: FieldSlot['form'], detail?: string): Completion {
+  const text = form === 'dollar' ? `$${path}` : path;
+  return {
+    label: text,
+    type: 'property',
+    detail,
+    ...(slot.quoted ? {} : { apply: `"${text}"` }),
+  };
+}
+
+/**
+ * Where an accepted slot completion stops replacing: past the rest of the
+ * reference under the caret, so `"$na|me"` becomes `"$name"` and not
+ * `"$nameme"`. A quoted slot runs to its closing quote; an unquoted one to the
+ * end of the word, which the completion then quotes.
+ */
+function slotReplaceEnd(doc: string, slot: ValueSlot): number {
+  if (slot.quoted) return stringContentEnd(doc, slot.replaceEnd, doc[slot.replaceStart - 1]);
+  let end = slot.replaceEnd;
+  while (end < doc.length && /[\w$.]/.test(doc[end] ?? '')) end++;
+  return end;
+}
+
+/**
+ * Field suggestions where a value names a field (a `$group` `_id`, an
+ * accumulator's argument, `$unwind`'s path, `$lookup`'s local and foreign
+ * fields, ...): `fieldSlot` says whether the position takes one and in which
+ * form. `foreignField` and `$graphLookup`'s fields take the joined
+ * collection's fields, the others those that reach the stage.
+ */
+async function slotCompletions(
+  opts: StageBodyCompletionOpts,
+  suggestionCtx: SuggestionContext,
+  doc: string,
+  ctx: CompletionContext,
+  stageOp: string | undefined,
+): Promise<CompletionResult | null> {
+  const slot = detectValueSlot(doc, ctx.pos);
+  if (!slot) return null;
+  const sub = subPipelinePath(stageOp, slot.path);
+  // A sub-pipeline stage's fields are the joined collection's, never the outer pipeline's.
+  const spec = sub ? (sub.op ? fieldSlot(sub.op, sub.rest) : null) : fieldSlot(stageOp, slot.path);
+  if (!spec || (sub && spec.fields === 'from')) return null;
+  // An expression is `"$..."`: it begins at the `$`, or is not typed yet.
+  if (spec.form === 'dollar' ? slot.token !== '' && !slot.token.startsWith('$') : slot.token.startsWith('$')) {
+    return null;
+  }
+  // An unquoted, empty slot is only offered when asked for, so typing `: ` does not open a list.
+  if (!slot.quoted && slot.token === '' && !ctx.explicit) return null;
+
+  let choice: FieldChoice | null;
+  if (sub) {
+    choice = await subPipelineFields(suggestionCtx, doc, ctx.pos);
+    if (choice === null) return null;
+  } else if (spec.fields === 'from') {
+    const from = lookupFrom(doc);
+    if (from === null) return null;
+    choice = { fields: await sourceFieldsOf({ ...suggestionCtx, collection: from }), unknownShape: false };
+  } else {
+    choice = await pipelineFields(suggestionCtx, opts.getStageShape?.() ?? null);
+    choice ??= { fields: await sourceFieldsOf(suggestionCtx), unknownShape: false };
+  }
+  if (choice.fields.length === 0) return null;
+  const { fields, unknownShape } = choice;
+  return {
+    from: slot.replaceStart,
+    to: slotReplaceEnd(doc, slot),
+    options: fields.map((f) => slotOption(f.path, slot, spec.form, shapeDetail(f, unknownShape))),
+    validFor: slot.quoted ? QUOTED_VALID_FOR : /^[\w$.]*$/,
+  };
+}
+
+/**
  * CodeMirror completion source for aggregation stage bodies (T2.4). Stage
  * bodies are top-level `{ … }` objects, not `db.<coll>.<method>(…)` calls, so
  * `mongoCompletions`'s tree-based `detectFieldPosition` never fires there —
@@ -179,7 +345,7 @@ function stringContentEnd(doc: string, from: number, quote: string | undefined):
  * `valueFor` hit in a `$match` stage offers values of the field it compares
  * (the grammar resolves `{age: {$gt: "…"}}` to `age`); in any other stage a
  * key names an output field, not a source one, so nothing is offered there.
- * `fieldRef` positions are not handled.
+ * A value that names a field gets the fields of the pipeline (`slotCompletions`).
  */
 export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): CompletionSource {
   return (ctx: CompletionContext): Promise<CompletionResult | null> | null => {
@@ -189,8 +355,7 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
     const doc = ctx.state.doc.toString();
     const stageOp = opts.getStageOp();
     const hit = detectAggGrammar(doc, ctx.pos, stageOp);
-    if (hit?.kind === 'valueFor') {
-      if (stageOp !== '$match') return null;
+    if (hit?.kind === 'valueFor' && stageOp === '$match') {
       // Same gate as the builder's value box: `{a: {$regex: "…"}}` takes a
       // pattern, not one of a's values.
       if (hit.operator !== undefined && !VALUE_SUGGESTION_OPS.has(hit.operator)) return null;
@@ -204,7 +369,7 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
           : { from: hit.replaceStart, to, options, validFor: QUOTED_VALID_FOR },
       );
     }
-    if (!hit || hit.kind !== 'fieldName') return null;
+    if (hit?.kind !== 'fieldName') return slotCompletions(opts, suggestionCtx, doc, ctx, stageOp);
 
     const scopedCtx: SuggestionContext = hit.operatorContext
       ? { ...suggestionCtx, operatorContext: hit.operatorContext }
@@ -228,9 +393,20 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
     const quoteBefore = hit.replaceStart > 0 && /["']/.test(doc[hit.replaceStart - 1] ?? '');
     const validFor = quoteBefore ? QUOTED_VALID_FOR : /^[\w$.]*$/;
 
-    return collectOptions(scopedCtx).then((options): CompletionResult | null => {
-      if (options.length === 0) return null;
-      return { from: hit.replaceStart, to: hit.replaceEnd, options, validFor };
-    });
+    // A key inside a `$lookup`'s `pipeline` belongs to a stage over the joined collection.
+    const sub = subPipelinePath(stageOp, detectScopePath(doc, hit.replaceStart).slice(0, -1));
+    const fieldChoice: Promise<FieldChoice | null> = sub
+      ? sub.op
+        ? subPipelineFields(suggestionCtx, doc, ctx.pos).then((c) => c ?? { fields: [], unknownShape: false })
+        : Promise.resolve({ fields: [], unknownShape: false })
+      : pipelineFields(suggestionCtx, opts.getStageShape?.() ?? null);
+    return fieldChoice
+      .then((shape) =>
+        collectOptions(scopedCtx, { shape, withFields: !hit.token.startsWith('$'), quotedKey: quoteBefore }),
+      )
+      .then((options): CompletionResult | null => {
+        if (options.length === 0) return null;
+        return { from: hit.replaceStart, to: hit.replaceEnd, options, validFor };
+      });
   };
 }

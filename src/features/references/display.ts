@@ -11,12 +11,15 @@ export function makeFrameId(rule: ReferenceRule): string {
  * and skipped. Compares by rule id + EJSON-shape equality of the value.
  */
 export function isSameReferenceTarget(
-  frame: { rule: ReferenceRule; value: unknown } | undefined,
+  frame: { rule: ReferenceRule; value: unknown; connectionId?: string } | undefined,
   rule: ReferenceRule,
   value: unknown,
+  connectionId?: string,
 ): boolean {
   if (!frame) return false;
   if (frame.rule.id !== rule.id) return false;
+  // A shared rule has one id across a Family's members, so the same rule and value on another Connection is another document.
+  if (frame.connectionId !== undefined && connectionId !== undefined && frame.connectionId !== connectionId) return false;
   return JSON.stringify(frame.value) === JSON.stringify(value);
 }
 

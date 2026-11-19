@@ -20,7 +20,7 @@ afterEach(() => {
 
 const RULE: ReferenceRule = {
   id: 'r1',
-  connectionId: 'c1',
+  owner: { connectionId: 'c1' },
   sourceDb: 'app',
   sourceCollection: 'orders',
   sourceField: 'userId',
@@ -119,6 +119,23 @@ describe('useReferenceDrawer — EJSON persistence round-trip', () => {
     expect(line.message).not.toContain('secret');
   });
 
+  it('keeps the Connection a frame was opened on through persistence, and gives an older frame its tab\'s', async () => {
+    installAtelierMock();
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const withConn: PersistedReferenceFrame = { id: 'a', rule: shared, valueEjson: ejsonStringify('u1'), label: 'x', connectionId: 'opened-on' };
+    const older: PersistedReferenceFrame = { id: 'b', rule: shared, valueEjson: ejsonStringify('u2'), label: 'y' };
+    const tabs: WorkspaceTab[] = [makeCollectionTab('t1', [withConn, older])];
+    const patch = vi.fn();
+    const { result } = renderHook(() => useReferenceDrawer('t1', tabs, patch, 't1'));
+    expect(result.current.refStack.map((f) => f.connectionId)).toEqual(['opened-on', 'c1']);
+
+    act(() => {
+      result.current.handleRefOpen(shared, 'userId', 'u3');
+    });
+    const saved = (patch.mock.calls.at(-1)![1] as Partial<CollectionTabState>).referenceDrawer?.stack ?? [];
+    expect(saved.map((f) => f.connectionId)).toEqual(['c1']);
+  });
+
   it('persists a pushed ObjectId frame as canonical EJSON (round-trips back to ObjectId)', async () => {
     installAtelierMock();
     const oid = new ObjectId('64a7f0e1b1d4e8f2c3a45679');
@@ -213,5 +230,52 @@ describe('useReferenceDrawer — EJSON persistence round-trip', () => {
       't2',
       expect.objectContaining({ referenceDrawer: expect.anything() }),
     );
+  });
+});
+
+describe('useReferenceDrawer — resolving through the active Connection', () => {
+  it('names the focused tab\'s Connection when a chip is hovered, so a shared rule resolves', async () => {
+    const resolve = vi.fn<IpcApi['refs']['resolve']>(async () => ({ ruleId: 'r1', found: true, documents: [], durationMs: 0 }));
+    installAtelierMock({ refs: { resolve } });
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const { result } = renderHook(() => useReferenceDrawer('t1', [makeCollectionTab('t1')], vi.fn(), 't1'));
+
+    await act(async () => {
+      await result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve.mock.calls[0]![0]).toMatchObject({ ruleId: 'r1', connectionId: 'c1' });
+  });
+
+  it('does not let a hover still pending on one Connection fill the cache for another', async () => {
+    let settle!: (r: Awaited<ReturnType<IpcApi['refs']['resolve']>>) => void;
+    const resolve = vi
+      .fn<IpcApi['refs']['resolve']>()
+      .mockImplementationOnce(() => new Promise((res) => { settle = res; }))
+      .mockImplementation(async () => ({ ruleId: 'r1', found: true, documents: [{ _id: 'b' }], durationMs: 0 }));
+    installAtelierMock({ refs: { resolve } });
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const tabs = [makeCollectionTab('t1'), { ...makeCollectionTab('t2', [], false), connectionId: 'c2' }];
+    const { result, rerender } = renderHook(({ activeId }) => useReferenceDrawer(activeId, tabs, vi.fn(), activeId), {
+      initialProps: { activeId: 't1' },
+    });
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+    rerender({ activeId: 't2' });
+    await act(async () => {
+      settle({ ruleId: 'r1', found: true, documents: [{ _id: 'a' }], durationMs: 0 });
+      await pending;
+    });
+    await act(async () => {
+      await result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve.mock.calls[1]![0]).toMatchObject({ connectionId: 'c2' });
+    expect(result.current.refHover?.result?.documents).toEqual([{ _id: 'b' }]);
   });
 });

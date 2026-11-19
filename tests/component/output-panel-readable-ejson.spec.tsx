@@ -46,6 +46,7 @@ function renderPanel(rows: unknown[], view: ResultViewMode = 'JSON') {
       outputStale={false}
       running={false}
       pipelineName={null}
+      outputUnordered={false}
       stage={null}
       onRunToStage={vi.fn()}
       onHeightChange={vi.fn()}
@@ -55,6 +56,7 @@ function renderPanel(rows: unknown[], view: ResultViewMode = 'JSON') {
       onSaveAsView={vi.fn()}
       onRun={vi.fn()}
       runBlockedReason={null}
+      source={{ connectionId: 'c1', dbName: 'shop', collection: 'orders' }}
     />,
   );
 }
@@ -178,7 +180,8 @@ describe('OutputPanel — readable EJSON', () => {
         outputStale={false}
         running={false}
         pipelineName={null}
-        stage={{ id: 3, index: 0, op: '$group', enabled: true, stale: false, loading: false, sample }}
+        outputUnordered={false}
+        stage={{ id: 3, index: 0, op: '$group', enabled: true, stale: false, loading: false, unordered: false, sample }}
         onRunToStage={vi.fn()}
         onHeightChange={vi.fn()}
         onHeightCommit={vi.fn()}
@@ -187,6 +190,7 @@ describe('OutputPanel — readable EJSON', () => {
         onSaveAsView={vi.fn()}
         onRun={vi.fn()}
         runBlockedReason={null}
+        source={{ connectionId: 'c1', dbName: 'shop', collection: 'orders' }}
       />,
     );
 

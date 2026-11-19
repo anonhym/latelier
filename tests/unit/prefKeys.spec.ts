@@ -25,6 +25,7 @@ const VALID: Record<string, unknown> = {
   'ui.connections.pinned': [UUID],
   'whatsNew.lastSeenVersion': '0.20.0',
   'update.toastShownFor': '0.20.0',
+  'refs.discovery.never': ['conn|["shop","orders","customerId","shop","customers","_id"]'],
   [CONN_KEY]: true,
 };
 
@@ -100,6 +101,10 @@ describe('prefKeys', () => {
     ['ui.connections.pinned', [1]],
     ['ui.connections.pinned', [UUID.slice(1)]],
     ['ui.connections.pinned', Array.from({ length: 501 }, () => UUID)],
+    ['refs.discovery.never', 'a'],
+    ['refs.discovery.never', [1]],
+    ['refs.discovery.never', ['x'.repeat(1025)]],
+    ['refs.discovery.never', Array.from({ length: 501 }, () => 'k')],
   ])('%s rejects %j', (key, value) => {
     expect(prefSetSchema(key)?.safeParse(value).success).toBe(false);
   });
@@ -122,6 +127,7 @@ describe('prefKeys', () => {
   });
 
   it('bounds hold at the limit', () => {
+    expect(prefSetSchema('refs.discovery.never')?.safeParse(Array.from({ length: 500 }, () => 'x'.repeat(1024))).success).toBe(true);
     expect(
       prefSetSchema('ui.connections.pinned')?.safeParse(Array.from({ length: 500 }, () => UUID)).success,
     ).toBe(true);

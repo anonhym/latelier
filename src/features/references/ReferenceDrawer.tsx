@@ -15,10 +15,18 @@ export interface ReferenceFrame {
   /** Value from the source field — still in EJSON-encoded object shape. */
   value: unknown;
   label: string;
+  /**
+   * The Connection the frame was opened on. A shared (Family-owned) rule names
+   * no server, so a drawer pinned across a tab switch must keep reading through
+   * this one rather than the newly focused tab's.
+   */
+  connectionId?: string;
 }
 
 export interface ReferenceDrawerProps {
   stack: ReferenceFrame[];
+  /** The Connection the drawer's collection tab is on: the one a shared (Family-owned) frame's rules are read through. */
+  connectionId: string;
   pinned: boolean;
   onPush: (frame: ReferenceFrame) => void;
   onPop: () => void;
@@ -35,8 +43,22 @@ interface LoadedFrame {
   picked?: boolean;
 }
 
+/**
+ * The Connection a frame's rule reads through: its owner when a Connection
+ * owns it, else the Connection the frame was opened on, else the tab's. A
+ * frame persisted before rules had an owner carries `connectionId` on its
+ * rule instead, so that is read too.
+ */
+function frameConnectionId(frame: ReferenceFrame, tabConnectionId: string): string {
+  const legacy = (frame.rule as { connectionId?: unknown }).connectionId;
+  if (typeof legacy === 'string') return legacy;
+  if ('connectionId' in frame.rule.owner) return frame.rule.owner.connectionId;
+  return frame.connectionId ?? tabConnectionId;
+}
+
 export function ReferenceDrawer({
   stack,
+  connectionId,
   pinned,
   onPush,
   onPop,
@@ -74,6 +96,8 @@ export function ReferenceDrawer({
       try {
         const result = await api.refs.resolve({
           ruleId: topFrame.rule.id,
+          // A shared rule names no server, so it is read through the Connection the frame belongs to.
+          connectionId: frameConnectionId(topFrame, connectionId),
           valueEjson: JSON.stringify(topFrame.value),
         });
         if (cancelled) return;
@@ -100,7 +124,7 @@ export function ReferenceDrawer({
   }, [topFrame?.id]);
 
   const nestedRules = useReferenceRules(
-    topFrame?.rule.connectionId ?? null,
+    topFrame ? frameConnectionId(topFrame, connectionId) : null,
     topFrame?.rule.targetDb ?? null,
     topFrame?.rule.targetCollection ?? null,
   );
@@ -121,7 +145,13 @@ export function ReferenceDrawer({
 
   const handleNestedClick = (rule: ReferenceRule, field: string, value: unknown) => {
     if (isSameReferenceTarget(topFrame, rule, value)) return;
-    onPush({ id: makeFrameId(rule), rule, value, label: field });
+    onPush({
+      id: makeFrameId(rule),
+      rule,
+      value,
+      label: field,
+      connectionId: frameConnectionId(topFrame, connectionId),
+    });
   };
 
   // Drilling into one element of a multi-doc list opens the document already in
@@ -142,6 +172,7 @@ export function ReferenceDrawer({
       rule: topFrame.rule,
       value: doc[topFrame.rule.targetField] ?? doc._id,
       label,
+      connectionId: frameConnectionId(topFrame, connectionId),
     });
   };
 

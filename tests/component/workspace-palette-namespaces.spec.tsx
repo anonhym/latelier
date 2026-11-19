@@ -62,7 +62,7 @@ function mount(
     Object.keys(server[connectionId] ?? {}).map(db),
   );
   const listCollections = vi.fn(
-    async ({ connectionId, dbName }: { connectionId: string; dbName: string }) =>
+    async ({ connectionId, dbName }: { connectionId: string; dbName: string; includeStats?: boolean }) =>
       (server[connectionId]?.[dbName] ?? []).map(coll),
   );
   // With `listOpened`, the opened tab is listed from then on, as main lists it.
@@ -178,6 +178,13 @@ afterEach(() => {
 });
 
 describe('palette namespace rows', () => {
+  it('sweeps every database for names only, never asking for collection stats', async () => {
+    const { listCollections } = mount();
+    await settled(listCollections);
+    expect(listCollections.mock.calls.length).toBeGreaterThan(0);
+    for (const [input] of listCollections.mock.calls) expect(input.includeStats).toBe(false);
+  });
+
   it('opens the typed namespace on Enter, reusing its tab', async () => {
     const { listCollections, openCollection } = mount();
     await settled(listCollections);

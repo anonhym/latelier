@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Collection, Db, MongoClient } from 'mongodb';
+import { AggregationCursor, Collection, Db, MongoClient } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { MetaService } from '../../electron/mongo/MetaService';
 import { CollectionAdminService } from '../../electron/mongo/CollectionAdminService';
@@ -66,6 +66,7 @@ describe('MetaService', () => {
   let pool: MongoPool;
   let svc: MetaService;
   let connId: string;
+  let connSvc: ConnectionService;
 
   beforeAll(async () => {
     hp = uriToHostPort(getSharedMongoUri());
@@ -83,7 +84,7 @@ describe('MetaService', () => {
     const vault = new SecretsVault(tmp.db, createSafeStorageMock());
     pool = new MongoPool({ repo: connectionReader(repo, vault), vault });
     svc = new MetaService(pool);
-    const connSvc = new ConnectionService({ repo, vault, pool });
+    connSvc = new ConnectionService({ repo, vault, pool });
     const c = await connSvc.create({
       name: 'mem',
       color: '#1A6835',
@@ -142,6 +143,105 @@ describe('MetaService', () => {
     expect(products!.documentCount).toBe(3);
     expect(products!.type).toBe('collection');
     expect(products!.indexCount).toBeGreaterThanOrEqual(1); // _id index
+  });
+
+  describe('listCollections with includeStats: false', () => {
+    const collStatsCalls = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.filter((c) => JSON.stringify(c[0]).includes('$collStats')).length;
+
+    it('lists names, types and cappedness without any $collStats call or figure', async () => {
+      await setup();
+      const aggregate = vi.spyOn(Collection.prototype, 'aggregate');
+      try {
+        const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+        const products = cols.find((c) => c.name === 'products');
+        expect(products).toEqual({ name: 'products', type: 'collection', capped: false });
+        expect(collStatsCalls(aggregate)).toBe(0);
+      } finally {
+        aggregate.mockRestore();
+      }
+    });
+
+    it('shows the figures an earlier full listing read, marked cached, without reading them again', async () => {
+      await setup();
+      const full = await svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+      const fullProducts = full.find((c) => c.name === 'products')!;
+      expect(fullProducts.countsCached).toBeUndefined();
+
+      const aggregate = vi.spyOn(Collection.prototype, 'aggregate');
+      try {
+        const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+        const products = cols.find((c) => c.name === 'products')!;
+        expect(products).toEqual({ ...fullProducts, countsCached: true });
+        expect(products.documentCount).toBe(3);
+        expect(collStatsCalls(aggregate)).toBe(0);
+      } finally {
+        aggregate.mockRestore();
+      }
+    });
+
+    it('announces a deleted connection so its figures are forgotten', async () => {
+      await setup();
+      const emitted: string[] = [];
+      pool.on('connection-identity-changed', (id: string) => emitted.push(id));
+      await connSvc.delete(connId);
+      expect(emitted).toEqual([connId]);
+    });
+
+    it('forgets a connection\'s figures when its host changes', async () => {
+      await setup();
+      await svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+      await connSvc.update(connId, { host: '127.0.0.1' === hp.host ? 'localhost' : '127.0.0.1' });
+      const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+      const products = cols.find((c) => c.name === 'products')!;
+      expect(products.documentCount).toBeUndefined();
+      expect(products.countsCached).toBeUndefined();
+    });
+
+    it('does not store figures from a full listing that settles after the connection was repointed', async () => {
+      await setup();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const original = AggregationCursor.prototype.toArray;
+      const delayed = vi.spyOn(AggregationCursor.prototype, 'toArray').mockImplementation(async function (this: AggregationCursor) {
+        await gate;
+        return original.call(this);
+      });
+      try {
+        const inFlight = svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+        // Let the listing reach its first stats read, then repoint the connection.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        pool.emit('connection-identity-changed', connId);
+        release();
+        await inFlight;
+      } finally {
+        release();
+        delayed.mockRestore();
+      }
+      const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+      const products = cols.find((c) => c.name === 'products')!;
+      expect(products.documentCount).toBeUndefined();
+      expect(products.countsCached).toBeUndefined();
+    });
+
+    it('drops the figures of a collection that was dropped', async () => {
+      await setup();
+      const client = new MongoClient(getSharedMongoUri());
+      try {
+        await client.db('shopdb').collection('probe_gone').insertOne({ a: 1 });
+        await svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+        await client.db('shopdb').collection('probe_gone').drop();
+        await svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+        await client.db('shopdb').collection('probe_gone').insertOne({ a: 1 });
+        const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+        expect(cols.find((c) => c.name === 'probe_gone')).toEqual({ name: 'probe_gone', type: 'collection', capped: false });
+      } finally {
+        await client.db('shopdb').collection('probe_gone').drop().catch(() => undefined);
+        await client.close();
+      }
+    });
   });
 
   // `$collStats` is unavailable to a restricted user (Atlas free tier, or any

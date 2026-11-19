@@ -477,6 +477,36 @@ on app restart).
 - A successful aggregation run records the values of its leading enabled
   `$match` stages.
 - The popover shows a keyboard hint footer until the first pick.
+- **Field names in a stage body's values.** Wherever a stage value names a
+  field, the editor offers fields, in the form that position takes:
+  expression positions insert `$field` (a `$group` `_id` and accumulator
+  arguments, computed `$project`/`$addFields`/`$set` values, `$unwind`,
+  `$bucket` `groupBy`, `$sortByCount`, `$replaceRoot` `newRoot`, `$match`
+  inside `$expr`); name positions insert the bare `field` (`$unset`,
+  `$lookup` `localField` and `foreignField`, `$graphLookup` connect fields).
+  Key positions (`$sort`, `$project`, `$match`) insert the bare name, quoted
+  when it is a dotted path. A `$` in a key position offers operators and no
+  fields; in an expression position it narrows to fields. An unquoted empty
+  value slot is offered on an explicit request only, and inserts the field
+  with its quotes. `foreignField` and `$graphLookup`'s connect fields take
+  the `from` collection's fields. The position table is
+  `stageFieldPositions.ts`; `aggGrammar.ts` reports the key path.
+- **Fields that reach a stage.** The fields offered at a stage are those the
+  enabled stages before it leave (`stageShape.ts`): `$match`, `$sort`,
+  `$limit`, `$skip`, `$sample` keep the source fields; `$addFields`, `$set`,
+  `$lookup` (`as`), `$unwind` keep them and add their own; `$unset` removes;
+  `$group`, `$project` with inclusions, `$count`, `$bucket`, `$sortByCount`
+  and `$facet` replace them with the fields their text names. After
+  `$replaceRoot`, `$replaceWith`, `$unionWith` or `$documents`, or a body
+  that does not parse, the text cannot say: the previous enabled stage's
+  preview, when it is not stale, names the fields, and with no preview the
+  source fields are offered marked `unknown shape`. A fresh preview's fields
+  are added in every case. The final run's output never feeds a stage body.
+- **A `$lookup` sub-pipeline.** Inside `pipeline: [ ... ]` every stage runs
+  over the `from` collection, so key and expression slots take that
+  collection's fields as the sub-pipeline's own earlier stages leave them
+  (the same shape rules), never the outer pipeline's. Between stages only
+  stage operators are offered, and with no `from` string nothing is.
 - `$`-prefixed bare keys open the popover (previously suppressed);
   the operator source (X03) consumes these hits. `fieldRef` and
   `valueFor` branches remain unchanged.
@@ -518,6 +548,7 @@ on app restart).
   appears near the caret → accept.
 - Query bar: type `{ user.na` → dotted-path suggestions appear.
 - Stage body `"$sta` → field-ref suggestions with the `$` preserved.
+- `tests/unit/stage-field-completions.spec.ts` — the exact text inserted at each position, and by pipeline shape; `stage-shape.spec.ts` and `stage-shape.property.spec.ts` — the shape of the documents after each stage.
 - `$match` stage body `{status: "` → values from the sampled docs
   (`w07-field-autocomplete.e2e.ts`).
 - After an aggregation run with `$match {status: "x"}`, the builder value

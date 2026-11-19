@@ -20,7 +20,7 @@ The bottom panel of the aggregation tab. Shows the pipeline's final output in Tr
 ```
 ┌─ drag handle (6px) ─────────────────────────────────────────────────┐
 ├─ header ────────────────────────────────────────────────────────────┤
-│ Pipeline output  · 5 docs · 128ms       [Tree/JSON/Table]  [Copy]   │
+│ Full aggregation · 5 docs · 128 ms      [Tree/JSON/Table]  [Copy]   │
 │                                                         [Save as…] [⇩]│
 ├─ body ──────────────────────────────────────────────────────────────┤
 │ docs                                                                │
@@ -45,6 +45,12 @@ The bottom panel of the aggregation tab. Shows the pipeline's final output in Tr
 
 ### Download JSON (⇩)
 - Opens `dialog.showSaveDialog` (via `app:saveFile` IPC returning a path or null). On success, writes the full EJSON array to disk.
+
+### Heading states its scope
+Every result surface says how much of the result it shows.
+- **Run output**: `Full aggregation · N docs · T ms`. When the run returned as many rows as its limit (it cannot tell whether more exist): `Full aggregation · first N docs, row limit reached · T ms`.
+- **Stage preview**: `Stage N output · $op · first 5 of M docs`, where M is the exact size of that stage's output and the 5 are its first documents. When all of them are shown the count stands alone (`3 docs`). The preview size is not adjustable.
+- **Unordered**: when the documents leave in no defined order (a `$group`, `$sample` or `$unionWith` with no `$sort` after it), the heading ends with `· unordered`, so a different order between runs reads as expected. Applies to both the stage preview and the run output.
 
 ## 3. Views
 
