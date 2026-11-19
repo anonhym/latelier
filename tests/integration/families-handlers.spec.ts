@@ -6,6 +6,7 @@ import type {
   EffectiveReferenceRule,
   EffectiveRowSummary,
   FamilyOverrides,
+  FamilySettings,
   ReferenceRule,
   ReferenceResolveResult,
   RowSummary,
@@ -136,6 +137,7 @@ describe('families / rowSummary / refs channels via router', () => {
       expect(await code(IPC_CHANNELS.familiesDelete, { id: 'nope', keepAsLocal: true })).toBe('NOT_FOUND');
       expect(await code(IPC_CHANNELS.familiesSetMembership, { connectionIds: [A], familyId: 'nope' })).toBe('NOT_FOUND');
       expect(await code(IPC_CHANNELS.familiesOverrides, { id: 'nope' })).toBe('NOT_FOUND');
+      expect(await code(IPC_CHANNELS.familiesSettings, { id: 'nope' })).toBe('NOT_FOUND');
     });
 
     it('refuses malformed payloads with VALIDATION', async () => {
@@ -154,6 +156,18 @@ describe('families / rowSummary / refs channels via router', () => {
         rules: [{ ruleId: shared.id, connectionIds: [B] }],
         rowSummaries: [],
       });
+    });
+  });
+
+  describe('families:settings', () => {
+    it('returns what the Family itself owns, whoever overrides it', async () => {
+      const f = await call<ConnectionFamily>(IPC_CHANNELS.familiesCreate, { name: 'F', memberIds: [A] });
+      const shared = await sharedRule(f.id);
+      await call(IPC_CHANNELS.rowSummarySet, { owner: { familyId: f.id }, dbName: DB, collection: 'orders', fields: ['name'] });
+      await call(IPC_CHANNELS.refsOverride, { connectionId: A, sharedRuleId: shared.id, patch: { enabled: false } });
+      const settings = await call<FamilySettings>(IPC_CHANNELS.familiesSettings, { id: f.id });
+      expect(settings.rules.map((r) => r.id)).toEqual([shared.id]);
+      expect(settings.rowSummaries.map((r) => r.fields)).toEqual([['name']]);
     });
   });
 

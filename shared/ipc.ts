@@ -71,6 +71,7 @@ import type {
   FamilyDeleteInput,
   FamilyOverrides,
   FamilyRenameInput,
+  FamilySettings,
   FamilySetMembershipInput,
   RefsOverrideInput,
   RowSummary,
@@ -571,6 +572,8 @@ export interface IpcApi {
     delete: (input: FamilyDeleteInput) => Promise<void>;
     /** For each shared setting of a family, the members that override it; settings nobody overrides are left out. */
     overrides: (input: { id: string }) => Promise<FamilyOverrides>;
+    /** The shared Reference Rules and Row Summaries a Family owns, for its view. */
+    settings: (input: { id: string }) => Promise<FamilySettings>;
   };
 
   /** The fields a collapsed Tree row shows, saved per collection (X23). */
@@ -803,6 +806,7 @@ export const IPC_CHANNELS = {
   familiesSetMembership: 'families:setMembership',
   familiesDelete:        'families:delete',
   familiesOverrides:     'families:overrides',
+  familiesSettings:      'families:settings',
   rowSummaryGet:         'rowSummary:get',
   rowSummarySet:         'rowSummary:set',
   rowSummaryClear:       'rowSummary:clear',

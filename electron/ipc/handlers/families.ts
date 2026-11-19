@@ -61,4 +61,10 @@ export function registerFamiliesChannels(router: Router, svc: FamilyService): vo
     zodValidator(OverridesInputSchema),
     ({ id }) => svc.overrides(id),
   );
+
+  router.register(
+    IPC_CHANNELS.familiesSettings,
+    zodValidator(OverridesInputSchema),
+    ({ id }) => svc.settings(id),
+  );
 }

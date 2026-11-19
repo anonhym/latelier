@@ -270,6 +270,7 @@ const api: IpcApi = {
     setMembership: (input) => call(IPC_CHANNELS.familiesSetMembership, input),
     delete: (input) => call(IPC_CHANNELS.familiesDelete, input),
     overrides: (input) => call(IPC_CHANNELS.familiesOverrides, input),
+    settings: (input) => call(IPC_CHANNELS.familiesSettings, input),
   },
 
   rowSummary: {

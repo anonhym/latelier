@@ -1236,6 +1236,12 @@ export interface FamilyOverrides {
   rowSummaries: FamilyRowSummaryOverride[];
 }
 
+/** What a Family itself owns: the shared Reference Rules and Row Summaries, whoever overrides them. */
+export interface FamilySettings {
+  rules: ReferenceRule[];
+  rowSummaries: RowSummary[];
+}
+
 export interface RefsOverrideInput {
   connectionId: string;
   sharedRuleId: string;
