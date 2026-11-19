@@ -80,6 +80,30 @@ A member Connection's own value for a setting its Connection Family shares, whic
 A file holding one Connection Family's shared configuration — its Reference Rules and Row Summaries — and nothing else: no Connections, no member list, no Overrides or local settings, no secrets, so no passphrase. Written from a Family as a whole. **Applied**, never imported: the user picks the target — any existing Family, or a new one made from the file — and the name inside the file only suggests one. Applying merges into the target, asking on each setting that already exists for the same Database, Collection and source field, and never deletes anything; members' Overrides are left as they are and still win. Applies to Families only.
 _Avoid_: family import, template, profile; never call it a Connection Export
 
+**Agent**:
+An external AI client (Claude Code, Claude Desktop, Cursor) connected to L'Atelier over MCP. It reads only through the app and never sees a host, connection string or credential (see [X27](specs/X27-agent-access.md)).
+_Avoid_: assistant, bot, AI mode, MCP client (an implementation word)
+
+**Agent Access**:
+The app-wide setting that lets Agents in, off by default and turned on only through a confirmation in the main process. With it off, nothing listens.
+_Avoid_: MCP server (the implementation, not the setting), agent mode
+
+**Shared with Agents**:
+A persisted flag on one Connection that makes it visible to Agents while it is an Open Connection and Agent Access is on. Agents only ever read through it, whatever the Connection's own Read-Only flag says. Never copied by Duplicate, Connection Export, Import or a Connection Family.
+_Avoid_: exposed, published, agent-enabled
+
+**Agent Token**:
+The secret one named Agent presents to L'Atelier. Stored only as a hash, shown once, revocable and regenerable. It lives in the Agent client's own configuration, never in the renderer.
+_Avoid_: API key, password
+
+**Agent Bridge**:
+The app's own binary started with `--agent-stdio`: the program an Agent client launches, which forwards between the Agent's stdio and the running app's local socket. It never starts the app and holds no credentials.
+_Avoid_: shim, proxy, MCP server
+
+**Agent Read Log**:
+The record of every Agent tool call, refused ones included: who asked, on which Connection, what, and how much came back. Separate from the Audit Log, which records writes only.
+_Avoid_: agent audit log, agent history
+
 **Connection Export**:
 A file holding one or more Connections, written by **Export** and read by **Import**. Carries Connections only — never their saved queries, tabs or Audit Log, never their Connection Family or its shared configuration — and never credential file paths. Importing one always adds new Connections; it never changes an existing one.
 _Avoid_: backup (implies the whole app state), config, profile

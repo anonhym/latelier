@@ -112,6 +112,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X24](./X24-family-export.md) | Family Export: write a Family's shared configuration and Apply it to any Family | main + renderer |
 | [X25](./X25-cross-connection-paste.md) | Cross-Connection Paste warning: Copy Origin and an inline strip on query surfaces | renderer |
 | [X26](./X26-reference-discovery.md) | Reference discovery: suggest a Reference Rule when a copied value is found in another Collection | renderer |
+| [X27](./X27-agent-access.md) | Agent Access: read-only MCP access to shared Connections through a local socket and stdio bridge | main + renderer + build |
 
 ### Plans
 
