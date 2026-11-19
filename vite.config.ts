@@ -39,7 +39,16 @@ export default defineConfig({
             rolldownOptions: {
               // electron-updater is CommonJS and lazy-requires its platform
               // updaters; bundling it breaks that.
-              external: ['better-sqlite3', 'mongodb', 'bson', 'zod', 'electron-updater'],
+              external: [
+                'better-sqlite3',
+                'mongodb',
+                'bson',
+                'zod',
+                'electron-updater',
+                // ESM-only with a `./stdio` subpath: both ids stay out of the bundle.
+                '@modelcontextprotocol/server',
+                '@modelcontextprotocol/server/stdio',
+              ],
             },
           },
         },

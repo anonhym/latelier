@@ -94,7 +94,9 @@ import { RecentQueryService } from './services/RecentQueryService.ts';
 import { RecentFieldValueRepo } from './db/repositories/RecentFieldValueRepo.ts';
 import { RecentFieldValueService } from './services/RecentFieldValueService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
+import { AgentAccessService } from './services/AgentAccessService.ts';
 import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
+import { AgentTokenRepo } from './db/repositories/AgentTokenRepo.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
 import { UndoStore } from './services/UndoStore.ts';
@@ -209,6 +211,7 @@ let log: Logger | null = null;
 let connExportSvc: ConnectionExportService | null = null;
 let importWizardSvc: ImportWizardService | null = null;
 let tabsSvc: WorkspaceStateService | null = null;
+let agentSvc: AgentAccessService | null = null;
 let renderCrashesInWindow = 0;
 // What the renderer last reported as unsaved (`app:setUnsavedWork`). Reset
 // whenever the page that reported it goes (reload, crash, window closed), so
@@ -557,6 +560,9 @@ function beginShutdown(): void {
   const timeoutMs = 8_000;
   const work = runTeardown(
     [
+      // First: nothing an Agent asked for may still be running, or answered,
+      // once the user has quit.
+      ['stop agent server', () => agentSvc?.stop()],
       // `app.exit` below destroys the window without its unload events, so
       // the tab edits the renderer still holds back are asked for here, while
       // the database is open. Bounded: a renderer that does not answer is
@@ -832,7 +838,19 @@ app.whenReady().then(() => {
   // across a reload.
   const auditRepo = new AuditRepo(db, cipher, log);
   const auditSvc = new AuditService(auditRepo, pool, new UndoStore(), log);
+  // Agent Access (X27). The switch is main-only; the server starts here when it
+  // is already on and follows `AGENT_ACCESS_KEY` from then on.
   const agentReadLogRepo = new AgentReadLogRepo(db, cipher);
+  agentSvc = new AgentAccessService({
+    appState,
+    tokenRepo: new AgentTokenRepo(db),
+    readLogRepo: agentReadLogRepo,
+    connRepo,
+    pool,
+    userData: userDataDir,
+    log,
+  });
+  agentSvc.init();
   const router = createRouter(
     ipcMain,
     senderCheck(() => win?.webContents.mainFrame ?? null, isAppLocation),

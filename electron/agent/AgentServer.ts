@@ -1,0 +1,201 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import type { Logger } from '../log.ts';
+import { ensurePrivateDir, writePrivateFile } from '../utils/privateFs.ts';
+import { AgentSession } from './AgentSession.ts';
+import type { AgentSessionIdentity } from './AgentGate.ts';
+import type { AgentToolRunner } from './AgentToolRunner.ts';
+import type { AgentTool } from './tools.ts';
+import { agentDir, endpointFile, pipeSuffixFrom, resolveEndpoint, type ResolvedEndpoint } from './endpoint.ts';
+import { readHandshake, refuse } from './handshake.ts';
+import { hashToken, matchHash } from './token.ts';
+
+export interface AgentServerDeps {
+  userData: string;
+  runner: AgentToolRunner;
+  tools: readonly AgentTool[];
+  tokens: {
+    list(): Array<{ id: string; name: string; token_hash: string }>;
+  };
+  log: Pick<Logger, 'info' | 'warn' | 'error'>;
+  platform?: NodeJS.Platform;
+  tmpdir?: string;
+  uid?: string | number;
+}
+
+/**
+ * The socket server in main (X27 §4). It authenticates each connection with
+ * the handshake, then hands the socket to an `AgentSession`. It owns the
+ * socket file and the endpoint file the bridge reads.
+ */
+export class AgentServer {
+  private deps: AgentServerDeps;
+  private listener: net.Server | null = null;
+  private endpoint: ResolvedEndpoint | null = null;
+  private sessions = new Set<AgentSession>();
+  private pending = new Set<net.Socket>();
+  private onSessionsChanged: (() => void) | null = null;
+
+  constructor(deps: AgentServerDeps) {
+    this.deps = deps;
+  }
+
+  /** The path or pipe name the server listens on; null while it is not listening. */
+  get socketPath(): string | null {
+    return this.listener ? (this.endpoint?.path ?? null) : null;
+  }
+
+  get sessionCount(): number {
+    return this.sessions.size;
+  }
+
+  /** Called whenever a session opens or closes. */
+  setSessionsListener(fn: (() => void) | null): void {
+    this.onSessionsChanged = fn;
+  }
+
+  /**
+   * Starts listening. Returns false, after logging, when something already
+   * answers on the socket: a second instance must not take it over.
+   */
+  async start(): Promise<boolean> {
+    if (this.listener) return true;
+    const platform = this.deps.platform ?? process.platform;
+    const endpointPath = endpointFile(this.deps.userData);
+    const existing = this.readPipeSuffix(endpointPath);
+    const endpoint = resolveEndpoint({
+      platform,
+      userData: this.deps.userData,
+      tmpdir: this.deps.tmpdir ?? os.tmpdir(),
+      uid: this.deps.uid ?? process.getuid?.() ?? 'user',
+      randomHex: (n) => randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n),
+      existingPipeSuffix: existing,
+    });
+    // The 0700 agent/ directory is the real access control on Unix; the
+    // socket's own mode below is a second line.
+    ensurePrivateDir(agentDir(this.deps.userData));
+    if (endpoint.dir !== null) ensurePrivateDir(endpoint.dir);
+    if (endpoint.kind === 'unix' && !(await this.clearStaleSocket(endpoint.path))) {
+      this.deps.log.warn('agent', 'another process answers on the Agent socket; not starting');
+      return false;
+    }
+
+    const listener = net.createServer((socket) => void this.accept(socket));
+    listener.on('error', (err) => this.deps.log.error('agent', 'listener error', { errName: err.name }));
+    await new Promise<void>((resolve, reject) => {
+      listener.once('error', reject);
+      listener.listen(endpoint.path, () => {
+        listener.off('error', reject);
+        resolve();
+      });
+    });
+    if (endpoint.kind === 'unix') fs.chmodSync(endpoint.path, 0o600);
+    await writePrivateFile(endpointPath, `${endpoint.path}\n`);
+    this.listener = listener;
+    this.endpoint = endpoint;
+    this.deps.log.info('agent', 'agent server listening', { fallbackPath: endpoint.fallback });
+    return true;
+  }
+
+  /** Closes the listener and every session, and removes the socket and endpoint files. */
+  async stop(): Promise<void> {
+    const listener = this.listener;
+    const endpoint = this.endpoint;
+    this.listener = null;
+    this.endpoint = null;
+    for (const session of [...this.sessions]) session.destroy();
+    for (const socket of this.pending) socket.destroy();
+    if (listener) await new Promise<void>((resolve) => listener.close(() => resolve()));
+    if (endpoint?.kind === 'unix') fs.rmSync(endpoint.path, { force: true });
+    fs.rmSync(endpointFile(this.deps.userData), { force: true });
+  }
+
+  /** Ends every live session that authenticated with this token (revoked or regenerated). */
+  closeSessionsForToken(tokenId: string): void {
+    for (const session of [...this.sessions]) {
+      if (session.identity.tokenId === tokenId) session.close();
+    }
+  }
+
+  private async accept(socket: net.Socket): Promise<void> {
+    // A reset must never become an uncaught exception, here or inside the session.
+    socket.on('error', () => socket.destroy());
+    this.pending.add(socket);
+    const outcome = await readHandshake(socket);
+    this.pending.delete(socket);
+    if (!outcome.ok) {
+      this.deps.log.warn('agent', 'handshake refused', { reason: outcome.refusal });
+      refuse(socket, outcome.refusal);
+      return;
+    }
+    const tokenHash = hashToken(outcome.token);
+    const row = matchHash(tokenHash, this.deps.tokens.list());
+    if (!row) {
+      this.deps.log.warn('agent', 'handshake refused', { reason: 'unknown-token' });
+      refuse(socket, 'refused');
+      return;
+    }
+    const identity: AgentSessionIdentity = {
+      sessionId: randomUUID(),
+      tokenId: row.id,
+      tokenHash,
+      tokenName: row.name,
+      clientName: null,
+      clientVersion: null,
+    };
+    const session = new AgentSession({
+      socket,
+      identity,
+      runner: this.deps.runner,
+      tools: this.deps.tools,
+      log: this.deps.log,
+      onClosed: (s) => {
+        if (this.sessions.delete(s)) this.onSessionsChanged?.();
+      },
+    });
+    this.sessions.add(session);
+    this.onSessionsChanged?.();
+    this.deps.log.info('agent', 'session opened', { token: row.name });
+    try {
+      await session.start();
+    } catch (err) {
+      this.deps.log.error('agent', 'session failed to start', { errName: err instanceof Error ? err.name : typeof err });
+      session.destroy();
+    }
+  }
+
+  private readPipeSuffix(endpointPath: string): string | null {
+    try {
+      return pipeSuffixFrom(fs.readFileSync(endpointPath, 'utf8'));
+    } catch (err) {
+      // No file yet is the normal first run; anything else is worth a line.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.deps.log.warn('agent', 'could not read the endpoint file', { errCode: (err as NodeJS.ErrnoException).code });
+      }
+      return null;
+    }
+  }
+
+  /** True when the path is free: absent, or a leftover nothing answers on (which is then removed). */
+  private clearStaleSocket(socketPath: string): Promise<boolean> {
+    if (!fs.existsSync(socketPath)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const probe = net.connect(socketPath);
+      probe.once('connect', () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT') {
+          fs.rmSync(socketPath, { force: true });
+          resolve(true);
+        } else {
+          this.deps.log.warn('agent', 'could not probe the Agent socket', { errCode: err.code });
+          resolve(false);
+        }
+      });
+    });
+  }
+}
