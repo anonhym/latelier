@@ -50,19 +50,9 @@ test('a document id copied on one connection warns when pasted into a query on a
       };
 
       // --- copy the id of A's document from the Table view --------------------
-      await win.getByRole('treeitem', { name: /^Client B\./ }).click();
       await ws.openCollectionFromNavigator('shop', 'orders');
       await ws.viewTableButton.click();
       await ws.queryBarRunButton.click();
-      // The first open belongs to whichever root is expanded; make A's the one in view.
-      const onA = await win.getByText(ID_A).count();
-      if (onA === 0) {
-        await win.getByRole('treeitem', { name: /^Client B\./ }).click();
-        await win.getByRole('treeitem', { name: /^Client A\./ }).click();
-        await ws.openCollectionFromNavigator('shop', 'orders');
-        await ws.viewTableButton.click();
-        await ws.queryBarRunButton.click();
-      }
       await expect(win.getByText(ID_A).first()).toBeVisible({ timeout: 8000 });
       await win.getByText(ID_A).first().click({ button: 'right' });
       await win.getByRole('menuitem', { name: 'Copy _id' }).click();

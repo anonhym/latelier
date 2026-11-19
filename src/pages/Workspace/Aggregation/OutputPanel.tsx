@@ -6,6 +6,7 @@ import { PaneState } from '../../../components/PaneState';
 import { ActionIcon, Button, Group, Menu, SegmentedControl, Tooltip, VisuallyHidden } from '@mantine/core';
 import { ejsonStringifyReadable } from '../../../utils/ejson';
 import { copyToClipboard } from '../../../utils/clipboard';
+import type { CopySource } from '../../../utils/copyOrigin';
 import { api, getErrorMessage } from '../../../api/atelier';
 import { notify } from '../../../theme/notifications';
 import { resizeKeyStep } from '../resizeKeyStep';
@@ -56,6 +57,8 @@ interface OutputPanelProps {
   onRun: () => void;
   /** Why Run cannot start (`runBlockedReason`), or null when it can. */
   runBlockedReason: string | null;
+  /** The pipeline's source collection: where Copy output copies from. */
+  source: CopySource;
 }
 
 const DEFAULT_HEIGHT = 260;
@@ -111,6 +114,7 @@ export function OutputPanel({
   onSaveAsView,
   onRun,
   runBlockedReason,
+  source,
 }: OutputPanelProps) {
   const T = themeVars;
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
@@ -203,7 +207,7 @@ export function OutputPanel({
 
   const copyAll = () => {
     if (rows.length === 0) return;
-    void copyToClipboard(safeStringifyArray(rows), 'Output copied to the clipboard.');
+    void copyToClipboard(safeStringifyArray(rows), 'Output copied to the clipboard.', source);
   };
 
   const download = async () => {

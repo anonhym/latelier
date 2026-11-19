@@ -56,6 +56,7 @@ function renderPanel(rows: unknown[], view: ResultViewMode = 'JSON') {
       onSaveAsView={vi.fn()}
       onRun={vi.fn()}
       runBlockedReason={null}
+      source={{ connectionId: 'c1', dbName: 'shop', collection: 'orders' }}
     />,
   );
 }
@@ -189,6 +190,7 @@ describe('OutputPanel — readable EJSON', () => {
         onSaveAsView={vi.fn()}
         onRun={vi.fn()}
         runBlockedReason={null}
+        source={{ connectionId: 'c1', dbName: 'shop', collection: 'orders' }}
       />,
     );
 

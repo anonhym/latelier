@@ -11,6 +11,7 @@ import {
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { useCollectionWorkspace } from './context';
+import { useCrossPaste } from './crossPaste';
 import { useProjectionDraft, type ProjectionDraft } from './useProjectionDraft';
 import { EMPTY_DOCUMENTS } from './resultSelection';
 import { requestColumnScroll } from './views/columnScroll';
@@ -79,6 +80,7 @@ export function FieldsControl({
 } = {}) {
   const T = themeVars;
   const { state, actions, meta } = useCollectionWorkspace();
+  const onProjectionPaste = useCrossPaste('projection');
   const isTableView = state.view === 'Table';
   const documents = state.lastRun?.documents ?? EMPTY_DOCUMENTS;
   const config = state.columnConfig;
@@ -539,6 +541,7 @@ export function FieldsControl({
               mode="token"
               multiline
               onBlur={projection.commit}
+              onPaste={onProjectionPaste}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || e.defaultPrevented) return;
                 // The panel-level ⌘↵ skips anything inside a dialog, and this

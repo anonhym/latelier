@@ -5,6 +5,7 @@ import { ejsonParse, ejsonStringifyReadable } from '../../utils/ejson';
 import { repairOnCommit } from '../../utils/shellSyntax';
 import { filterProblem } from './builder';
 import { useShellSyntaxField } from './useShellSyntaxField';
+import { useCrossPaste } from './crossPaste';
 
 interface QueryExpandModalProps {
   queryRaw: string;
@@ -35,6 +36,8 @@ export function QueryExpandModal({ queryRaw, onApply, onClose }: QueryExpandModa
   const [draft, setDraft] = React.useState(() => formatForDisplay(queryRaw));
   const shell = useShellSyntaxField({ value: draft, commit: setDraft, thenCheck: filterProblem });
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  // The expanded Filter Bar is the same surface; its strip shows under the bar once the modal closes.
+  const onFilterPaste = useCrossPaste('filter');
 
   // Opening this modal without landing in the textarea would defeat its
   // purpose (editing a long filter) — same effect as `autoFocus`, but
@@ -55,6 +58,7 @@ export function QueryExpandModal({ queryRaw, onApply, onClose }: QueryExpandModa
       <Stack gap="sm">
         <textarea
           ref={textareaRef}
+          onPaste={onFilterPaste}
           aria-label="Query filter"
           value={draft}
           onChange={(e) => {

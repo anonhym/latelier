@@ -1,6 +1,6 @@
 # X25 — Cross-Connection Paste warning
 
-> **Status: Accepted.** Nothing has shipped yet.
+> **Status: Implemented.**
 
 ## Purpose
 

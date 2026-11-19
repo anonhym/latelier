@@ -12,6 +12,7 @@ import { OutputPanel, type PreviewStage } from '../../src/pages/Workspace/Aggreg
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { notifications } from '@mantine/notifications';
 import type { AggregationLastRun } from '@shared/types';
+import { getCopyOrigin, recordCopyOrigin } from '../../src/utils/copyOrigin';
 
 let originalClipboard: Clipboard | undefined;
 beforeEach(() => {
@@ -54,6 +55,7 @@ function panelProps(overrides: Partial<PanelProps> = {}): PanelProps {
     onSaveAsView: vi.fn(),
     onRun: vi.fn(),
     runBlockedReason: null,
+    source: { connectionId: 'c1', dbName: 'shop', collection: 'orders' },
     ...overrides,
   };
 }
@@ -152,6 +154,33 @@ describe('OutputPanel — rendering and view switching', () => {
     expect(await screen.findByText(/Output copied to the clipboard/)).toBeTruthy();
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Could not copy to the clipboard/)).toBeNull();
+  });
+
+  it('remembers a copied output as copied from the pipeline source collection', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderPanel({
+      lastRun: { ...runMeta, rows: [{ _id: 1, sku: 'ORD-ABCDEF' }], durationMs: 5 },
+      source: { connectionId: 'conn-src', dbName: 'shop', collection: 'orders' },
+    });
+
+    fireEvent.click(await exportItem('Copy'));
+
+    await screen.findByText(/Output copied to the clipboard/);
+    expect(getCopyOrigin()).toMatchObject({ connectionId: 'conn-src', dbName: 'shop', collection: 'orders' });
+    expect(getCopyOrigin()!.distinctive).toContain('ORD-ABCDEF');
+  });
+
+  it('keeps the remembered copy when the output copy is rejected', async () => {
+    const writeText = vi.fn(async () => { throw new Error('denied'); });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    recordCopyOrigin({ connectionId: 'older', dbName: 'a', collection: 'b' }, 'older-value-here');
+    renderPanel({ lastRun: { ...runMeta, rows: [{ _id: 1 }], durationMs: 5 } });
+
+    fireEvent.click(await exportItem('Copy'));
+
+    await screen.findByText(/Could not copy to the clipboard/);
+    expect(getCopyOrigin()).toMatchObject({ connectionId: 'older' });
   });
 
   it('reports a rejected copy rather than claiming success', async () => {

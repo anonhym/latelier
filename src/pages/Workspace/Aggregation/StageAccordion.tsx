@@ -19,6 +19,8 @@ import {
 } from './pipeline';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { ScriptEditor } from '../../../components/ScriptEditor';
+import { checkCrossConnectionPaste } from '../crossPaste';
+import { PasteWarningStrip } from '../PasteWarningStrip';
 import { stageBodyCompletionSource, type StageShapeInput } from '../../../components/scriptEditor/stageBodyCompletions';
 import {
   brightenBadgeForDark,
@@ -50,6 +52,8 @@ interface AccordionProps {
   previewLoading: ReadonlySet<number>;
   darkMode: boolean;
   suggestionContext: SuggestionContext | null;
+  /** The tab and Connection a stage body's paste is judged against; absent where there is no tab to warn on. */
+  pasteTarget?: { tabId: string; connectionId: string };
   /** Each stage's up-to-date preview sample; a stage edited since its preview is absent. */
   freshPreviews?: Readonly<Record<number, unknown[]>>;
   onAdd: (op: StageOp | string, afterIndex?: number) => void;
@@ -457,6 +461,7 @@ interface StageRowProps {
   stale: boolean;
   previewLoading: boolean;
   suggestionContext: SuggestionContext | null;
+  pasteTarget?: { tabId: string; connectionId: string };
   /** The pipeline around this stage, for the fields that reach it. */
   shapeInput: StageShapeInput;
   onToggleActive: () => void;
@@ -489,6 +494,7 @@ function StageRow({
   stale,
   previewLoading,
   suggestionContext,
+  pasteTarget,
   shapeInput,
   onToggleActive,
   onSummaryKeyDown,
@@ -873,6 +879,11 @@ function StageRow({
                 onChange={onChange}
                 onBlur={onEditorBlur}
                 onRunAlt={previewLoading ? undefined : onRunToStage}
+                onPaste={
+                  pasteTarget
+                    ? (text) => checkCrossConnectionPaste({ ...pasteTarget, surface: `stage:${stage.id}` }, text)
+                    : undefined
+                }
                 completionSource={buildCompletionSource}
                 connectionId={suggestionContext?.connectionId}
                 dbName={suggestionContext?.dbName}
@@ -926,6 +937,13 @@ function StageRow({
           </div>
         </div>
       )}
+      {expanded && pasteTarget && (
+        <PasteWarningStrip
+          tabId={pasteTarget.tabId}
+          connectionId={pasteTarget.connectionId}
+          surfaces={[`stage:${stage.id}`]}
+        />
+      )}
       {expanded && typeof count === 'number' && (
         <div
           title={stale ? 'Stale (edited since last run)' : undefined}
@@ -963,6 +981,7 @@ export function StageAccordion(props: AccordionProps) {
     previewLoading,
     darkMode,
     suggestionContext,
+    pasteTarget,
     freshPreviews = NO_PREVIEWS,
     onAdd,
     onToggleActive,
@@ -1087,6 +1106,7 @@ export function StageAccordion(props: AccordionProps) {
             stale={staleStageIds.has(stage.id)}
             previewLoading={previewLoading.has(stage.id)}
             suggestionContext={suggestionContext}
+            pasteTarget={pasteTarget}
             shapeInput={{
               stages,
               index: idx,

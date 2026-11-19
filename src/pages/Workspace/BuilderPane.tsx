@@ -59,6 +59,8 @@ import type {
   ValType,
 } from '@shared/types';
 import { useCollectionWorkspace } from './context';
+import { useCrossPaste } from './crossPaste';
+import { PasteWarningStrip } from './PasteWarningStrip';
 import { liveValidity } from '../../utils/shellSyntax';
 import { useLiveMatchCount } from './useLiveMatchCount';
 import { CondValueEditor, type ValueNotice } from './CondValueEditor';
@@ -1164,6 +1166,7 @@ function RawRow({
   problem: string | undefined;
 }) {
   const T = themeVars;
+  const onClausePaste = useCrossPaste('builder');
   const patchJson = (json: string) => applyEdit(updateAt(root, path, { ...node, json }), `${pathKey(path)}:json`);
   const remove = () => applyEdit(removeAt(root, path));
   const wrap = () => applyEdit(wrapInGroup(root, path, '$and'));
@@ -1211,6 +1214,7 @@ function RawRow({
             value={node.json}
             disabled={readOnly}
             onChange={(e) => patchJson(e.target.value)}
+            onPaste={onClausePaste}
             placeholder='raw clause, e.g. {"items":{"$elemMatch":{"sku":1}}}'
             aria-label={`Raw clause ${groupPosition(path)}`}
             aria-describedby={excludedNoteId}
@@ -2304,6 +2308,8 @@ function BuilderPaneInner({
           onCommit={onPatch}
           suggestionContext={suggestionContext}
         />
+
+        <PasteWarningStrip tabId={meta.tabId} connectionId={meta.connectionId} surfaces={['builder']} />
 
         {/* Pinned bottom row: Reset / Copy code / Open as pipeline, three
             actions on the whole query. Save lived here too until the QueryBar
