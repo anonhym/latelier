@@ -1,6 +1,6 @@
 # X23 — Connection Families
 
-> **Status: Accepted.** Nothing has shipped yet. The decisions behind this spec are in [ADR 0015](../docs/adr/0015-connection-families.md).
+> **Status: Implemented.** The decisions behind this spec are in [ADR 0015](../docs/adr/0015-connection-families.md).
 
 ## Purpose
 
