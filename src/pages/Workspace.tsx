@@ -538,7 +538,7 @@ function WorkspaceInner() {
     if (!target || activeView !== 'structure') return;
     structureScrollRef.current = null;
     const find = () =>
-      document.querySelector<HTMLElement>(`[role="region"][aria-label="${target}"]`);
+      document.querySelector<HTMLElement>(`[data-structure-section="${target}"]`);
     // jsdom has no scrollIntoView.
     const scroll = (el: HTMLElement) => el.scrollIntoView?.({ block: 'start' });
     const now = find();

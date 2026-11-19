@@ -306,6 +306,7 @@ export function IndexesTab({
         tabIndex={-1}
         role="region"
         aria-label="Indexes"
+        data-structure-section="Indexes"
         style={{ overflowY: 'visible' }}
       >
         {indexError && (

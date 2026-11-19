@@ -320,3 +320,20 @@ a { text-decoration: none; }
     --sw-note-row: 2;
   }
 }
+
+/* Schema & indexes: a pill's jump stops below the sticky pill bar (its height
+   is measured into --structure-bar-h; 40px until then) and flashes the section
+   it landed on. Under reduced motion the outline stays, static, until cleared. */
+[data-structure-section] { scroll-margin-top: var(--structure-bar-h, 40px); }
+[data-structure-section][data-flash] {
+  outline: 2px solid var(--atelier-accent-soft);
+  outline-offset: -2px;
+  animation: structure-section-flash 1200ms ease-out 1;
+}
+@keyframes structure-section-flash {
+  from { outline-color: var(--atelier-accent); }
+  to { outline-color: var(--atelier-accent-soft); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-structure-section][data-flash] { animation: none; }
+}

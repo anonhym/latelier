@@ -109,6 +109,8 @@ export function SchemaView({
     <div
       role="region"
       aria-label="Schema"
+      data-structure-section="Schema"
+      tabIndex={-1}
       style={{ flex: 'none', display: 'flex', flexDirection: 'column', overflow: 'visible' }}
     >
       {/* Header */}

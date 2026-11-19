@@ -29,8 +29,13 @@ interface Props {
 
 type SectionKey = 'Indexes' | 'Schema' | 'Validation';
 
+// Found by a dedicated attribute, not by ARIA: a section that forgets its
+// `role` would silently stop being a jump target.
 const findSection = (root: ParentNode, key: SectionKey) =>
-  root.querySelector<HTMLElement>(`[role="region"][aria-label="${key}"]`);
+  root.querySelector<HTMLElement>(`[data-structure-section="${key}"]`);
+
+/** How long a pill click's flash stays on the section it jumped to. */
+const FLASH_MS = 1200;
 
 /**
  * The collection tab's "Schema & indexes" view (W16 §16, ADR 0003): a stat
@@ -61,6 +66,8 @@ export function StructureView({
   const [rowCreate, setRowCreate] = React.useState<IndexCreateRequest | null>(null);
   const [active, setActive] = React.useState<SectionKey>('Indexes');
   const pane = React.useRef<HTMLDivElement>(null);
+  const bar = React.useRef<HTMLDivElement>(null);
+  const flashed = React.useRef<{ el: HTMLElement; timer: number } | null>(null);
   const isView = details?.type === 'view';
   const hasValidation = details?.type === 'collection';
   const pills: { key: SectionKey; label: string }[] = [
@@ -69,6 +76,43 @@ export function StructureView({
     ...(hasValidation ? [{ key: 'Validation' as const, label: 'Validation' }] : []),
   ];
   const ready = !!(details || error);
+
+  // Sections stop their scroll below the sticky pill bar (see `index.css`).
+  React.useLayoutEffect(() => {
+    const h = bar.current?.offsetHeight;
+    if (h) pane.current?.style.setProperty('--structure-bar-h', `${h}px`);
+  });
+
+  React.useEffect(
+    () => () => {
+      if (flashed.current) {
+        window.clearTimeout(flashed.current.timer);
+        flashed.current.el.removeAttribute('data-flash');
+      }
+    },
+    [],
+  );
+
+  // Every pill click answers, even when the section is already in view and
+  // nothing scrolls: focus moves to it and it flashes briefly.
+  const jumpTo = (root: ParentNode, key: SectionKey) => {
+    const el = findSection(root, key);
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'start' });
+    el.focus({ preventScroll: true });
+    if (flashed.current) {
+      window.clearTimeout(flashed.current.timer);
+      flashed.current.el.removeAttribute('data-flash');
+    }
+    el.setAttribute('data-flash', 'true');
+    flashed.current = {
+      el,
+      timer: window.setTimeout(() => {
+        el.removeAttribute('data-flash');
+        flashed.current = null;
+      }, FLASH_MS),
+    };
+  };
 
   // Scroll-spy: the section nearest the top of the pane is the one in view.
   // ponytail: jsdom and old engines have no IntersectionObserver; the pills still jump, they just don't follow.
@@ -80,7 +124,7 @@ export function StructureView({
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          const key = (e.target as HTMLElement).getAttribute('aria-label') as SectionKey;
+          const key = (e.target as HTMLElement).dataset.structureSection as SectionKey;
           if (e.isIntersecting) visible.set(key, e.boundingClientRect.top);
           else visible.delete(key);
         }
@@ -104,6 +148,7 @@ export function StructureView({
   return (
     <div ref={pane} data-structure-pane="" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
       <div
+        ref={bar}
         style={{
           flex: 'none',
           // The marked pill is only useful while it is in view.
@@ -130,7 +175,7 @@ export function StructureView({
                 onClick={(e) => {
                   setActive(p.key);
                   const root = e.currentTarget.closest('[data-structure-pane]');
-                  if (root) findSection(root, p.key)?.scrollIntoView?.({ block: 'start' });
+                  if (root) jumpTo(root, p.key);
                 }}
               >
                 {p.label}
