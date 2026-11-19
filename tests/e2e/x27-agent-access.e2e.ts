@@ -183,7 +183,7 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
       expect(textOf(found)).toMatch(/<untrusted-data-[0-9a-f]{32}>/);
       expect(textOf(found)).toContain('x27-marker-alpha');
       expect(textOf(found)).toContain('x27-marker-beta');
-      expect(JSON.stringify(found.structuredContent)).not.toContain('x27-marker');
+      expect(Object.keys(found)).not.toContain('structuredContent');
 
       // Unshare in the app: the very next call is refused.
       expect((await setShared(win, connectionId, false)).shared).toBe(false);

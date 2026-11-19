@@ -232,31 +232,19 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   explainAggregate,
 ];
 
-/** Metadata only: documents never travel in `structuredContent` (X27 §9.3). */
-export const OUTPUT_SCHEMA = z.object({
-  count: z.number().int().min(0),
-  truncated: z.boolean(),
-  appliedLimits: z.array(z.enum(['limit', 'bytes'])),
-  durationMs: z.number().int().min(0),
-  estimate: z.boolean().optional(),
-});
-
 export interface ToolListEntry {
   name: string;
   description: string;
   inputSchema: { type: 'object'; [key: string]: unknown };
-  outputSchema: { type: 'object'; [key: string]: unknown };
   annotations: { readOnlyHint: true; openWorldHint: false };
 }
 
-/** The `tools/list` entries: hand-built so a refused call still reaches the runner and its log. */
+/** The `tools/list` entries (no `outputSchema`: see `metaLine`): hand-built so a refused call still reaches the runner and its log. */
 export function toolListEntries(tools: readonly AgentTool[]): ToolListEntry[] {
-  const output = z.toJSONSchema(OUTPUT_SCHEMA, { target: 'draft-7' }) as ToolListEntry['outputSchema'];
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     inputSchema: z.toJSONSchema(tool.inputSchema, { target: 'draft-7', io: 'input', unrepresentable: 'any' }) as ToolListEntry['inputSchema'],
-    outputSchema: output,
     annotations: { readOnlyHint: true, openWorldHint: false },
   }));
 }

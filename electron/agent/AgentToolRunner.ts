@@ -8,12 +8,12 @@ import {
   type AgentError,
   type AgentOutcome,
 } from './errorMap.ts';
-import { OUTPUT_SCHEMA, type AgentTool, type ToolOutcome } from './tools.ts';
+import { metaLine } from './envelope.ts';
+import type { AgentTool, ToolOutcome } from './tools.ts';
 
 export interface AgentCallResult {
   [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
-  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 
@@ -137,14 +137,15 @@ export class AgentToolRunner {
     if (failure) {
       return { result: { isError: true, content: [{ type: 'text', text }] }, closeSession };
     }
-    const structured = OUTPUT_SCHEMA.parse({
+    // No `structuredContent` and no `outputSchema`: a client that has one shows the model only that and drops the text holding the data.
+    const meta = metaLine({
       count: outcome!.count,
       truncated: outcome!.truncated === true,
       appliedLimits: outcome!.appliedLimits ?? [],
       durationMs,
-      ...(outcome!.estimate === undefined ? {} : { estimate: outcome!.estimate }),
+      estimate: outcome!.estimate,
     });
-    return { result: { content: [{ type: 'text', text }], structuredContent: structured }, closeSession };
+    return { result: { content: [{ type: 'text', text: `${text}\n${meta}` }] }, closeSession };
   }
 
   /** The Connection, database and collection an Agent named, whether or not the call was allowed. */

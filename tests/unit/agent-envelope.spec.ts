@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cutName, wrap } from '../../electron/agent/envelope';
+import { cutName, metaLine, wrap } from '../../electron/agent/envelope';
 
 describe('wrap', () => {
   it('puts the body between nonce-tagged lines under a one-line notice', () => {
@@ -74,5 +74,36 @@ describe('cutName', () => {
 
   it('honours another limit', () => {
     expect(cutName('abcdef', 3)).toBe('abc');
+  });
+});
+
+describe('metaLine', () => {
+  it('states the count, truncated, limits and duration on one plain line', () => {
+    expect(metaLine({ count: 3, truncated: false, appliedLimits: [], durationMs: 12 })).toBe(
+      'Returned 3 items. truncated: false. limits: none. 12 ms.',
+    );
+  });
+
+  it('uses the singular for one item', () => {
+    expect(metaLine({ count: 1, truncated: false, appliedLimits: [], durationMs: 0 })).toMatch(/^Returned 1 item\. /);
+    expect(metaLine({ count: 0, truncated: false, appliedLimits: [], durationMs: 0 })).toMatch(/^Returned 0 items\. /);
+  });
+
+  it('names every applied limit', () => {
+    expect(metaLine({ count: 50, truncated: true, appliedLimits: ['limit', 'bytes'], durationMs: 7 })).toBe(
+      'Returned 50 items. truncated: true. limits: limit, bytes. 7 ms.',
+    );
+  });
+
+  it('adds the estimate flag only when the tool set it', () => {
+    expect(metaLine({ count: 60, truncated: false, appliedLimits: [], durationMs: 1, estimate: true })).toBe(
+      'Returned 60 items. truncated: false. limits: none. estimate: true. 1 ms.',
+    );
+    expect(metaLine({ count: 60, truncated: false, appliedLimits: [], durationMs: 1, estimate: false })).toContain('estimate: false.');
+    expect(metaLine({ count: 60, truncated: false, appliedLimits: [], durationMs: 1 })).not.toContain('estimate');
+  });
+
+  it('is a single line', () => {
+    expect(metaLine({ count: 2, truncated: true, appliedLimits: ['bytes'], durationMs: 3, estimate: true })).not.toContain('\n');
   });
 });

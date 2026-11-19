@@ -92,3 +92,45 @@ export function textOf(result: { content?: unknown }): string {
   const first = (result.content as Array<{ type: string; text?: string }> | undefined)?.[0];
   return first?.type === 'text' ? (first.text ?? '') : '';
 }
+
+export interface ResultMeta {
+  count: number;
+  truncated: boolean;
+  appliedLimits: string[];
+  durationMs: number;
+  estimate?: boolean;
+}
+
+const META_LINE = /^Returned (\d+) items?\. truncated: (true|false)\. limits: (none|[a-z, ]+)\.(?: estimate: (true|false)\.)? (\d+) ms\.$/;
+
+/** The metadata line the app writes as the last line of a successful result, outside the untrusted-data envelope. */
+export function metaOf(result: { content?: unknown }): ResultMeta {
+  const last = textOf(result).split('\n').at(-1) ?? '';
+  const m = META_LINE.exec(last);
+  if (!m) throw new Error(`no metadata line at the end of: ${last.slice(0, 200)}`);
+  return {
+    count: Number(m[1]),
+    truncated: m[2] === 'true',
+    appliedLimits: m[3] === 'none' ? [] : m[3]!.split(', '),
+    durationMs: Number(m[5]),
+    ...(m[4] === undefined ? {} : { estimate: m[4] === 'true' }),
+  };
+}
+
+/** The text with the untrusted-data envelope, tags and body, cut out: what a reader sees as the app's own words. */
+export function outsideEnvelope(text: string): string {
+  const open = text.match(/^<untrusted-data-([0-9a-f]{32})>$/m);
+  if (!open) return text;
+  const closing = `</untrusted-data-${open[1]}>`;
+  const start = text.indexOf(open[0]);
+  const end = text.indexOf(`\n${closing}`) + 1 + closing.length;
+  return text.slice(0, start) + text.slice(end);
+}
+
+export function envelopeBody(text: string): string {
+  const open = text.match(/^<untrusted-data-([0-9a-f]{32})>$/m);
+  if (!open) throw new Error(`no envelope in: ${text.slice(0, 200)}`);
+  const start = text.indexOf(open[0]) + open[0].length + 1;
+  const end = text.indexOf(`\n</untrusted-data-${open[1]}>`);
+  return text.slice(start, end);
+}

@@ -35,5 +35,29 @@ export function wrap(body: string, options: WrapOptions = {}): string {
   return lines.join('\n');
 }
 
+export interface ResultMeta {
+  count: number;
+  truncated: boolean;
+  appliedLimits: readonly string[];
+  durationMs: number;
+  /** Set by `count` when it answered from collection metadata. */
+  estimate?: boolean;
+}
+
+/**
+ * The one trusted line the app writes after the envelope: count, whether the
+ * result was cut and why, and how long the call took. It lives in the text
+ * because a client may show the model only `structuredContent` when a result
+ * has one, and drop the text that holds the data. Every value is a number,
+ * a boolean or one of the fixed limit names, so it carries nothing from the
+ * database and sits outside the untrusted-data tags.
+ */
+export function metaLine(meta: ResultMeta): string {
+  const noun = meta.count === 1 ? 'item' : 'items';
+  const limits = meta.appliedLimits.length === 0 ? 'none' : meta.appliedLimits.join(', ');
+  const estimate = meta.estimate === undefined ? '' : ` estimate: ${meta.estimate}.`;
+  return `Returned ${meta.count} ${noun}. truncated: ${meta.truncated}. limits: ${limits}.${estimate} ${meta.durationMs} ms.`;
+}
+
 // The cut lives with the namespace rules; the envelope re-exports it for callers that wrap names.
 export { cutName } from './namespaceGuard.ts';

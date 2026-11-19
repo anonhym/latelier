@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient, type Db } from 'mongodb';
 import { createAgentHarness, type AgentHarness } from './agentHarness';
 import { createAgentMongo, type AgentMongo } from './agentMongo';
-import { connectAgent, textOf, type AgentConnection } from './agentSocket';
+import { connectAgent, envelopeBody, textOf, type AgentConnection } from './agentSocket';
 import { getSharedMongoUri, uriToHostPort } from './mongo';
 
 export interface ReadFixture {
@@ -100,10 +100,4 @@ export function docsIn(result: ToolResult): Array<Record<string, unknown>> {
   return JSON.parse(body) as Array<Record<string, unknown>>;
 }
 
-export function envelopeBody(text: string): string {
-  const open = text.match(/^<untrusted-data-([0-9a-f]{32})>$/m);
-  if (!open) throw new Error(`no envelope in: ${text.slice(0, 200)}`);
-  const start = text.indexOf(open[0]) + open[0].length + 1;
-  const end = text.indexOf(`\n</untrusted-data-${open[1]}>`);
-  return text.slice(start, end);
-}
+export { envelopeBody };
