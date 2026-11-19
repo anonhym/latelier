@@ -327,6 +327,21 @@ describe('refs:* channels via router', () => {
       });
     });
 
+    it('refuses a rule a Family Export file could not carry back in', async () => {
+      for (const over of [
+        { displayTemplate: 'x'.repeat(2001) },
+        { sourceField: 'f'.repeat(256) },
+        { projection: Array.from({ length: 201 }, (_, i) => `p${i}`) },
+        { projection: ['p'.repeat(256)] },
+      ]) {
+        const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput(over));
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      }
+      const edge = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ displayTemplate: 'x'.repeat(2000), projection: ['p'.repeat(255)] }));
+      expect(edge.ok).toBe(true);
+    });
+
     it('accepts the rule owner as connectionId and rejects an empty one at the schema', async () => {
       const rule = await createRule();
       const ok = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {

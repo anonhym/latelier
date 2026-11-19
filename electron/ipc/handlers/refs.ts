@@ -3,6 +3,12 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type { Router } from '../router.ts';
 import { NonEmpty, SettingOwnerSchema, zodValidator } from '../validators.ts';
 import type { ReferenceRulesService } from '../../services/ReferenceRulesService.ts';
+import { MAX_NAME, MAX_PATHS, MAX_TEMPLATE } from '../../services/familyExportFormat.ts';
+
+// What a rule may hold is what a Family Export file can carry back in.
+const Name = NonEmpty.max(MAX_NAME);
+const Projection = z.array(z.string().max(MAX_NAME)).max(MAX_PATHS);
+const Template = z.string().max(MAX_TEMPLATE);
 
 // A namespace is both names or neither: `dbName` alone used to fall through
 // to the whole connection's rules, answering a question nobody asked.
@@ -20,23 +26,23 @@ const DeleteInputSchema = z.object({ id: NonEmpty });
 
 const CreateInputSchema = z.object({
   owner: SettingOwnerSchema,
-  sourceDb: NonEmpty,
-  sourceCollection: NonEmpty,
-  sourceField: NonEmpty,
-  targetDb: NonEmpty,
-  targetCollection: NonEmpty,
-  targetField: NonEmpty.optional(),
-  projection: z.array(z.string()).optional(),
-  displayTemplate: z.string().optional(),
+  sourceDb: Name,
+  sourceCollection: Name,
+  sourceField: Name,
+  targetDb: Name,
+  targetCollection: Name,
+  targetField: Name.optional(),
+  projection: Projection.optional(),
+  displayTemplate: Template.optional(),
   enabled: z.boolean().optional(),
 });
 
 const PatchSchema = z.object({
-  targetDb: NonEmpty.optional(),
-  targetCollection: NonEmpty.optional(),
-  targetField: NonEmpty.optional(),
-  projection: z.array(z.string()).optional(),
-  displayTemplate: z.string().optional(),
+  targetDb: Name.optional(),
+  targetCollection: Name.optional(),
+  targetField: Name.optional(),
+  projection: Projection.optional(),
+  displayTemplate: Template.optional(),
   enabled: z.boolean().optional(),
 });
 

@@ -43,10 +43,11 @@ export interface FamilyExportFile {
   rowSummaries: FamilyExportRowSummary[];
 }
 
-const MAX_NAME = 255;
+// The rule handlers enforce the same bounds on what they save, so a saved rule always fits a file this reads back.
+export const MAX_NAME = 255;
 const MAX_ITEMS = 5000;
-const MAX_TEMPLATE = 2000;
-const MAX_PATHS = 200;
+export const MAX_TEMPLATE = 2000;
+export const MAX_PATHS = 200;
 
 const Name = z.string().min(1).max(MAX_NAME);
 const Paths = z.array(z.string().max(MAX_NAME)).max(MAX_PATHS);
