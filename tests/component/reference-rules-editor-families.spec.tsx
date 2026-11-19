@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor, within } from '../helpers/render';
 import type { ConnectionFamily, EffectiveReferenceRule, SettingOrigin } from '@shared/types';
 import { ReferenceRulesEditor } from '../../src/features/references/ReferenceRulesEditor';
+import { useReferenceRules } from '../../src/features/references/useReferenceRules';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 
 const FAMILY: ConnectionFamily = {
@@ -77,6 +78,23 @@ describe('ReferenceRulesEditor — a Connection in a Family', () => {
     expect(within(await rowFor('owner_id')).getByText('Overridden here')).toBeTruthy();
     expect(within(await rowFor('tag_id')).getByText('Local')).toBeTruthy();
     expect(list).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'shop', collection: 'orders', effective: true });
+  });
+
+  it('tells a mounted rules reader about a reset, whatever hosts the editor', async () => {
+    const user = userEvent.setup();
+    function Reader() {
+      const { rules } = useReferenceRules('conn-1', 'shop', 'orders');
+      return <div data-testid="reader">{rules.map((r) => r.id).join(',')}</div>;
+    }
+    render(
+      <>
+        <Reader />
+        <ReferenceRulesEditor connectionId="conn-1" dbName="shop" collection="orders" onClose={() => {}} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId('reader').textContent).toContain('o1'));
+    await user.click(within(await rowFor('owner_id')).getByRole('button', { name: 'Reset owner_id to shared' }));
+    await waitFor(() => expect(screen.getByTestId('reader').textContent).not.toContain('o1'));
   });
 
   it('offers Reset to shared on an Override only, and resets it with no confirm', async () => {

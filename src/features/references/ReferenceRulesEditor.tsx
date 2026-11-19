@@ -9,6 +9,7 @@ import { SubmitButton } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
 import { useNamespaceSuggestions } from './useNamespaceSuggestions';
+import { notifyReferenceRulesChanged } from './useReferenceRules';
 import { useConnectionFamily } from '../connections/useConnectionFamily';
 import { ORIGIN_BADGE } from './originBadge';
 import type {
@@ -177,6 +178,8 @@ export function ReferenceRulesEditor({
 
   const refresh = async () => {
     await loadRules();
+    // Every host of this editor has readers of the same rules mounted elsewhere (the open tab's chips); a host's own `onChanged` is not what keeps them current.
+    notifyReferenceRulesChanged();
     onChanged?.();
   };
 
