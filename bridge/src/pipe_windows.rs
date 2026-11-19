@@ -17,7 +17,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use crate::peer::{self, PeerCheck};
+use crate::peer::{self, PeerCheck, PipeOwner};
 use crate::poll_relay::{self, PollPipe};
 use crate::relay::{FirstLineTap, HandshakeVerdict, RunError};
 
@@ -81,6 +81,10 @@ const TOKEN_USER_CLASS: u32 = 1;
 /// `SE_OBJECT_TYPE::SE_KERNEL_OBJECT`, and `OWNER_SECURITY_INFORMATION`.
 const SE_KERNEL_OBJECT: u32 = 6;
 const OWNER_SECURITY_INFORMATION: u32 = 1;
+/// `S-1-5-32-544` (`BUILTIN\Administrators`) as the bytes of a SID: revision 1, two sub-authorities,
+/// identifier authority 5 (NT), then 32 (BUILTIN) and 544 (Administrators) as little-endian `u32`s.
+/// A fixed constant needs no call to build it, so there is nothing to fail.
+static ADMINISTRATORS_SID: [u8; 16] = [1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 0x20, 0x02, 0, 0];
 
 /// `ERROR_PIPE_BUSY`: every instance of the pipe is serving a client for the moment.
 const ERROR_PIPE_BUSY: i32 = 231;
@@ -180,10 +184,11 @@ fn process_token(process: *mut c_void, call: &'static str) -> Result<OwnedHandle
     owned(token, call)
 }
 
-/// Whether the pipe object itself is owned by `own` (the bridge's user SID). The server's process
-/// id can be reused between the lookup and the token query; the owner is fixed when the pipe is
-/// created, so a squatter that took over the name does not own it as this user. An elevated app
-/// would own its pipes as Administrators and be refused here: out of scope, the app is not elevated.
+/// Who owns the pipe object itself: the bridge's user (`own`), `Administrators`, or someone else.
+/// The server's process id can be reused between the lookup and the token query; the owner is
+/// fixed when the pipe is created, so a squatter that took over the name does not own it as this
+/// user. An administrator's elevated process creates its objects owned by `Administrators`
+/// rather than by its user, so that owner is accepted too (see `peer.rs` for why that is safe).
 fn check_pipe_owner(pipe: &File, own: &TokenUser) -> PeerCheck {
     let mut owner: *mut c_void = ptr::null_mut();
     let mut descriptor: *mut c_void = ptr::null_mut();
@@ -204,20 +209,25 @@ fn check_pipe_owner(pipe: &File, own: &TokenUser) -> PeerCheck {
     if status != 0 || owner.is_null() {
         return PeerCheck::Failed { call: "GetSecurityInfo", code: status as i32 };
     }
-    // SAFETY: both SIDs are valid until the descriptor is freed on the next line.
-    let same = unsafe { EqualSid(own.sid(), owner) } != 0;
+    // SAFETY: `owner` and the own SID are valid until the descriptor is freed below, and the
+    // Administrators SID is a static well-formed SID that `EqualSid` only reads.
+    let which = unsafe {
+        if EqualSid(own.sid(), owner) != 0 {
+            PipeOwner::User
+        } else if EqualSid(ADMINISTRATORS_SID.as_ptr().cast_mut().cast(), owner) != 0 {
+            PipeOwner::Administrators
+        } else {
+            PipeOwner::Other
+        }
+    };
     // SAFETY: `descriptor` was allocated by `GetSecurityInfo` and nothing uses it after this.
     unsafe { LocalFree(descriptor) };
-    if same {
-        PeerCheck::SameUser
-    } else {
-        PeerCheck::OtherUser
-    }
+    peer::owner_check(which)
 }
 
 /// Whether the pipe is served by this user, by two independent facts that must both hold: the
-/// process serving it runs as this user, and the pipe object is owned by this user. Any step that
-/// cannot be completed is a `Failed`, never a guess.
+/// process serving it runs as this user (strict), and the pipe object is owned by this user or
+/// by `Administrators`. Any step that cannot be completed is a `Failed`, never a guess.
 fn check_peer(pipe: &File) -> PeerCheck {
     // SAFETY: the pseudo-handle for this process; it is valid for the whole run and needs no close.
     let current = unsafe { GetCurrentProcess() };
@@ -239,8 +249,7 @@ fn check_peer(pipe: &File) -> PeerCheck {
         Ok(unsafe { EqualSid(own_user.sid(), server_user.sid()) } != 0)
     })();
     let by_process = match server_process {
-        Ok(true) => PeerCheck::SameUser,
-        Ok(false) => PeerCheck::OtherUser,
+        Ok(same_user) => peer::process_check(same_user),
         Err(failed) => failed,
     };
     peer::both(by_process, check_pipe_owner(pipe, &own_user))
