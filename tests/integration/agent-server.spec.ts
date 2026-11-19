@@ -230,6 +230,13 @@ describe('Agent server', () => {
       a.close();
     });
 
+    it('logs which token opened a session by its name, under a key the logger does not redact', async () => {
+      const { socketPath, token } = await start();
+      await agentFor(socketPath, token);
+      const opened = (h.log.info as unknown as { mock: { calls: unknown[][] } }).mock.calls.find((c) => c[1] === 'session opened');
+      expect(opened?.[2]).toEqual({ agentName: 'Claude Code' });
+    });
+
     it('never logs the token, whether the handshake succeeds or fails', async () => {
       const { socketPath, token } = await start();
       const badToken = 'ZZ_never_logged_ZZ';

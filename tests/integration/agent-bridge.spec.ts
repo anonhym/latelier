@@ -17,6 +17,7 @@ import { textOf } from '../helpers/agentSocket';
  */
 
 const NOT_RUNNING = "L'Atelier is not running or Agent Access is off\n";
+const TOKEN_REFUSED = "L'Atelier refused this Agent token\n";
 const present = bridgeBinaryPresent();
 const posix = process.platform !== 'win32';
 
@@ -107,12 +108,13 @@ describe.skipIf(!present)('Agent Bridge against the Agent server', () => {
     await client.close();
   });
 
-  it('forwards the app\'s refusal of an unknown token, then exits 0 because the app closed the socket', async () => {
+  it('forwards the app\'s refusal of an unknown token, then exits 4 with one line on stderr', async () => {
     const { socketPath } = await start();
     const { child, exited } = runBridge({ LATELIER_AGENT_TOKEN: 'not-a-real-token', LATELIER_AGENT_SOCKET: socketPath });
     children.push(child);
     const result = await within(exited, 10_000, 'the bridge to exit after a refusal');
-    expect(result.code).toBe(0);
+    expect(result.code).toBe(4);
+    expect(result.stderr).toBe(TOKEN_REFUSED);
     const line = JSON.parse(result.stdout.trim()) as { error: { code: number; message: string } };
     expect(line.error.code).toBe(-32001);
     expect(result.stdout).not.toContain('not-a-real-token');

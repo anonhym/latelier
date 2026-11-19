@@ -15,7 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::poll_relay::{self, PollPipe};
-use crate::relay::RunError;
+use crate::relay::{FirstLineTap, HandshakeVerdict, RunError};
 
 #[link(name = "kernel32")]
 extern "system" {
@@ -115,5 +115,12 @@ pub fn run(endpoint: &str, handshake: &[u8]) -> Result<(), RunError> {
         }
     });
 
-    poll_relay::run(&mut pipe, &rx, &mut io::stdout(), &poll_relay::TIMING).map_err(RunError::Io)
+    let verdict = HandshakeVerdict::default();
+    let mut out = FirstLineTap::new(io::stdout(), verdict.clone());
+    let result = poll_relay::run(&mut pipe, &rx, &mut out, &poll_relay::TIMING).map_err(RunError::Io);
+    // A refusal wins over whatever the close after it looked like: the app sent its line and hung up.
+    match verdict.get() {
+        Some(refusal) => Err(RunError::Refused(refusal)),
+        None => result,
+    }
 }

@@ -26,6 +26,7 @@ test.afterAll(stopAllMemoryServers);
 test.skip(!bridgeBinaryPresent() && !isCi(), 'the Agent Bridge is not built (no Rust toolchain: scripts/build-bridge.mjs only warned)');
 
 const NOT_RUNNING = "L'Atelier is not running or Agent Access is off\n";
+const TOKEN_REFUSED = "L'Atelier refused this Agent token\n";
 const DB = 'x27_e2e';
 const CONNECTION_NAME = 'X27 Target';
 
@@ -204,6 +205,11 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
     await once(raw, 'close');
     expect((JSON.parse(received.trim()) as { error: { code: number } }).error.code).toBe(-32002);
     expect(received).not.toContain(token);
+
+    // A token the app does not know: it refuses, and the bridge says so on stderr and exits 4.
+    const refused = await runToExit(server.command, { ...bridgeEnv, LATELIER_AGENT_TOKEN: 'not-a-real-token' }, userDataDir);
+    expect(refused.code).toBe(4);
+    expect(refused.stderr).toBe(TOKEN_REFUSED);
 
     // No token: exit 2.
     const noToken = await runToExit(server.command, { LATELIER_AGENT_SOCKET: on.socketPath }, userDataDir);

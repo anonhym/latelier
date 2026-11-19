@@ -7,6 +7,8 @@ use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_latelier-agent-bridge");
 const NOT_RUNNING: &str = "L'Atelier is not running or Agent Access is off\n";
+const TOKEN_REFUSED: &str = "L'Atelier refused this Agent token\n";
+const PROTOCOL_REFUSED: &str = "L'Atelier does not support this bridge's protocol version\n";
 const SECRET: &str = "s3cret-Token_0123456789";
 
 #[cfg(unix)]
@@ -206,6 +208,62 @@ mod over_a_socket {
         let out = run(cmd);
         assert_eq!(out.status.code(), Some(3));
         assert_eq!(stderr(&out), NOT_RUNNING);
+    }
+
+    /// An app stand-in that answers the handshake with `line` and hangs up.
+    fn refusing_server(listener: UnixListener, line: &'static str) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut handshake = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut handshake).unwrap();
+            let mut writer = stream;
+            writer.write_all(line.as_bytes()).unwrap();
+        })
+    }
+
+    const REFUSAL_LINE: &str = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32001,\"message\":\"Agent token refused\"}}\n";
+    const UNSUPPORTED_LINE: &str = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32002,\"message\":\"Agent protocol not supported\"}}\n";
+
+    #[test]
+    fn a_refused_token_exits_4_with_one_line_and_still_forwards_the_apps_line() {
+        let dir = TempDir::new("refuse");
+        let sock = dir.path().join("a.sock");
+        let server = refusing_server(UnixListener::bind(&sock).unwrap(), REFUSAL_LINE);
+        let mut cmd = bridge();
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        let out = run(cmd);
+        server.join().unwrap();
+        assert_eq!(out.status.code(), Some(4));
+        assert_eq!(stderr(&out), TOKEN_REFUSED);
+        assert_eq!(out.stdout, REFUSAL_LINE.as_bytes());
+        assert!(!String::from_utf8_lossy(&out.stdout).contains(SECRET));
+    }
+
+    #[test]
+    fn an_unsupported_protocol_exits_4_with_its_own_line() {
+        let dir = TempDir::new("proto");
+        let sock = dir.path().join("a.sock");
+        let server = refusing_server(UnixListener::bind(&sock).unwrap(), UNSUPPORTED_LINE);
+        let mut cmd = bridge();
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        let out = run(cmd);
+        server.join().unwrap();
+        assert_eq!(out.status.code(), Some(4));
+        assert_eq!(stderr(&out), PROTOCOL_REFUSED);
+    }
+
+    #[test]
+    fn a_close_with_no_refusal_line_is_still_a_clean_exit() {
+        // What a revoked token or a quitting app looks like after a session: the socket just ends.
+        let dir = TempDir::new("quiet");
+        let sock = dir.path().join("a.sock");
+        let server = refusing_server(UnixListener::bind(&sock).unwrap(), "");
+        let mut cmd = bridge();
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        let out = run(cmd);
+        server.join().unwrap();
+        assert_eq!(out.status.code(), Some(0));
+        assert_eq!(stderr(&out), "");
     }
 
     #[test]

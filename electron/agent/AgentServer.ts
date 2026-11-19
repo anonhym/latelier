@@ -172,7 +172,8 @@ export class AgentServer {
     });
     this.sessions.add(session);
     this.onSessionsChanged?.();
-    this.deps.log.info('agent', 'session opened', { token: row.name });
+    // Not under the key `token`: the logger redacts any value filed under that name, so the Agent's name would never show.
+    this.deps.log.info('agent', 'session opened', { agentName: row.name });
     try {
       await session.start();
     } catch (err) {

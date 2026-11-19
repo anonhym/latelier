@@ -5,7 +5,9 @@
 //! database or Mongo client, never starts the app, and never prints the token.
 //!
 //! Exit codes: 0 a clean close, 1 the stream broke after it connected, 2 the
-//! token is missing or malformed, 3 the app is not reachable.
+//! token is missing or malformed, 3 the app is not reachable, 4 the app
+//! refused the handshake (an unknown or revoked token, or a protocol it does
+//! not speak).
 
 mod endpoint;
 mod relay;
@@ -28,11 +30,15 @@ compile_error!("latelier-agent-bridge supports Unix and Windows only");
 use std::process::ExitCode;
 
 use endpoint::{Env, Platform};
-use relay::RunError;
+use relay::{Refusal, RunError};
 use token::{Token, TokenError, TOKEN_ENV};
 
 /// Printed on exit 3. The Agent client shows this line to the user, so it is exact.
 const NOT_RUNNING: &str = "L'Atelier is not running or Agent Access is off";
+
+/// Printed on exit 4. Never names the token, or why the app refused it.
+const TOKEN_REFUSED: &str = "L'Atelier refused this Agent token";
+const PROTOCOL_REFUSED: &str = "L'Atelier does not support this bridge's protocol version";
 
 fn main() -> ExitCode {
     // `var` fails on a value that is not valid Unicode; a token never is.
@@ -65,6 +71,10 @@ fn main() -> ExitCode {
         Err(RunError::Unreachable) => {
             eprintln!("{NOT_RUNNING}");
             ExitCode::from(3)
+        }
+        Err(RunError::Refused(refusal)) => {
+            eprintln!("{}", if refusal == Refusal::Token { TOKEN_REFUSED } else { PROTOCOL_REFUSED });
+            ExitCode::from(4)
         }
         Err(RunError::Io(err)) => {
             eprintln!("latelier-agent-bridge: connection lost ({:?})", err.kind());

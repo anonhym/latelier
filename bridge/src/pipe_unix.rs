@@ -11,14 +11,20 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use crate::relay::{copy_flushing, is_closed, RunError};
+use crate::relay::{copy_flushing, is_closed, FirstLineTap, HandshakeVerdict, RunError};
 
 /// After stdin ends, how long the app gets to answer what is in flight before the bridge leaves.
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 pub fn run(endpoint: &str, handshake: &[u8]) -> Result<(), RunError> {
     let stream = UnixStream::connect(endpoint).map_err(|_| RunError::Unreachable)?;
-    relay(stream, handshake, io::stdin(), io::stdout())
+    let verdict = HandshakeVerdict::default();
+    let result = relay(stream, handshake, io::stdin(), FirstLineTap::new(io::stdout(), verdict.clone()));
+    // A refusal wins over whatever the close after it looked like: the app sent its line and hung up.
+    match verdict.get() {
+        Some(refusal) => Err(RunError::Refused(refusal)),
+        None => result,
+    }
 }
 
 enum Finished {
@@ -182,6 +188,28 @@ mod tests {
         relay(client, b"HELLO\n", Cursor::new(payload), out.clone()).unwrap();
         server_thread.join().unwrap();
         assert_eq!(*out.0.lock().unwrap(), expected);
+    }
+
+    #[test]
+    fn a_refusal_line_then_a_close_is_a_refusal_and_the_line_is_still_forwarded() {
+        let dir = std::env::temp_dir().join(format!("lb-refuse-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let mut writer = stream;
+            writer
+                .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32001,\"message\":\"Agent token refused\"}}\n")
+                .unwrap();
+        });
+        // `run` reads the real stdin, which a test harness gives /dev/null: it ends at once, and the app's line is still waited for.
+        let result = run(path.to_str().unwrap(), b"HELLO\n");
+        server.join().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(matches!(result, Err(RunError::Refused(crate::relay::Refusal::Token))), "{result:?}");
     }
 
     #[test]

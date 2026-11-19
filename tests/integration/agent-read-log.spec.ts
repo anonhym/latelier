@@ -96,6 +96,18 @@ describe('Agent Read Log', () => {
     expect(h.svc.sessionReadCount).toBe(3);
   });
 
+  it('cuts what the client calls itself before it reaches a log row', async () => {
+    h = createAgentHarness();
+    h.addConnection('c1', 'Orders', { shared: true, status: 'connected' });
+    const { token } = h.svc.addToken('Claude Code');
+    const path = await h.enable();
+    agent = await connectAgent(path, token, { name: 'n'.repeat(500), version: 'v'.repeat(500) });
+    await agent.client.callTool({ name: 'list_connections', arguments: {} });
+    const [row] = rows(h.tmp.db);
+    expect(row!.client_name).toBe('n'.repeat(128));
+    expect(row!.client_version).toBe('v'.repeat(128));
+  });
+
   it('records a refused call whose token vanished under a live session, then ends the session', async () => {
     const { h, info, agent } = await start();
     // Deleted behind the service's back, so only the per-call re-check can notice.

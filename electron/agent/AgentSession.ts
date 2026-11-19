@@ -11,6 +11,11 @@ export const MAX_MESSAGE_BYTES = 1_048_576;
 
 const SERVER_INFO = { name: 'latelier', version: '1' };
 
+/** What the client calls itself goes into Agent Read Log rows and so into the log screen: a cut, because the client chooses it. */
+export const MAX_CLIENT_INFO_CHARS = 128;
+
+const cutClientInfo = (value: string | undefined): string | null => (value === undefined ? null : value.slice(0, MAX_CLIENT_INFO_CHARS));
+
 export interface AgentSessionDeps {
   socket: Socket;
   identity: AgentSessionIdentity;
@@ -43,8 +48,8 @@ export class AgentSession {
     this.server.setRequestHandler('tools/list', () => ({ tools: entries }));
     this.server.setRequestHandler('tools/call', async (request, ctx) => {
       const client = this.server.getClientVersion();
-      this.identity.clientName = client?.name ?? null;
-      this.identity.clientVersion = client?.version ?? null;
+      this.identity.clientName = cutClientInfo(client?.name);
+      this.identity.clientVersion = cutClientInfo(client?.version);
       const { result, closeSession } = await this.deps.runner.call(
         this.identity,
         request.params.name,
