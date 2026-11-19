@@ -10,6 +10,7 @@ import { connectAgent, handshakeLine, openSocket, readUntilClosed, textOf, type 
 import { readHandshake } from '../../electron/agent/handshake';
 import { AgentServer } from '../../electron/agent/AgentServer';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
+import { AgentAccessService } from '../../electron/services/AgentAccessService';
 
 const posix = process.platform !== 'win32';
 
@@ -50,6 +51,32 @@ describe('Agent server', () => {
       const endpoint = path.join(h.tmp.dir, 'agent', 'endpoint');
       expect(fs.readFileSync(endpoint, 'utf8')).toBe(`${socketPath}\n`);
       expect(fs.statSync(endpoint).mode & 0o777).toBe(0o600);
+    });
+
+    it('removes an endpoint file a crashed run left behind when the app launches with Agent Access off', async () => {
+      h = createAgentHarness();
+      const endpoint = path.join(h.tmp.dir, 'agent', 'endpoint');
+      fs.mkdirSync(path.dirname(endpoint), { recursive: true });
+      fs.writeFileSync(endpoint, '\\\\.\\pipe\\latelier-agent-' + 'a'.repeat(32) + '\n');
+      // The harness's own service is already running; a second one is what the next launch builds over the same profile.
+      const launch = new AgentAccessService({
+        appState: h.appState,
+        tokenRepo: h.tokenRepo,
+        readLogRepo: h.readLogRepo,
+        connRepo: h.connRepo,
+        pool: h.pool,
+        userData: h.tmp.dir,
+        log: h.log,
+        bridge: h.bridge,
+        platform: process.platform,
+        dialogs: { showMessageBox: async () => ({ response: 0 }), writeClipboard: async () => undefined },
+        emit: () => undefined,
+      });
+      expect(h.appState.get(AGENT_ACCESS_KEY)).not.toBe(true);
+      launch.init();
+      await launch.settled();
+      expect(fs.existsSync(endpoint)).toBe(false);
+      await launch.stop();
     });
 
     it('removes the socket and the endpoint file when Agent Access goes off, and nothing listens', async () => {
@@ -554,8 +581,11 @@ describe('Agent server', () => {
     class FakePipeServer extends EventEmitter {
       static paths: string[] = [];
       static failListen = false;
+      /** Runs as `listen` is called, to see the world at that moment. */
+      static onListen: (() => void) | null = null;
       listening = false;
       listen(p: string, cb: () => void): this {
+        FakePipeServer.onListen?.();
         if (FakePipeServer.failListen) {
           setImmediate(() => this.emit('error', Object.assign(new Error('EADDRINUSE'), { code: 'EADDRINUSE' })));
           return this;
@@ -577,6 +607,7 @@ describe('Agent server', () => {
       vi.restoreAllMocks();
       FakePipeServer.paths = [];
       FakePipeServer.failListen = false;
+      FakePipeServer.onListen = null;
       for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
     });
 
@@ -604,6 +635,19 @@ describe('Agent server', () => {
       expect(FakePipeServer.paths).toEqual([first.trim(), second.trim()]);
       expect(server.socketPath).toBe(second.trim());
       if (posix) expect(fs.statSync(endpoint).mode & 0o777).toBe(0o600);
+      await server.stop();
+    });
+
+    it('clears a stale endpoint file before it listens, not only when it writes the new one', async () => {
+      const { server, endpoint } = winServer();
+      fs.mkdirSync(path.dirname(endpoint), { recursive: true });
+      fs.writeFileSync(endpoint, '\\\\.\\pipe\\latelier-agent-' + 'a'.repeat(32) + '\n');
+      let presentAtListen: boolean | null = null;
+      FakePipeServer.onListen = () => {
+        presentAtListen = fs.existsSync(endpoint);
+      };
+      await server.start();
+      expect(presentAtListen).toBe(false);
       await server.stop();
     });
 

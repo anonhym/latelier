@@ -148,6 +148,9 @@ export class AgentAccessService {
     if (this.isEnabled()) {
       this.enqueue(() => this.startServer());
       this.enqueue(async () => this.emitState());
+    } else {
+      // Access is off at launch: an endpoint file left by a crashed run must not outlive it, or the bridge would still read a name nothing serves.
+      this.enqueue(() => this.server.stop());
     }
   }
 

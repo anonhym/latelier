@@ -88,6 +88,9 @@ export class AgentServer {
       return false;
     }
 
+    // A file left by a run that crashed names an endpoint nothing serves. On Windows another local process could create that pipe name and be handed the token by a bridge that read the file, so it goes before anything listens, not when the new name is written.
+    fs.rmSync(endpointPath, { force: true });
+
     const listener = net.createServer((socket) => void this.accept(socket));
     listener.on('error', (err) => this.deps.log.error('agent', 'listener error', { errName: err.name }));
     try {
