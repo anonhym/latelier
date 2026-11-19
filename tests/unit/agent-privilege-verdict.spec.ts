@@ -86,6 +86,11 @@ describe('privilegeVerdict', () => {
     expect(roles[0]).toBe('r'.repeat(64));
   });
 
+  it('takes unsafe characters out of a role and db name from the server', () => {
+    const r = reply({ roles: [{ role: 'read\u202E\n', db: 'sh\u200Bop' }] });
+    expect(privilegeVerdict(r).roles).toEqual(['read@sh op']);
+  });
+
   it('skips a role entry that is not a role and db pair', () => {
     const r = reply({
       roles: [null, 'x', { role: 'a' }, { db: 'b' }, { role: 1, db: 'b' }, { role: 'a', db: 2 }, { role: 'ok', db: 'db' }],

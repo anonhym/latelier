@@ -1,5 +1,6 @@
 import type { PrivilegeResult } from '@shared/types';
 import { privilegeText } from './privilegeVerdict.ts';
+import { displayName } from './safeText.ts';
 import { SNIPPET_CLIENTS } from './snippets.ts';
 
 /** The shape of an Electron `showMessageBox` call, without importing Electron into a testable module. */
@@ -47,7 +48,7 @@ export function shareBox(connectionName: string, result: PrivilegeResult, platfo
     defaultId: 0,
     cancelId: 0,
     title: 'Share with Agents?',
-    message: `Share "${connectionName}" with Agents?`,
+    message: `Share "${displayName(connectionName)}" with Agents?`,
     detail: withCaveat(
       `${privilegeText(result)}\n\nAn Agent can read this Connection only while it is open, and you can stop sharing at any time.`,
       platform,
@@ -62,7 +63,7 @@ export function notOpenBox(connectionName: string): AgentMessageBox {
     defaultId: 0,
     cancelId: 0,
     title: 'Open this Connection first',
-    message: `Open "${connectionName}" first`,
+    message: `Open "${displayName(connectionName)}" first`,
     detail: "L'Atelier checks the database user's privileges before it shares a Connection, and that needs the Connection to be open.",
   };
 }
@@ -89,7 +90,7 @@ export function tokenBox(
     defaultId: TOKEN_DONE,
     cancelId: TOKEN_DONE,
     title: kind === 'added' ? 'Agent added' : 'Token regenerated',
-    message: kind === 'added' ? `Token for "${agentName}"` : `New token for "${agentName}"`,
+    message: kind === 'added' ? `Token for "${displayName(agentName)}"` : `New token for "${displayName(agentName)}"`,
     detail: lines.filter((l): l is string => l !== null).join('\n\n'),
   };
 }

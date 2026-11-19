@@ -180,6 +180,7 @@
     "electron/agent/explainRedact.ts",
     "electron/agent/privilegeVerdict.ts",
     "electron/agent/snippets.ts",
-    "electron/agent/bridgePaths.ts"
+    "electron/agent/bridgePaths.ts",
+    "electron/agent/safeText.ts"
   ]
 }

@@ -2,13 +2,21 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '@shared/ipc';
 import type { Router } from '../router.ts';
 import { zodValidator } from '../validators.ts';
+import { hasUnsafeChars } from '../../agent/safeText.ts';
 import type { AgentAccessService } from '../../services/AgentAccessService.ts';
 
 const NoInput = z.undefined().or(z.null()).or(z.object({}).strict());
 
 const SetSharedInput = z.strictObject({ connectionId: z.string().uuid(), shared: z.boolean() });
-// The name is printed in main's own token dialog: a control character (a newline) would let a compromised renderer forge lines in it.
-const AddTokenInput = z.strictObject({ name: z.string().trim().min(1).max(64).regex(/^[^\p{Cc}]+$/u) });
+// The name is printed in main's own token dialog: a control, format or separator character would let a compromised renderer forge lines in it or reorder the text around it.
+const AddTokenInput = z.strictObject({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine((name) => !hasUnsafeChars(name), 'must not contain control, format or separator characters'),
+});
 const TokenIdInput = z.strictObject({ id: z.string().uuid() });
 
 /**

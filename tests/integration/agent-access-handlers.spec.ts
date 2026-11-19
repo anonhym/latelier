@@ -125,6 +125,11 @@ describe('agentAccess:* channels', () => {
       ['a name that is not a string', { name: 7 }],
       ['a name with a newline', { name: 'Claude\nTurn on?' }],
       ['a name with a control character', { name: 'a\u0007b' }],
+      ['a name with a bidi override', { name: 'Claude\u202EedoC' }],
+      ['a name with a line separator', { name: 'Claude\u2028Turn on?' }],
+      ['a name with a paragraph separator', { name: 'Claude\u2029Turn on?' }],
+      ['a name with a zero-width space', { name: 'Clau\u200Bde' }],
+      ['a name with a private-use character', { name: 'Clau\uE000de' }],
       ['an extra key', { name: 'ok', token: 'abc' }],
     ])('add-token refuses %s', async (_name, payload) => {
       const env = await invoke(IPC_CHANNELS.agentAccessAddToken, payload);
@@ -148,6 +153,19 @@ describe('agentAccess:* channels', () => {
     it('accepts a name of exactly 64 characters', async () => {
       const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'n'.repeat(64) });
       expect(info.name).toHaveLength(64);
+    });
+
+    it('accepts an ordinary Unicode name as it is', async () => {
+      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Café 笔记本' });
+      expect(info.name).toBe('Café 笔记本');
+      expect(h.boxes[0]!.message).toBe('Token for "Café 笔记本"');
+    });
+
+    it('prints a stored name that is not safe with the unsafe characters taken out', async () => {
+      h.tokenRepo.insert({ id: randomUUID(), name: 'Evil\n\u202EDone?', token_hash: hashToken('x'), created_at: 'now', last_used_at: null });
+      const id = h.tokenRepo.list()[0]!.id;
+      await ok(IPC_CHANNELS.agentAccessRegenerateToken, { id });
+      expect(h.boxes[0]!.message).toBe('New token for "Evil Done?"');
     });
 
     it('trims the name it stores', async () => {
@@ -478,6 +496,13 @@ describe('agentAccess:* channels', () => {
       h.addConnection(id, 'prod');
       expect(await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true })).toEqual({ shared: false });
       expect(h.boxes[0]!.title).toBe('Open this Connection first');
+    });
+
+    it('prints a Connection name with unsafe characters taken out in the share dialogs', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod\n\u202Ex');
+      await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true });
+      expect(h.boxes[0]!.message).toBe('Open "prod x" first');
     });
 
     it('answers VALIDATION with a clear message for an SSH-tunnelled Connection', async () => {

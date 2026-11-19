@@ -1,4 +1,5 @@
 import type { PrivilegeResult } from '@shared/types';
+import { displayName } from './safeText.ts';
 
 /**
  * The actions of MongoDB's built-in `read` role. A database user is read-only
@@ -35,7 +36,8 @@ function rolesOf(authInfo: Record<string, unknown>): string[] {
   const names = new Set<string>();
   for (const entry of raw) {
     if (!isRecord(entry) || typeof entry.role !== 'string' || typeof entry.db !== 'string') continue;
-    names.add(`${entry.role}@${entry.db}`.slice(0, MAX_ROLE_CHARS));
+    // Role names are chosen by whoever runs the server and are printed in a dialog.
+    names.add(`${displayName(entry.role, MAX_ROLE_CHARS)}@${displayName(entry.db, MAX_ROLE_CHARS)}`.slice(0, MAX_ROLE_CHARS));
   }
   return [...names].sort((a, b) => a.localeCompare(b));
 }
