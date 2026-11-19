@@ -200,6 +200,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       delete: unused('families.delete') as IpcApi['families']['delete'],
       overrides: async () => ({ rules: [], rowSummaries: [] }),
       settings: async () => ({ rules: [], rowSummaries: [] }),
+      export: unused('families.export') as IpcApi['families']['export'],
+      readExport: async () => ({ cancelled: true }),
+      planApply: unused('families.planApply') as IpcApi['families']['planApply'],
+      apply: unused('families.apply') as IpcApi['families']['apply'],
     },
     rowSummary: {
       get: async () => null,
@@ -560,6 +564,10 @@ function makePermissiveStub(): IpcApi {
       delete: async () => undefined,
       overrides: async () => ({ rules: [], rowSummaries: [] }),
       settings: async () => ({ rules: [], rowSummaries: [] }),
+      export: noopAsync as IpcApi['families']['export'],
+      readExport: async () => ({ cancelled: true }),
+      planApply: noopAsync as IpcApi['families']['planApply'],
+      apply: noopAsync as IpcApi['families']['apply'],
     },
     rowSummary: {
       get: async () => null,

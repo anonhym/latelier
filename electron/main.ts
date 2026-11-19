@@ -72,6 +72,8 @@ import { registerRefsChannels } from './ipc/handlers/refs.ts';
 import { ReferenceRulesRepo } from './db/repositories/ReferenceRulesRepo.ts';
 import { ReferenceRulesService } from './services/ReferenceRulesService.ts';
 import { registerFamiliesChannels } from './ipc/handlers/families.ts';
+import { registerFamilyExportChannels } from './ipc/handlers/familyExport.ts';
+import { FamilyExportService } from './services/FamilyExportService.ts';
 import { registerRowSummaryChannels } from './ipc/handlers/rowSummary.ts';
 import { FamilyRepo } from './db/repositories/FamilyRepo.ts';
 import { RowSummaryRepo } from './db/repositories/RowSummaryRepo.ts';
@@ -959,6 +961,29 @@ app.whenReady().then(() => {
   const familyRepo = new FamilyRepo(db);
   const rowSummaryRepo = new RowSummaryRepo(db);
   registerFamiliesChannels(router, new FamilyService(familyRepo, refsRepo, rowSummaryRepo));
+  registerFamilyExportChannels(
+    router,
+    new FamilyExportService({
+      families: familyRepo,
+      rules: refsRepo,
+      summaries: rowSummaryRepo,
+      log: log ?? undefined,
+      dialogs: {
+        savePath: async (defaultName, message) => {
+          const options = {
+            defaultPath: defaultName,
+            message,
+            filters: [{ name: 'Family export', extensions: ['json'] }],
+          };
+          const result = await (win
+            ? dialog.showSaveDialog(win, options)
+            : dialog.showSaveDialog(options));
+          return result.canceled || !result.filePath ? null : result.filePath;
+        },
+        openPath: transferDialogs.openPath,
+      },
+    }),
+  );
   registerRowSummaryChannels(router, new RowSummaryService(rowSummaryRepo, familyRepo));
 
   const updateLog = log;

@@ -44,6 +44,7 @@ const { registerMshellChannels } = await import('../../electron/ipc/handlers/msh
 const { registerScriptChannels } = await import('../../electron/ipc/handlers/script');
 const { registerRefsChannels } = await import('../../electron/ipc/handlers/refs');
 const { registerFamiliesChannels } = await import('../../electron/ipc/handlers/families');
+const { registerFamilyExportChannels } = await import('../../electron/ipc/handlers/familyExport');
 const { registerRowSummaryChannels } = await import('../../electron/ipc/handlers/rowSummary');
 const { registerUpdatesChannels } = await import('../../electron/ipc/handlers/updates');
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
@@ -167,6 +168,7 @@ describe('IPC channel registration — full router coverage', () => {
     registerScriptChannels(router, stubSvc<Parameters<typeof registerScriptChannels>[1]>());
     registerRefsChannels(router, stubSvc<Parameters<typeof registerRefsChannels>[1]>());
     registerFamiliesChannels(router, stubSvc<Parameters<typeof registerFamiliesChannels>[1]>());
+    registerFamilyExportChannels(router, stubSvc<Parameters<typeof registerFamilyExportChannels>[1]>());
     registerRowSummaryChannels(router, stubSvc<Parameters<typeof registerRowSummaryChannels>[1]>());
     registerUpdatesChannels(router, stubSvc<Parameters<typeof registerUpdatesChannels>[1]>());
   });

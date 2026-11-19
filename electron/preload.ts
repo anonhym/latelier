@@ -271,6 +271,10 @@ const api: IpcApi = {
     delete: (input) => call(IPC_CHANNELS.familiesDelete, input),
     overrides: (input) => call(IPC_CHANNELS.familiesOverrides, input),
     settings: (input) => call(IPC_CHANNELS.familiesSettings, input),
+    export: (input) => call(IPC_CHANNELS.familiesExport, input),
+    readExport: () => call(IPC_CHANNELS.familiesReadExport, {}),
+    planApply: (input) => call(IPC_CHANNELS.familiesPlanApply, input),
+    apply: (input) => call(IPC_CHANNELS.familiesApply, input),
   },
 
   rowSummary: {
