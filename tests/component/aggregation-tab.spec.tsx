@@ -18,8 +18,14 @@ import type { AggregationTabState, AggStagePreview } from '@shared/types';
 // CodeMirror needs layout APIs jsdom lacks; an <input> stands in, forwarding
 // the props the stage card uses. Mod-Shift-Enter is claimed (preventDefault)
 // the way CodeMirror's keymap claims a handled key.
+const completionSources = vi.hoisted(
+  () => new Map<string, () => import('@codemirror/autocomplete').CompletionSource>(),
+);
+
 vi.mock('../../src/components/ScriptEditor', () => ({
-  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel }: import('../../src/components/ScriptEditor').ScriptEditorProps) => (
+  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel, completionSource }: import('../../src/components/ScriptEditor').ScriptEditorProps) => {
+    if (testId && completionSource) completionSources.set(testId, completionSource);
+    return (
     <input
       data-testid={testId}
       aria-label={ariaLabel}
@@ -33,7 +39,8 @@ vi.mock('../../src/components/ScriptEditor', () => ({
         }
       }}
     />
-  ),
+    );
+  },
 }));
 
 // Spied so each write path can be checked for dropping the cached enum suggestions.
@@ -1453,6 +1460,35 @@ describe('AggregationTab — a stage preview is not a run', () => {
       sample,
       count,
     }));
+
+  it('the next stage\'s editor offers the previous preview\'s fields until that stage is edited', async () => {
+    installAtelierMock({ agg: { previewUpToStage: preview([{ city: 'p' }], 1) } });
+    renderStatefulTab({
+      ...DEFAULT_AGGREGATION_TAB_STATE,
+      stages: [
+        { id: 1, op: '$replaceRoot', body: '{ newRoot: "$address" }', enabled: true },
+        { id: 2, op: '$project', body: '{ a: "$" }', enabled: true },
+      ],
+      activeStageId: 1,
+      multiOpen: true,
+      openStageIds: [1, 2],
+    });
+    const offered = async () => {
+      const source = completionSources.get('stage-body-editor-2')!();
+      const doc = '{ a: "$" }';
+      const result = await source({ pos: 7, explicit: false, state: { doc: { toString: () => doc } } } as never);
+      return result?.options.map((o) => o.label) ?? [];
+    };
+    expect(await offered()).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run up to this stage' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Preview' }).textContent).toContain('"p"'));
+    expect(await offered()).toEqual(['$city']);
+
+    fireEvent.change(screen.getByTestId('stage-body-editor-1'), { target: { value: '{ newRoot: "$other" }' } });
+    await waitFor(() => expect(screen.getByTitle('Stage edited after last run')).toBeTruthy());
+    expect(await offered()).toEqual([]);
+  });
 
   it('a preview with no run before it is fresh, and leaves the Output row with nothing to show', async () => {
     installAtelierMock({ agg: { previewUpToStage: preview([{ _id: 'p' }], 1) } });

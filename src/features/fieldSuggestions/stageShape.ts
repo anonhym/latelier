@@ -1,4 +1,4 @@
-import { refusalMessage, repairToCanonicalEjson } from '../../utils/shellSyntax';
+import { repairToCanonicalEjson } from '../../utils/shellSyntax';
 
 /**
  * Which fields the documents have when they reach a stage of an aggregation
@@ -67,13 +67,14 @@ function isPlain(v: unknown): v is Plain {
  */
 function parseBody(body: string): unknown {
   const outcome = repairToCanonicalEjson(body);
-  if (refusalMessage(body, outcome) !== null) return undefined;
-  const text = outcome.kind === 'repaired' ? outcome.text : body;
+  if (outcome.kind === 'failed') return undefined;
   try {
-    return JSON.parse(text);
+    return JSON.parse(outcome.kind === 'repaired' ? outcome.text : body);
+  // Stryker disable next-line BlockStatement: the repair only accepts text that
+  // is JSON once repaired (probed: empty, bare words, trailing commas, an
+  // unsupported syntax are all refused or repaired), so this guard, which keeps
+  // a completion from ever throwing, has no input that reaches it.
   } catch {
-    // Well-formed Shell Syntax that is still not JSON (a bare value in a spot
-    // the repair leaves alone): unreadable, so the stage's shape is unknown.
     return undefined;
   }
 }

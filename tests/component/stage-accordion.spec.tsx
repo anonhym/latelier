@@ -16,8 +16,12 @@ import type { ScriptEditorProps } from '../../src/components/ScriptEditor';
  * stay meaningful) that forwards the controlled-component + toolbar-facing
  * props StageRow relies on.
  */
+const completionSources = vi.hoisted(() => new Map<string, () => import('@codemirror/autocomplete').CompletionSource>());
+
 vi.mock('../../src/components/ScriptEditor', () => ({
-  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel }: ScriptEditorProps) => (
+  ScriptEditor: ({ value, onChange, onBlur, onRunAlt, testId, ariaLabel, completionSource }: ScriptEditorProps) => {
+    if (testId && completionSource) completionSources.set(testId, completionSource);
+    return (
     <input
       data-testid={testId}
       aria-label={ariaLabel}
@@ -31,7 +35,8 @@ vi.mock('../../src/components/ScriptEditor', () => ({
         }
       }}
     />
-  ),
+    );
+  },
 }));
 
 beforeEach(() => installAtelierMock());
@@ -72,7 +77,8 @@ function renderAccordion(stages: Stage[], overrides: Partial<AccordionProps> = {
         staleStageIds={overrides.staleStageIds ?? new Set()}
         previewLoading={new Set()}
         darkMode={false}
-        suggestionContext={null}
+        suggestionContext={overrides.suggestionContext ?? null}
+        freshPreviews={overrides.freshPreviews}
         onAdd={overrides.onAdd ?? noop}
         onToggleActive={overrides.onToggleActive ?? noop}
         onSelect={overrides.onSelect ?? noop}
@@ -163,6 +169,23 @@ describe('StageAccordion — stage rendering and operations', () => {
     expect(toggle.checked).toBe(false);
     await userEvent.click(toggle);
     expect(onToggleMultiOpen).toHaveBeenCalledOnce();
+  });
+
+  it('gives each stage\'s editor the fields that reach it: its earlier stages and their fresh preview', async () => {
+    const stages = [
+      stage({ id: 1, op: '$replaceRoot', body: '{ newRoot: "$address" }' }),
+      stage({ id: 2, op: '$project', body: '{ a: "$" }' }),
+    ];
+    renderAccordion(stages, {
+      activeId: 2,
+      freshPreviews: { 1: [{ city: 'p', zip: 'z' }] },
+      suggestionContext: { connectionId: 'c1', dbName: 'shop', collection: 'orders' },
+    });
+    const source = completionSources.get('stage-body-editor-2');
+    if (!source) throw new Error('the stage 2 editor was not given a completion source');
+    const doc = '{ a: "$" }';
+    const result = await source()({ pos: 7, explicit: false, state: { doc: { toString: () => doc } } } as never);
+    expect(result?.options.map((o) => o.label)).toEqual(['$city', '$zip']);
   });
 
   it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', async () => {

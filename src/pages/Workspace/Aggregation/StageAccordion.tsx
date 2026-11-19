@@ -19,7 +19,7 @@ import {
 } from './pipeline';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { ScriptEditor } from '../../../components/ScriptEditor';
-import { stageBodyCompletionSource } from '../../../components/scriptEditor/stageBodyCompletions';
+import { stageBodyCompletionSource, type StageShapeInput } from '../../../components/scriptEditor/stageBodyCompletions';
 import {
   brightenBadgeForDark,
   findOperatorDocs,
@@ -50,6 +50,8 @@ interface AccordionProps {
   previewLoading: ReadonlySet<number>;
   darkMode: boolean;
   suggestionContext: SuggestionContext | null;
+  /** Each stage's up-to-date preview sample; a stage edited since its preview is absent. */
+  freshPreviews?: Readonly<Record<number, unknown[]>>;
   onAdd: (op: StageOp | string, afterIndex?: number) => void;
   /** Clicking a card's header: selects it, or deselects it when it is already selected. */
   onToggleActive: (id: number) => void;
@@ -75,6 +77,8 @@ function opColor(op: string, dark: boolean) {
     dark,
   );
 }
+
+const NO_PREVIEWS: Readonly<Record<number, unknown[]>> = {};
 
 function fmt(n: number): string {
   return n.toLocaleString('en-US');
@@ -453,6 +457,8 @@ interface StageRowProps {
   stale: boolean;
   previewLoading: boolean;
   suggestionContext: SuggestionContext | null;
+  /** The pipeline around this stage, for the fields that reach it. */
+  shapeInput: StageShapeInput;
   onToggleActive: () => void;
   /** ↑↓ on the summary button move the selection. */
   onSummaryKeyDown: (e: React.KeyboardEvent) => void;
@@ -483,6 +489,7 @@ function StageRow({
   stale,
   previewLoading,
   suggestionContext,
+  shapeInput,
   onToggleActive,
   onSummaryKeyDown,
   onToggleEnabled,
@@ -513,6 +520,10 @@ function StageRow({
   React.useEffect(() => {
     suggestionContextRef.current = suggestionContext;
   }, [suggestionContext]);
+  const shapeInputRef = React.useRef(shapeInput);
+  React.useEffect(() => {
+    shapeInputRef.current = shapeInput;
+  }, [shapeInput]);
   const stageOpRef = React.useRef(stage.op);
   React.useEffect(() => {
     stageOpRef.current = stage.op;
@@ -525,6 +536,7 @@ function StageRow({
     stageBodyCompletionSource({
       getContext: () => suggestionContextRef.current,
       getStageOp: () => stageOpRef.current,
+      getStageShape: () => shapeInputRef.current,
     });
 
   // Sync external updates only when we're not mid-edit (cleared on blur —
@@ -951,6 +963,7 @@ export function StageAccordion(props: AccordionProps) {
     previewLoading,
     darkMode,
     suggestionContext,
+    freshPreviews = NO_PREVIEWS,
     onAdd,
     onToggleActive,
     onSelect,
@@ -1075,6 +1088,12 @@ export function StageAccordion(props: AccordionProps) {
             stale={staleStageIds.has(stage.id)}
             previewLoading={previewLoading.has(stage.id)}
             suggestionContext={suggestionContext}
+            shapeInput={{
+              stages,
+              index: idx,
+              // The previous enabled stage's preview names the fields that reach this one.
+              previewDocs: freshPreviews[stages.slice(0, idx).findLast((s) => s.enabled)?.id ?? -1],
+            }}
             onToggleActive={() => onToggleActive(stage.id)}
             onSummaryKeyDown={(e) => onSelectionKey(e, stage.id)}
             onToggleEnabled={() => onToggleEnabled(stage.id)}

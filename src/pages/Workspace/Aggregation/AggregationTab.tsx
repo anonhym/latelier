@@ -758,9 +758,18 @@ export function AggregationTab({
       connectionId: connectionId,
       dbName: dbName,
       collection: collection,
-      recentDocs: state.lastRun?.rows,
     };
-  }, [connectionId, dbName, collection, state.lastRun?.rows]);
+  }, [connectionId, dbName, collection]);
+
+  // The samples a stage's editor may read the fields of the stage before it
+  // from: only those that still match the text that produced them.
+  const freshPreviews = React.useMemo(() => {
+    const out: Record<number, unknown[]> = {};
+    for (const [id, r] of Object.entries(stageResults)) {
+      if (r.sample !== undefined && !staleStageIds.has(Number(id))) out[Number(id)] = r.sample;
+    }
+    return out;
+  }, [stageResults, staleStageIds]);
 
   const onViewChange = (v: ResultViewMode) => onPatch({ outputView: v });
   const onHeightChange = (px: number) => {
@@ -953,6 +962,7 @@ export function AggregationTab({
             previewLoading={previewLoading}
             darkMode={darkMode}
             suggestionContext={suggestionContext}
+            freshPreviews={freshPreviews}
             onAdd={onAddStage}
             onToggleActive={onSelectStage}
             onSelect={onSelect}

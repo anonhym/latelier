@@ -3,6 +3,7 @@ import type { Completion, CompletionContext, CompletionResult } from '@codemirro
 import { stageBodyCompletionSource } from '../../src/components/scriptEditor/stageBodyCompletions';
 import { invalidateSampleSchemaCache } from '../../src/features/fieldSuggestions/sources';
 import { validateStageBody } from '../../src/pages/Workspace/Aggregation/pipeline';
+import type { ShapeStage } from '../../src/features/fieldSuggestions/stageShape';
 
 const { sampleSchema } = vi.hoisted(() => ({
   sampleSchema: vi.fn<(input: { collection: string }) => Promise<{ docs: unknown[] }>>(),
@@ -19,7 +20,13 @@ beforeEach(() => {
   sampleSchema.mockReset().mockImplementation(async ({ collection }) => ({ docs: DOCS[collection] ?? [] }));
 });
 
-const CTX = { connectionId: 'c1', dbName: 'shop', collection: 'orders' };
+const CTX = { connectionId: 'c1', dbName: 'shop', collection: 'orders', recentDocs: [{ lastRunOnly: 1 }] };
+
+interface Shape {
+  stages: ShapeStage[];
+  index: number;
+  previewDocs?: unknown[];
+}
 
 interface Run {
   result: CompletionResult | null;
@@ -28,11 +35,15 @@ interface Run {
   pick: (label: string) => string;
 }
 
-async function run(stageOp: string, fixture: string, explicit = false): Promise<Run> {
+async function run(stageOp: string, fixture: string, explicit = false, shape?: Shape): Promise<Run> {
   const pos = fixture.indexOf('█');
   if (pos < 0) throw new Error('fixture missing caret marker');
   const doc = fixture.slice(0, pos) + fixture.slice(pos + 1);
-  const source = stageBodyCompletionSource({ getContext: () => CTX, getStageOp: () => stageOp });
+  const source = stageBodyCompletionSource({
+    getContext: () => CTX,
+    getStageOp: () => stageOp,
+    ...(shape ? { getStageShape: () => shape } : {}),
+  });
   const ctx = { pos, explicit, state: { doc: { toString: () => doc } } } as unknown as CompletionContext;
   const result = (await source(ctx)) as CompletionResult | null;
   return {
@@ -155,5 +166,90 @@ describe('a key position', () => {
     expect(r.labels).not.toContain('$name');
     const bare = await run('$group', '{ _id: null, t: { █ } }');
     expect(bare.labels).toContain('name');
+  });
+});
+
+const st = (op: string, body: string, enabled = true): ShapeStage => ({ op, body, enabled });
+const GROUP = st('$group', '{ _id: "$name", n: { $sum: 1 } }');
+
+describe('fields from the stages before the edited one', () => {
+  /** Runs the edited stage (the last of `before` plus the edited one) at the caret. */
+  const inPipeline = (before: ShapeStage[], op: string, fixture: string, previewDocs?: unknown[]) =>
+    run(op, fixture, false, { stages: [...before, st(op, fixture.replace('█', ''))], index: before.length, previewDocs });
+
+  it('a pass-through chain keeps the source fields, in either form', async () => {
+    const before = [st('$match', '{}'), st('$sort', '{ age: 1 }'), st('$limit', '5')];
+    const expr = await inPipeline(before, '$group', '{ _id: "$█" }');
+    expect([...expr.labels].sort((a, b) => a.localeCompare(b))).toEqual(['$address', '$address.city', '$age', '$name', '$tags']);
+    expect(expr.pick('$tags')).toBe('{ _id: "$tags" }');
+    const name = await inPipeline(before, '$unset', '"█"');
+    expect(name.pick('age')).toBe('"age"');
+  });
+
+  it('a $group drops the source fields: expression and name positions see only its own', async () => {
+    const expr = await inPipeline([GROUP], '$project', '{ a: "$█" }');
+    expect(expr.labels).toEqual(['$_id', '$n']);
+    expect(expr.pick('$n')).toBe('{ a: "$n" }');
+    const name = await inPipeline([GROUP], '$unset', '"█"');
+    expect(name.labels).toEqual(['_id', 'n']);
+    const key = await inPipeline([GROUP], '$sort', '{ █ }');
+    expect(key.labels.filter((l) => !l.startsWith('$'))).toEqual(['_id', 'n']);
+    expect(key.pick('n')).toBe('{ n }');
+  });
+
+  it('a $lookup keeps the source fields and adds its as', async () => {
+    const before = [st('$lookup', '{ from: "customers", localField: "name", foreignField: "_id", as: "buyer" }')];
+    const r = await inPipeline(before, '$project', '{ a: "$█" }');
+    expect(r.labels).toEqual(expect.arrayContaining(['$buyer', '$name', '$age']));
+    expect(r.result?.options.find((o) => o.label === '$buyer')?.detail).toBe('from an earlier stage');
+    expect(r.pick('$buyer')).toBe('{ a: "$buyer" }');
+  });
+
+  it('after a $replaceRoot only the previous stage\'s preview names fields', async () => {
+    const before = [st('$replaceRoot', '{ newRoot: "$address" }')];
+    const r = await inPipeline(before, '$project', '{ a: "$█" }', [{ city: 'p', zip: 'z' }]);
+    expect(r.labels).toEqual(['$city', '$zip']);
+    expect(r.result?.options[0]?.detail).toBe('from the preview');
+    expect(r.pick('$zip')).toBe('{ a: "$zip" }');
+  });
+
+  it('with no preview after a $replaceRoot, offers the source fields marked as an unknown shape', async () => {
+    const r = await inPipeline([st('$replaceRoot', '{ newRoot: "$address" }')], '$project', '{ a: "$█" }');
+    expect(r.labels).toContain('$name');
+    expect(r.result?.options.every((o) => o.detail === 'unknown shape')).toBe(true);
+  });
+
+  it('a disabled stage in the middle does not count', async () => {
+    const r = await inPipeline([st('$group', '{ _id: "$name" }', false), st('$match', '{}')], '$project', '{ a: "$█" }');
+    expect(r.labels).toContain('$age');
+  });
+
+  it('the previous stage\'s preview adds the fields the text could not name', async () => {
+    const r = await inPipeline([GROUP], '$project', '{ a: "$█" }', [{ _id: 'x', n: 1, extra: 2 }]);
+    expect(r.labels).toEqual(['$_id', '$n', '$extra']);
+  });
+
+  it('never offers the final output\'s fields', async () => {
+    const r = await inPipeline([st('$match', '{}')], '$project', '{ a: "$█" }');
+    expect(r.labels).not.toContain('$lastRunOnly');
+    const key = await inPipeline([st('$match', '{}')], '$sort', '{ █ }');
+    expect(key.labels).not.toContain('lastRunOnly');
+  });
+
+  it('a $ in a key position still offers operators and no fields', async () => {
+    const r = await inPipeline([GROUP], '$group', '{ _id: null, t: { $█ } }');
+    expect(r.labels).toEqual(expect.arrayContaining(['$sum']));
+    expect(r.labels).not.toContain('_id');
+    expect(r.labels).not.toContain('n');
+  });
+
+  it('a foreignField still reads the joined collection, whatever the pipeline before', async () => {
+    const r = await inPipeline([GROUP], '$lookup', '{ from: "customers", foreignField: "█" }');
+    expect(r.labels).toEqual(['_id', 'email']);
+  });
+
+  it('a localField sees the fields that reach the stage', async () => {
+    const r = await inPipeline([GROUP], '$lookup', '{ from: "customers", localField: "█" }');
+    expect(r.labels).toEqual(['_id', 'n']);
   });
 });
