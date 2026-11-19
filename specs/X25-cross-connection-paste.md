@@ -71,7 +71,7 @@ A paste is a Cross-Connection Paste when all of these hold:
 - a string of at least 6 characters;
 - an integer or decimal of at least 6 digits.
 
-Booleans, `null`, and strings or numbers shorter than that are never distinctive, so `"active"` or `3` never warns. Extraction uses linear-time patterns only: no nested quantifiers (CLAUDE.md). It also caps the copied text it scans at 256 KB, and the number of values it keeps at 1,000.
+Booleans, `null`, and strings or numbers shorter than that are never distinctive, so `"ok"` or `3` never warns. Extraction uses linear-time patterns only: no nested quantifiers (CLAUDE.md). It also caps the copied text it scans at 256 KB, and the number of values it keeps at 1,000.
 
 ## 4. The warning
 
