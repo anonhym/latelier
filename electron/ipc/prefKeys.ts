@@ -47,6 +47,8 @@ const SET_SCHEMAS = new Map<string, z.ZodType>([
   ['update.toastShownFor', z.string().max(32)],
   // Warn when a value copied on another Connection is pasted into a query (X25 §5). X25 names the key, so it has no `ui.` prefix.
   ['warnings.crossConnectionPaste', z.boolean()],
+  // Reference pairs the user chose Never for (X26 §6): `connectionId|srcDb.srcColl.srcField->tgtDb.tgtColl.tgtField`, oldest first.
+  ['refs.discovery.never', z.array(z.string().max(1024)).max(500)],
 ]);
 
 // Connection ids are `crypto.randomUUID()`. One bounded character class and an

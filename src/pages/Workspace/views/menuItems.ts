@@ -1,6 +1,6 @@
 import type { ContextMenuItem } from '../../../components/ContextMenu';
 import { copyToClipboard } from '../../../utils/clipboard';
-import type { CopySource } from '../../../utils/copyOrigin';
+import { withFieldPath, type CopySource } from '../../../utils/copyOrigin';
 import { formatDocsForCopy, type CopyFormat } from '../../../utils/copyFormat';
 import { isRecord, valueToClipboardText } from '../../../utils/displayValue';
 import { getDocIdCopyText } from './docId';
@@ -33,7 +33,7 @@ export function fieldMenuItems({
     items.push({
       kind: 'item',
       label: 'Copy value',
-      onClick: () => void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.', origin),
+      onClick: () => void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.', withFieldPath(origin, fieldPath)),
     });
   }
   items.push({
@@ -97,7 +97,7 @@ export function docMenuItems({
       kind: 'item',
       label: 'Copy _id',
       onClick: () =>
-        void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', origin),
+        void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', withFieldPath(origin, '_id')),
     });
   }
   items.push({

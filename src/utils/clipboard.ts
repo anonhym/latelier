@@ -1,5 +1,5 @@
 import { notify } from '../theme/notifications';
-import { clearCopyOrigin, recordCopyOrigin, type CopySource } from './copyOrigin';
+import { clearCopyOrigin, recordCopyOrigin, type CopyOriginSource } from './copyOrigin';
 
 const CLIPBOARD_TOAST_ID = 'clipboard-copied';
 
@@ -28,7 +28,7 @@ const CLIPBOARD_TOAST_ID = 'clipboard-copied';
 export async function copyToClipboard(
   text: string,
   successMessage?: string,
-  origin?: CopySource,
+  origin?: CopyOriginSource,
 ): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);

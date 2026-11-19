@@ -5,6 +5,7 @@ import { installJsdomTeardown } from './jsdomTeardown';
 import { resetCopyFormatStore } from '../../src/pages/Workspace/views/useCopyFormat';
 import { clearCopyOrigin } from '../../src/utils/copyOrigin';
 import { resetPasteWarnings } from '../../src/state/pasteWarning';
+import { resetReferenceDiscovery } from '../../src/state/referenceDiscovery';
 
 // jsdom doesn't implement ResizeObserver, and reports offsetWidth/offsetHeight
 // as 0 for every element. react-window reads both to compute the visible
@@ -100,6 +101,7 @@ beforeEach(() => {
   resetCopyFormatStore();
   clearCopyOrigin();
   resetPasteWarnings();
+  resetReferenceDiscovery();
   uninstallAtelierMock();
 });
 

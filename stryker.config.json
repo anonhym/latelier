@@ -144,6 +144,7 @@
     "src/utils/distinctiveValues.ts",
     "src/utils/crossConnectionPaste.ts",
     "src/utils/copyOrigin.ts",
+    "src/utils/referenceDiscovery.ts",
     "src/commands/shortcutLabel.ts",
     "electron/services/tabStateResults.ts",
     "src/state/tabResultCarry.ts",

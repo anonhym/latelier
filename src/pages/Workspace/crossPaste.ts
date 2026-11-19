@@ -5,6 +5,7 @@ import { getCopyOrigin } from '../../utils/copyOrigin';
 import { isCrossConnectionPaste } from '../../utils/crossConnectionPaste';
 import { CROSS_PASTE_PREF_KEY, showPasteWarning } from '../../state/pasteWarning';
 import { CollectionWorkspaceContext } from './context';
+import { armReferenceDiscovery } from './referenceDiscovery';
 
 export interface CrossPasteTarget {
   /** The tab the paste landed in. */
@@ -13,6 +14,12 @@ export interface CrossPasteTarget {
   connectionId: string;
   /** Which of the tab's query surfaces received it. */
   surface: string;
+  /**
+   * The tab's Database and Collection. Given by the Collection tab's surfaces,
+   * whose pastes can start a reference discovery; omitted by the others.
+   */
+  dbName?: string;
+  collection?: string;
 }
 
 /**
@@ -23,6 +30,13 @@ export interface CrossPasteTarget {
  * read cannot change what the warning names.
  */
 export function checkCrossConnectionPaste(target: CrossPasteTarget, pasted: string): void {
+  // A paste within one Connection is no Cross-Connection Paste, and is exactly a discovery's case.
+  if (target.dbName !== undefined && target.collection !== undefined) {
+    armReferenceDiscovery(
+      { tabId: target.tabId, connectionId: target.connectionId, dbName: target.dbName, collection: target.collection },
+      pasted,
+    );
+  }
   const origin = getCopyOrigin();
   if (
     origin === null ||
@@ -47,11 +61,16 @@ export function useCrossPaste(surface: string): React.ClipboardEventHandler {
   const ctx = use(CollectionWorkspaceContext);
   const tabId = ctx?.meta.tabId;
   const connectionId = ctx?.meta.connectionId;
+  const dbName = ctx?.meta.dbName;
+  const collection = ctx?.meta.collection;
   return React.useCallback(
     (e) => {
       if (tabId === undefined || connectionId === undefined) return;
-      checkCrossConnectionPaste({ tabId, connectionId, surface }, e.clipboardData.getData('text/plain'));
+      checkCrossConnectionPaste(
+        { tabId, connectionId, surface, dbName, collection },
+        e.clipboardData.getData('text/plain'),
+      );
     },
-    [tabId, connectionId, surface],
+    [tabId, connectionId, surface, dbName, collection],
   );
 }

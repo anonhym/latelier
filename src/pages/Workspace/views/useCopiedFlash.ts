@@ -1,6 +1,6 @@
 import React from 'react';
 import { copyToClipboard } from '../../../utils/clipboard';
-import type { CopySource } from '../../../utils/copyOrigin';
+import { withFieldPath, type CopySource } from '../../../utils/copyOrigin';
 import { useLatest } from '../../../commands/useLatest';
 
 /**
@@ -13,8 +13,11 @@ import { useLatest } from '../../../commands/useLatest';
 export function useCopiedFlash<K>(origin?: CopySource) {
   const [copied, setCopied] = React.useState<K | null>(null);
   const originRef = useLatest(origin);
-  const flash = React.useCallback((text: string, key: K) => {
-    void copyToClipboard(text, undefined, originRef.current).then((ok) => {
+  // `fieldPath` is the document field `text` is the value of, when it is one.
+  const flash = React.useCallback((text: string, key: K, fieldPath?: string) => {
+    const current = originRef.current;
+    const source = fieldPath === undefined ? current : withFieldPath(current, fieldPath);
+    void copyToClipboard(text, undefined, source).then((ok) => {
       if (!ok) return;
       setCopied(key);
       window.setTimeout(() => {

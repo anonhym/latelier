@@ -191,7 +191,7 @@ interface DocRowProps {
   onToggleSelect: (index: number) => void;
   toggleDeepPath: (path: string) => void;
   setDeepPaths: (paths: string[], expanded: boolean) => void;
-  handleCopy: (path: string, value: unknown) => void;
+  handleCopy: (path: string, value: unknown, fieldPath?: string) => void;
   handleOpenMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -520,7 +520,7 @@ export function TreeView({
   );
 
   const handleCopy = React.useCallback(
-    (path: string, value: unknown) => flash(valueToClipboardText(value), path),
+    (path: string, value: unknown, fieldPath?: string) => flash(valueToClipboardText(value), path, fieldPath),
     [flash],
   );
 

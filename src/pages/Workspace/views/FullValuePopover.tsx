@@ -1,6 +1,7 @@
 import React, { use } from 'react';
 import { ActionIcon, Button, Popover, VisuallyHidden } from '@mantine/core';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { withFieldPath } from '../../../utils/copyOrigin';
 import { CollectionWorkspaceContext } from '../context';
 
 interface FullValuePopoverProps {
@@ -147,7 +148,13 @@ export function FullValuePopover({
           <Button
             size="compact-xs"
             variant="default"
-            onClick={() => void copyToClipboard(display, 'Value copied to the clipboard.', origin)}
+            onClick={() =>
+              void copyToClipboard(
+                display,
+                'Value copied to the clipboard.',
+                fieldPath === undefined ? origin : withFieldPath(origin, fieldPath),
+              )
+            }
           >
             Copy
           </Button>
