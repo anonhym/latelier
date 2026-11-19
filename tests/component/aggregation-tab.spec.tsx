@@ -1277,7 +1277,7 @@ describe('AggregationTab — regions (A01 §9.1)', () => {
 
 describe('AggregationTab — several stages open', () => {
   const expanded = (id: number) => summary(id).getAttribute('aria-expanded');
-  const toggle = () => screen.getByRole('switch', { name: 'Allow several stages open' }) as HTMLInputElement;
+  const toggle = () => screen.getByRole('switch', { name: 'Several stages open' }) as HTMLInputElement;
 
   it('keeps the single-open accordion by default', () => {
     renderStatefulTab(twoStages);

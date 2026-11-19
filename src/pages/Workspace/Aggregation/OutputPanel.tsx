@@ -225,12 +225,10 @@ export function OutputPanel({
   let stale: boolean;
   if (stage) {
     heading = `Stage ${stage.index + 1} output`;
-    meta = stagePreviewMeta({
-      op: stage.op,
-      shown: sample?.length ?? 0,
-      count: stageCount,
-      unordered: stage.unordered,
-    });
+    // A disabled stage has no output to describe.
+    meta = stage.enabled
+      ? stagePreviewMeta({ op: stage.op, shown: sample?.length ?? 0, count: stageCount, unordered: stage.unordered })
+      : '';
     stale = stage.stale && sample !== undefined;
   } else {
     heading = 'Full aggregation';

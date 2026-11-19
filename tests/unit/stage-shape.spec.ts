@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  stagesInPipelineText,
   shapeBefore,
   shapeFields,
   type ShapeStage,
@@ -335,5 +336,31 @@ describe('what is offered when the shape is unknown or empty', () => {
     const r = offered([st('$addFields', '5')]);
     expect(r.fields.map((f) => f.path)).toEqual(SOURCE_PATHS);
     expect(r.unknownShape).toBe(true);
+  });
+});
+
+describe('stagesInPipelineText', () => {
+  it('reads the complete elements and leaves the one being typed', () => {
+    expect(stagesInPipelineText('{ $match: { a: 1 } }, { $unset: "x" }, { $sort: { b')).toEqual([
+      { op: '$match', body: '{"a":1}', enabled: true },
+      { op: '$unset', body: '"x"', enabled: true },
+    ]);
+    expect(stagesInPipelineText('')).toEqual([]);
+  });
+
+  it('is not fooled by braces and quotes inside strings, or by nested arrays', () => {
+    expect(stagesInPipelineText(`{ $match: { a: "}{ ]" } }, { $match: { b: 'it\\'s }' } }, { $in: [{ x: 1 }] }, `)).toEqual([
+      { op: '$match', body: '{"a":"}{ ]"}', enabled: true },
+      { op: '$match', body: '{"b":"it\'s }"}', enabled: true },
+      { op: '$in', body: '[{"x":1}]', enabled: true },
+    ]);
+  });
+
+  it('stands an unreadable element in as a stage with an unknown shape', () => {
+    for (const text of ['{ $a: 1, $b: 2 }, ', '{ a: 1 }, ', '{ }, ', '{ $m: }, ']) {
+      const stages = stagesInPipelineText(text);
+      expect(stages).toEqual([{ op: '$unreadable', body: '', enabled: true }]);
+      expect(shapeBefore(stages, 1).kind).toBe('unknown');
+    }
   });
 });

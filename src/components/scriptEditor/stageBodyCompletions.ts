@@ -4,9 +4,9 @@ import type {
   CompletionResult,
   CompletionSource,
 } from '@codemirror/autocomplete';
-import { detectAggGrammar, detectValueSlot, type ValueSlot } from '../../features/fieldSuggestions/aggGrammar';
-import { fieldSlot, isPlainKey, lookupFrom, type FieldSlot } from '../../features/fieldSuggestions/stageFieldPositions';
-import { shapeBefore, shapeFields, type ShapeField, type ShapeStage } from '../../features/fieldSuggestions/stageShape';
+import { detectAggGrammar, detectScopePath, detectValueSlot, type ValueSlot } from '../../features/fieldSuggestions/aggGrammar';
+import { fieldSlot, isPlainKey, lookupFrom, subPipelinePath, subPipelineText, type FieldSlot } from '../../features/fieldSuggestions/stageFieldPositions';
+import { shapeBefore, shapeFields, stagesInPipelineText, type ShapeField, type ShapeStage } from '../../features/fieldSuggestions/stageShape';
 import { VALUE_SUGGESTION_OPS } from '../../features/fieldSuggestions/operators';
 import {
   DEFAULT_FIELD_SOURCES,
@@ -239,6 +239,24 @@ function stringContentEnd(doc: string, from: number, quote: string | undefined):
 }
 
 /**
+ * The fields a `$lookup` sub-pipeline stage sees: the joined collection's, as
+ * the sub-pipeline's own earlier stages leave them. Null when the body names
+ * no `from` collection.
+ */
+async function subPipelineFields(
+  suggestionCtx: SuggestionContext,
+  doc: string,
+  pos: number,
+): Promise<FieldChoice | null> {
+  const from = lookupFrom(doc);
+  const text = subPipelineText(doc, pos);
+  if (from === null || text === null) return null;
+  const source = await sourceFieldsOf({ ...suggestionCtx, collection: from });
+  const shape = shapeBefore(stagesInPipelineText(text), Number.MAX_SAFE_INTEGER);
+  return shapeFields(shape, source, []);
+}
+
+/**
  * What one field offered in a value slot inserts: `$field` or a bare `field`,
  * inside the quotes already typed; an unquoted slot takes the quotes with it.
  */
@@ -268,8 +286,10 @@ async function slotCompletions(
 ): Promise<CompletionResult | null> {
   const slot = detectValueSlot(doc, ctx.pos);
   if (!slot) return null;
-  const spec = fieldSlot(stageOp, slot.path);
-  if (!spec) return null;
+  const sub = subPipelinePath(stageOp, slot.path);
+  // A sub-pipeline stage's fields are the joined collection's, never the outer pipeline's.
+  const spec = sub ? (sub.op ? fieldSlot(sub.op, sub.rest) : null) : fieldSlot(stageOp, slot.path);
+  if (!spec || (sub && spec.fields === 'from')) return null;
   // An expression is `"$..."`: it begins at the `$`, or is not typed yet.
   if (spec.form === 'dollar' ? slot.token !== '' && !slot.token.startsWith('$') : slot.token.startsWith('$')) {
     return null;
@@ -278,7 +298,10 @@ async function slotCompletions(
   if (!slot.quoted && slot.token === '' && !ctx.explicit) return null;
 
   let choice: FieldChoice | null;
-  if (spec.fields === 'from') {
+  if (sub) {
+    choice = await subPipelineFields(suggestionCtx, doc, ctx.pos);
+    if (choice === null) return null;
+  } else if (spec.fields === 'from') {
     const from = lookupFrom(doc);
     if (from === null) return null;
     choice = { fields: await sourceFieldsOf({ ...suggestionCtx, collection: from }), unknownShape: false };
@@ -357,7 +380,14 @@ export function stageBodyCompletionSource(opts: StageBodyCompletionOpts): Comple
     const quoteBefore = hit.replaceStart > 0 && /["']/.test(doc[hit.replaceStart - 1] ?? '');
     const validFor = quoteBefore ? QUOTED_VALID_FOR : /^[\w$.]*$/;
 
-    return pipelineFields(suggestionCtx, opts.getStageShape?.() ?? null)
+    // A key inside a `$lookup`'s `pipeline` belongs to a stage over the joined collection.
+    const sub = subPipelinePath(stageOp, detectScopePath(doc, hit.replaceStart).slice(0, -1));
+    const fieldChoice: Promise<FieldChoice | null> = sub
+      ? sub.op
+        ? subPipelineFields(suggestionCtx, doc, ctx.pos).then((c) => c ?? { fields: [], unknownShape: false })
+        : Promise.resolve({ fields: [], unknownShape: false })
+      : pipelineFields(suggestionCtx, opts.getStageShape?.() ?? null);
+    return fieldChoice
       .then((shape) =>
         collectOptions(scopedCtx, { shape, withFields: !hit.token.startsWith('$'), quotedKey: quoteBefore }),
       )

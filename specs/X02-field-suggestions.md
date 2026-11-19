@@ -502,6 +502,11 @@ on app restart).
   preview, when it is not stale, names the fields, and with no preview the
   source fields are offered marked `unknown shape`. A fresh preview's fields
   are added in every case. The final run's output never feeds a stage body.
+- **A `$lookup` sub-pipeline.** Inside `pipeline: [ ... ]` every stage runs
+  over the `from` collection, so key and expression slots take that
+  collection's fields as the sub-pipeline's own earlier stages leave them
+  (the same shape rules), never the outer pipeline's. Between stages only
+  stage operators are offered, and with no `from` string nothing is.
 - `$`-prefixed bare keys open the popover (previously suppressed);
   the operator source (X03) consumes these hits. `fieldRef` and
   `valueFor` branches remain unchanged.

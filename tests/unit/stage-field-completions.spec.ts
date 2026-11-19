@@ -253,3 +253,55 @@ describe('fields from the stages before the edited one', () => {
     expect(r.labels).toEqual(['_id', 'n']);
   });
 });
+
+describe('inside a $lookup sub-pipeline: the joined collection\'s fields', () => {
+  const LOOKUP = (inner: string) => `{ from: "customers", localField: "name", foreignField: "_id", pipeline: [${inner}], as: "c" }`;
+  const at = (inner: string, shape?: Shape) => run('$lookup', LOOKUP(inner), false, shape);
+
+  it.each([
+    // Expression positions insert $field, key positions the bare field.
+    ['{ $match: { $expr: { $eq: ["$█", 1] } } }', '$email', '{ $match: { $expr: { $eq: ["$email", 1] } } }'],
+    ['{ $group: { _id: "$█" } }', '$email', '{ $group: { _id: "$email" } }'],
+    ['{ $project: { a: "$█" } }', '$email', '{ $project: { a: "$email" } }'],
+    ['{ $unset: "█" }', 'email', '{ $unset: "email" }'],
+    ['{ $sort: { █ } }', 'email', '{ $sort: { email } }'],
+    ['{ $match: { █ } }', 'email', '{ $match: { email } }'],
+  ])('%s', async (inner, label, expected) => {
+    const r = await at(inner);
+    expect(r.labels).not.toContain('name');
+    expect(r.labels).not.toContain('$name');
+    expect(r.pick(label)).toBe(LOOKUP(expected));
+  });
+
+  it('ignores the outer pipeline entirely', async () => {
+    const shape = { stages: [st('$group', '{ _id: "$name", n: 1 }'), st('$lookup', '')], index: 1 };
+    const r = await at('{ $project: { a: "$█" } }', shape);
+    expect(r.labels).toEqual(['$_id', '$email']);
+  });
+
+  it('follows the sub-pipeline\'s own earlier stages', async () => {
+    const group = await at('{ $group: { _id: "$email", n: { $sum: 1 } } }, { $sort: { █ } }');
+    expect(group.labels.filter((l) => !l.startsWith('$'))).toEqual(['_id', 'n']);
+    const added = await at('{ $addFields: { full: 1 } }, { $project: { a: "$█" } }');
+    expect(added.labels).toEqual(['$_id', '$email', '$full']);
+    const unset = await at('{ $unset: "email" }, { $project: { a: "$█" } }');
+    expect(unset.labels).toEqual(['$_id']);
+  });
+
+  it('offers no fields where a stage name goes, and none without a from collection', async () => {
+    const between = await at('█');
+    expect(between.labels.every((l) => l.startsWith('$'))).toBe(true);
+    expect(between.labels).not.toContain('email');
+    const noFrom = await run('$lookup', '{ pipeline: [{ $match: { $expr: { $eq: ["$█", 1] } } }] }');
+    expect(noFrom.result).toBeNull();
+  });
+
+  it('a nested $lookup\'s own foreignField is not guessed', async () => {
+    expect((await at('{ $lookup: { from: "x", foreignField: "█" } }')).result).toBeNull();
+  });
+
+  it('the $lookup\'s own keys outside the pipeline still read as before', async () => {
+    const r = await run('$lookup', '{ from: "customers", localField: "█", pipeline: [] }');
+    expect(r.labels).toContain('name');
+  });
+});

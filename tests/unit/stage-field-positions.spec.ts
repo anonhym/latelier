@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectValueSlot } from '../../src/features/fieldSuggestions/aggGrammar';
-import { fieldSlot, isPlainKey, lookupFrom } from '../../src/features/fieldSuggestions/stageFieldPositions';
+import { detectScopePath, detectValueSlot } from '../../src/features/fieldSuggestions/aggGrammar';
+import { fieldSlot, isPlainKey, lookupFrom, subPipelinePath, subPipelineText } from '../../src/features/fieldSuggestions/stageFieldPositions';
 
 /** Parse a fixture where `|` marks the caret. */
 function slotAt(s: string) {
@@ -121,5 +121,45 @@ describe('isPlainKey', () => {
     ['', false],
   ])('%s', (key, expected) => {
     expect(isPlainKey(key)).toBe(expected);
+  });
+});
+
+describe('detectScopePath', () => {
+  it.each([
+    ['{ a: { $sum: |', ['a', '$sum']],
+    ['{ pipeline: [ { $match: { | } } ] }', ['pipeline', '[]', '$match', '']],
+    ['{ pipeline: [ { $match: { x: "|" } } ] }', ['pipeline', '[]', '$match', 'x']],
+    ['{ a: 1, | }', ['']],
+    ['|', []],
+  ])('%s', (fixture, expected) => {
+    const caret = fixture.indexOf('|');
+    expect(detectScopePath(fixture.slice(0, caret) + fixture.slice(caret + 1), caret)).toEqual(expected);
+  });
+});
+
+describe('subPipelinePath', () => {
+  it.each([
+    ['$lookup', ['pipeline', '[]', '$match', '$expr'], { op: '$match', rest: ['$expr'] }],
+    ['$lookup', ['pipeline', '[]', '$sort'], { op: '$sort', rest: [] }],
+    ['$lookup', ['pipeline', '[]'], { op: null, rest: [] }],
+    ['$lookup', ['pipeline', '[]', 'x'], { op: null, rest: [] }],
+    ['$lookup', ['pipeline'], null],
+    ['$lookup', ['pipe', '[]', '$match'], null],
+    ['$lookup', ['pipeline', 'x'], null],
+    ['$unionWith', ['pipeline', '[]', '$match'], null],
+    [undefined, ['pipeline', '[]', '$match'], null],
+  ])('%s %j', (op, path, expected) => {
+    expect(subPipelinePath(op, path)).toEqual(expected);
+  });
+});
+
+describe('subPipelineText', () => {
+  it('is what follows the last pipeline key before the caret', () => {
+    expect(subPipelineText('{ pipeline: [ {a} ], x: [', 40)).toBe(' {a} ], x: [');
+    expect(subPipelineText('{ "pipeline" : [{ $m', 99)).toBe('{ $m');
+    expect(subPipelineText("{ 'pipeline':[", 99)).toBe('');
+    expect(subPipelineText('{ pipeline: [1], pipeline: [2, ', 99)).toBe('2, ');
+    expect(subPipelineText('{ pipeline: [1] }', 5)).toBeNull();
+    expect(subPipelineText('{ a: [1] }', 99)).toBeNull();
   });
 });

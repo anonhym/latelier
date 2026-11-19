@@ -386,3 +386,12 @@ export function detectValueSlot(value: string, caret: number): ValueSlot | null 
     replaceEnd: caret,
   };
 }
+
+/**
+ * The keys and arrays around the caret, outermost first (`[]` for an array),
+ * whatever sits at the caret: a key position, a value, or a string. The
+ * innermost object's own key is included, empty while a key is being typed.
+ */
+export function detectScopePath(value: string, caret: number): string[] {
+  return slotPath(scan(value, caret).scopes);
+}

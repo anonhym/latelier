@@ -427,6 +427,16 @@ describe('OutputPanel — the selected stage', () => {
     expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 output · $group · 2 docs · unordered');
   });
 
+  it('claims no documents for a stage never run, or one that is turned off', () => {
+    renderPanel({ stage: previewStage({}) });
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 output · $group');
+  });
+
+  it('says nothing of the output of a turned-off stage', () => {
+    renderPanel({ stage: previewStage({ enabled: false, sample: [{ _id: 1 }], count: 4 }) });
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 output');
+  });
+
   it('labels the full run as capped when more documents exist, and as unordered', () => {
     renderPanel({
       lastRun: { ...runMeta, rows: [{ _id: 1 }], durationMs: 3, hasMore: true },
