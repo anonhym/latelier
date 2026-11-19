@@ -94,6 +94,7 @@ import { RecentQueryService } from './services/RecentQueryService.ts';
 import { RecentFieldValueRepo } from './db/repositories/RecentFieldValueRepo.ts';
 import { RecentFieldValueService } from './services/RecentFieldValueService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
+import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
 import { UndoStore } from './services/UndoStore.ts';
@@ -831,6 +832,7 @@ app.whenReady().then(() => {
   // across a reload.
   const auditRepo = new AuditRepo(db, cipher, log);
   const auditSvc = new AuditService(auditRepo, pool, new UndoStore(), log);
+  const agentReadLogRepo = new AgentReadLogRepo(db, cipher);
   const router = createRouter(
     ipcMain,
     senderCheck(() => win?.webContents.mainFrame ?? null, isAppLocation),
@@ -862,6 +864,7 @@ app.whenReady().then(() => {
     recentRepo,
     recentFieldValueRepo,
     auditRepo,
+    agentReadLogRepo,
     checkpoint: () => {
       if (!truncateWal(checkpointDb)) checkpointLog.warn('maintenance', 'wal checkpoint was blocked');
     },

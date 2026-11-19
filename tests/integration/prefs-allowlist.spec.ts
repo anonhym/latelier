@@ -4,7 +4,7 @@ import { IPC_CHANNELS, type Envelope } from '@shared/ipc';
 import { createRouter } from '../../electron/ipc/router';
 import { registerPrefsChannels } from '../../electron/ipc/handlers/prefs';
 import { registerSecretsChannels } from '../../electron/ipc/handlers/secrets';
-import { PLAINTEXT_FALLBACK_KEY } from '../../electron/ipc/prefKeys';
+import { AGENT_ACCESS_KEY, PLAINTEXT_FALLBACK_KEY } from '../../electron/ipc/prefKeys';
 import { AppStateRepo } from '../../electron/db/repositories/AppStateRepo';
 import { AppStateService } from '../../electron/services/AppStateService';
 import { createTempDb, type TempDb } from '../helpers/db';
@@ -93,6 +93,15 @@ describe('prefs key allowlist and the main-confirmed plaintext switch', () => {
     appState.set(PLAINTEXT_FALLBACK_KEY, true);
     const got = await invoke<boolean>(IPC_CHANNELS.prefsGet, { key: PLAINTEXT_FALLBACK_KEY });
     expect(got.ok && got.data).toBe(true);
+  });
+
+  it('keeps the Agent Access switch main-only: the renderer can neither write nor read it', async () => {
+    const { appState, invoke } = setup();
+    expectValidation(await invoke(IPC_CHANNELS.prefsSet, { key: AGENT_ACCESS_KEY, value: true }));
+    expect(appState.get(AGENT_ACCESS_KEY)).toBeNull();
+    appState.set(AGENT_ACCESS_KEY, true);
+    expectValidation(await invoke(IPC_CHANNELS.prefsGet, { key: AGENT_ACCESS_KEY }));
+    expect(appState.get(AGENT_ACCESS_KEY)).toBe(true);
   });
 
   it.each(['window.bounds', 'window.maximized', 'theme.mode', 'maintenance.lastRunAt'])(

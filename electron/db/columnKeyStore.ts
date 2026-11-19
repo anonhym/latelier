@@ -31,6 +31,9 @@ const PROTECTED_TABLES = [
   'audit_log',
   'workspace_tabs',
   'saved_queries',
+  // Born sealed, so it is not in LEGACY_COLUMNS: no plaintext to migrate. agent_tokens
+  // holds hashes only and no sealed cell, so it survives a key reset.
+  'agent_read_log',
   'column_keys',
 ] as const;
 

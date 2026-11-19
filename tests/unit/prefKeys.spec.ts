@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PLAINTEXT_FALLBACK_KEY, isPrefGetKey, prefSetSchema } from '../../electron/ipc/prefKeys';
+import { AGENT_ACCESS_KEY, PLAINTEXT_FALLBACK_KEY, isPrefGetKey, prefSetSchema } from '../../electron/ipc/prefKeys';
 
 const UUID = '3f2b8c1e-9a4d-4e57-8b0c-1d2e3f4a5b6c';
 const CONN_KEY = `ui.workspace.navigator.connExpanded:${UUID}`;
@@ -149,5 +149,13 @@ describe('prefKeys', () => {
         Array.from({ length: 16 }, () => 'x'.repeat(512)),
       ).success,
     ).toBe(true);
+  });
+});
+
+describe('AGENT_ACCESS_KEY', () => {
+  it('is the Agent Access switch, and the renderer may neither write nor read it', () => {
+    expect(AGENT_ACCESS_KEY).toBe('agentAccess.enabled');
+    expect(prefSetSchema(AGENT_ACCESS_KEY)).toBeNull();
+    expect(isPrefGetKey(AGENT_ACCESS_KEY)).toBe(false);
   });
 });

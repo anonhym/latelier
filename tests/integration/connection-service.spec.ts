@@ -180,6 +180,24 @@ describe('ConnectionService', () => {
     expect(order[2]).toBe('C');
   });
 
+  it('list carries the share flag, off for a new connection and on once shared', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    await svc.create(validInput({ name: 'B' }));
+    repo.setShared(a.id, true);
+    const byName = new Map(svc.list().map((s) => [s.name, s]));
+    expect(byName.get('A')!.shareWithAgents).toBe(true);
+    expect(byName.get('B')!.shareWithAgents).toBe(false);
+    expect(svc.get(a.id).shareWithAgents).toBe(true);
+  });
+
+  it('create and update leave the share flag as it was, whatever the payload carries', async () => {
+    const created = await svc.create({ ...validInput({ name: 'A' }), shareWithAgents: true } as never);
+    expect(svc.get(created.id).shareWithAgents).toBe(false);
+    repo.setShared(created.id, true);
+    await svc.update(created.id, { ...validInput({ name: 'A2' }), shareWithAgents: false } as never);
+    expect(svc.get(created.id).shareWithAgents).toBe(true);
+  });
+
   it("list carries each connection's default database, undefined when unset", async () => {
     await svc.create(validInput({ name: 'With', defaultDb: 'smoke' }));
     await svc.create(validInput({ name: 'Without' }));

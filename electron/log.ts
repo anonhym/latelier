@@ -24,7 +24,7 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
 export const REDACTED_KEYS: ReadonlySet<string> = new Set([
   'password', 'pwd', 'sshpassword', 'sshpassphrase',
   'passphrase', 'secret', 'token', 'apikey', 'authorization',
-  'ssh_password', 'ssh_passphrase',
+  'ssh_password', 'ssh_passphrase', 'agenttoken',
 ]);
 
 /**

@@ -6,7 +6,7 @@ import { compareLogFiles, describeShape, redactSecrets } from '../../electron/lo
 // source set isn't exported.
 const REDACTED_NAMES = [
   'password', 'pwd', 'sshpassword', 'sshpassphrase',
-  'passphrase', 'secret', 'token', 'apikey', 'authorization', 'ssh_password', 'ssh_passphrase',
+  'passphrase', 'secret', 'token', 'apikey', 'authorization', 'ssh_password', 'ssh_passphrase', 'agenttoken',
 ];
 
 // A redacted-key name in a random casing — case-insensitivity is part of the

@@ -58,6 +58,7 @@ export class ConnectionService {
         serverVersion: runtime.serverVersion,
         connectedAt: runtime.connectedAt,
         readOnly: row.read_only === 1,
+        shareWithAgents: row.share_with_agents === 1,
         lostReason: runtime.lostReason,
         familyId: family?.familyId ?? null,
         familyName: family?.familyName ?? null,

@@ -30,7 +30,11 @@ const PADDED_COLUMNS: ReadonlySet<string> = new Set(['recent_field_values.value'
  * refused rather than read as legacy plaintext, which would let them plant
  * chosen text past the AAD binding.
  */
-const SEALED_ONLY_COLUMNS: ReadonlySet<string> = new Set(['recent_field_values.value']);
+const SEALED_ONLY_COLUMNS: ReadonlySet<string> = new Set([
+  'recent_field_values.value',
+  // Born sealed by migration 020: the Agent Read Log never held plaintext.
+  'agent_read_log.request_json',
+]);
 
 /**
  * Always appends a marker byte, then zeros up to the next block. A value that

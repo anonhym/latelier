@@ -145,12 +145,17 @@ describe('column key store', () => {
       VALUES ('s', 'c1', 'd', 'c', 'find', 'n', x'01', ?, ?)`).run(now, now);
     tmp.db.prepare(`INSERT INTO workspace_tabs (id, connection_id, kind, db_name, collection, state_json, position, opened_at)
       VALUES ('t', 'c1', 'collection', 'd', 'c', x'01', 0, ?)`).run(now);
+    tmp.db.prepare(`INSERT INTO agent_read_log (id, ts, tool, request_json, duration_ms, outcome)
+      VALUES ('l', ?, 'find', x'01', 1, 'ok')`).run(now);
+    tmp.db.prepare(`INSERT INTO agent_tokens (id, name, token_hash, created_at) VALUES ('tok', 'Claude', 'hash', ?)`).run(now);
 
     resetProtectedData(tmp.db, log());
 
-    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'column_keys']) {
+    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'agent_read_log', 'column_keys']) {
       expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
     }
+    // Hashes only, no sealed cell: the Agent Tokens outlive a key reset.
+    expect((tmp.db.prepare('SELECT COUNT(*) AS n FROM agent_tokens').get() as { n: number }).n).toBe(1);
     expect(tmp.db.prepare("SELECT id FROM connections WHERE id = 'c1'").get()).toBeDefined();
     expect(isVacuumPending(tmp.db)).toBe(false);
 
