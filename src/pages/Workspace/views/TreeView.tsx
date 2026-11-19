@@ -422,7 +422,7 @@ function DocRowImpl({
           attribute) and, since #20, its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
-          doc={doc}
+          doc={shownDoc}
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}
