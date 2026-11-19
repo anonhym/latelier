@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   containsDistinctive,
+  matchesDistinctive,
   distinctiveValues,
   MAX_DISTINCTIVE_VALUES,
   MAX_SCAN_CHARS,
@@ -190,5 +191,24 @@ describe('containsDistinctive', () => {
   it('matches any other value exactly', () => {
     expect(containsDistinctive('{ name: "Alice Wonderland" }', 'Alice Wonderland')).toBe(true);
     expect(containsDistinctive('{ name: "alice wonderland" }', 'Alice Wonderland')).toBe(false);
+  });
+});
+
+describe('matchesDistinctive', () => {
+  it('compares a hex id or UUID without regard to case', () => {
+    expect(matchesDistinctive(ID.toUpperCase(), ID)).toBe(true);
+    const uuid = '00112233-4455-6677-8899-aabbccddeeff';
+    expect(matchesDistinctive(uuid.toUpperCase(), uuid)).toBe(true);
+  });
+
+  it('compares anything else exactly', () => {
+    expect(matchesDistinctive('Alice-0001', 'Alice-0001')).toBe(true);
+    expect(matchesDistinctive('ALICE-0001', 'Alice-0001')).toBe(false);
+    expect(matchesDistinctive('alice-0001', 'alice-0001 ')).toBe(false);
+    expect(matchesDistinctive('x alice-0001', 'alice-0001')).toBe(false);
+  });
+
+  it('does not match a hex id that only contains the value', () => {
+    expect(matchesDistinctive(`x${ID}`, ID)).toBe(false);
   });
 });

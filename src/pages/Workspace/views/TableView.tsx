@@ -35,6 +35,7 @@ import { allExpandablePaths } from './docFieldFlatten';
 import { enterFields } from './enterFields';
 import { onColumnScrollRequest, scrollLeftToReveal } from './columnScroll';
 import { useAddToFilter } from './useAddToFilter';
+import { withFieldPath } from '../../../utils/copyOrigin';
 import { useCopiedFlash } from './useCopiedFlash';
 import { useResultCopyOrigin } from './useResultCopyOrigin';
 import { useCopyFormat } from './useCopyFormat';
@@ -166,7 +167,7 @@ interface TableCellProps {
   /** Set when the chip belongs to a nested path of an object cell: the chip acts on this path and value instead of the cell's. */
   refPath?: string;
   refValue?: unknown;
-  onCopyCell: (text: string, cellKey: string) => void;
+  onCopyCell: (text: string, cellKey: string, fieldPath?: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
     payload: { field: string | null; value: unknown; hasValue: boolean },
@@ -390,7 +391,7 @@ function TableCell({
       onDoubleClick={(e) => {
         if (!draggable || editing) return;
         e.stopPropagation();
-        onCopyCell(valueToClipboardText(value), cellKey);
+        onCopyCell(valueToClipboardText(value), cellKey, isFieldColumn ? fieldPath : undefined);
       }}
       onContextMenu={(e) => {
         if (editing) return;
@@ -714,7 +715,7 @@ interface TableRowProps {
   // stable per-row DOM id so the grid's `aria-activedescendant` (set
   // by `useRovingFocus` in the component below) always names a real element.
   rowId: (index: number) => string;
-  onCopyCell: (text: string, cellKey: string) => void;
+  onCopyCell: (text: string, cellKey: string, fieldPath?: string) => void;
   onContextMenu: (
     e: React.MouseEvent,
     payload: {
@@ -727,7 +728,7 @@ interface TableRowProps {
   onRowExpand: (docId: string, expanded: boolean) => void;
   toggleDeepPath: (path: string) => void;
   setDeepPaths: (paths: string[], expanded: boolean) => void;
-  handleCopyField: (path: string, value: unknown) => void;
+  handleCopyField: (path: string, value: unknown, fieldPath: string) => void;
   handleOpenFieldMenu: (payload: FieldMenuOpenPayload) => void;
   onRefHover?: (rule: ReferenceRule, value: unknown, rect: DOMRect) => void;
   onRefHoverLeave?: () => void;
@@ -1171,7 +1172,7 @@ export function TableView({
   // Badge, not toast — same ruling as `copyCell` above.
   const { copied: fieldCopiedPath, flash: flashField } = useCopiedFlash<string>(meta);
   const handleCopyField = React.useCallback(
-    (path: string, value: unknown) => flashField(valueToClipboardText(value), path),
+    (path: string, value: unknown, fieldPath: string) => flashField(valueToClipboardText(value), path, fieldPath),
     [flashField],
   );
 
@@ -1618,7 +1619,7 @@ export function TableView({
         if (col) {
           const value = columnValue(doc, col);
           if (value !== undefined) {
-            void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.', meta);
+            void copyToClipboard(valueToClipboardText(value), 'Value copied to the clipboard.', withFieldPath(meta, col.field));
           }
         } else {
           void copyDocument(doc, copyFormat, meta);

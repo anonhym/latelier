@@ -1,6 +1,6 @@
 # X26 — Reference discovery from a copied value
 
-> **Status: Draft.**
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -32,6 +32,7 @@ The Copy Origin gains an optional `fieldPath`, the dotted path of the field the 
 
 - **Value** copies (cell menu, Tree and field menus, the full-value popover, the Tree's per-field copy, ⌘C on a clicked Table cell) set it to that field's path.
 - **Document id** copies set it to `_id`.
+- A path through an array carries an element index (`items.0.sku`), which no rule's source field spells, so it names **no** field: nothing is suggested for it.
 - Whole-document copies, the selection bar's multi-document copy, aggregation Output and text selected in a result view have **no** field path. A Copy Origin without one never starts a suggestion.
 
 `copyToClipboard`'s `origin` argument accepts the optional `fieldPath` next to the Connection, Database and Collection. The Copy Origin also gets a `seq`, a counter that grows with each recorded copy, so "this copy" is identifiable (§5).
@@ -50,7 +51,8 @@ The pending discovery holds the tab id, the Copy Origin's Database, Collection, 
 
 When the tab's next Run finishes with at least one document, the pending discovery is taken (it is gone whatever happens next) and the documents are searched for its values.
 
-- A value **matches** a scalar leaf of a document when the leaf's text form equals it: a string as written, an ObjectId as lower-case hex, a UUID in canonical lower-case form, a number, `Long` or `Decimal128` as its decimal text. Hex ids compare without regard to case, as in X25.
+- The documents are what the Run delivered: canonical Extended JSON, parsed but not revived, so an ObjectId is `{"$oid": …}`, an integer `{"$numberInt": …}`, and a UUID a `{"$binary": …}` of subtype `04`.
+- A value **matches** a scalar leaf of a document when one of the leaf's text forms equals it exactly: a string as written; an ObjectId's hex; a plain number, `$numberInt`, `$numberLong`, `$numberDouble` or `$numberDecimal` as its decimal text; a `$binary` as its base64 text, and as its canonical UUID text when it is a 16-byte subtype `04`. Hex ids and UUIDs compare without regard to case, as in X25. Dates, booleans, null and the rest are never matched. A value wrapper such as `{"$date": …}` is a leaf, never searched inside.
 - Leaves are visited through nested objects and arrays, to depth 8. An array element's path is the array field's path, with no index, because a dotted path addresses array elements in a query.
 - The **match field** is found in the first document holding a match. If `_id` holds one it wins, otherwise the first match in document order.
 - No match, or a Run with no documents: nothing is shown and the pending values are dropped.
@@ -81,15 +83,15 @@ One strip per tab, rendered under the Filter Bar, showing the pair as "Make **`o
 
 Escape inside the strip acts as Not now and calls `stopPropagation()`. A rule is never saved without a click on Save. Once the suggestion is decided, or replaced by another, the copied values it was built from are dropped. Only the pair identity is kept.
 
-The strip stays until decided, replaced by another suggestion for the tab, or the tab closes.
+The strip stays until decided or replaced by another suggestion for the tab. Like the X25 warning, its state is a small renderer-side entry per tab that is never persisted.
 
 ## 6. The Never list
 
-`app_state` key `refs.discovery.never`, read and written through `api.prefs`: a JSON array of pair keys, each at most 1,024 characters, at most 500 entries. It is plain text, so it is inspectable and survives a reinstall of the app's profile like any other preference. Adding a key appends it, and when the list is full the oldest entry goes. It is on the renderer's `prefs` allowlist (`electron/ipc/prefKeys.ts`) with that schema. It carries no secret and needs no new channel.
+`app_state` key `refs.discovery.never`, read and written through `api.prefs`: a JSON array of pair keys, each at most 1,024 characters, at most 500 entries. It is plain text, so it is inspectable like any other preference. Adding a key appends it, and when the list is full the oldest entry goes. It is on the renderer's `prefs` allowlist (`electron/ipc/prefKeys.ts`) with that schema. It carries no secret and needs no new channel.
 
 ## 7. Acceptance criteria
 
-- Value copies carry their field path, document id copies carry `_id`, and document, multi-document, Output and selected-text copies carry none.
+- Value copies carry their field path, document id copies carry `_id`, and document, multi-document, Output, selected-text and through-an-array copies carry none.
 - A paste of a copied value on a different Collection of the same Connection, followed by a Run that returns a document holding the value, shows the strip with the oriented pair.
 - The same paste on the Copy Origin's own Collection, on another Connection, or of text without the value, shows nothing.
 - A Run with no match or no documents shows nothing, and the pending values are dropped.

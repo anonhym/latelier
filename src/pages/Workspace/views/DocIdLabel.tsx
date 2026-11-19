@@ -2,6 +2,7 @@ import React, { use } from 'react';
 import { ActionIcon } from '@mantine/core';
 import { I } from '../../../icons';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { withFieldPath } from '../../../utils/copyOrigin';
 import { isRecord } from '../../../utils/displayValue';
 import { getDocId, getDocIdCopyText, getDocIdText } from './docId';
 import { useCopyFormat } from './useCopyFormat';
@@ -53,7 +54,7 @@ export function DocIdLabel({ doc }: { doc: unknown }) {
           title="Copy _id"
           onClick={(e) => {
             e.stopPropagation();
-            void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', origin);
+            void copyToClipboard(getDocIdCopyText(doc, copyFormat), 'Document id copied to the clipboard.', withFieldPath(origin, '_id'));
           }}
           style={{ opacity: shown ? 1 : 0 }}
         >

@@ -170,7 +170,7 @@ describe('the Full value popover and the Copy Origin', () => {
     await userEvent.click(within(cell).getByRole('button', { name: 'Expand cell value' }));
     const dialog = await screen.findByRole('dialog', { name: 'Full value' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
-    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG }));
+    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG, fieldPath: 'note' }));
   });
 
   it('a field tree leaf\'s Copy records the value for its tab too', async () => {
@@ -192,6 +192,6 @@ describe('the Full value popover and the Copy Origin', () => {
     await userEvent.click(within(row).getByRole('button', { name: 'Expand field value' }));
     const dialog = await screen.findByRole('dialog', { name: 'Full value' });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Copy' }));
-    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG }));
+    await waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: LONG, fieldPath: 'outer.note' }));
   });
 });

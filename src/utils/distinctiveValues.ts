@@ -113,3 +113,9 @@ export function containsDistinctive(pasted: string, value: string): boolean {
   if (HEX_ID_SHAPE.test(value)) return pasted.toLowerCase().includes(value);
   return pasted.includes(value);
 }
+
+/** True when `text` is exactly `value`, hex ids and UUIDs without regard to case. */
+export function matchesDistinctive(text: string, value: string): boolean {
+  if (HEX_ID_SHAPE.test(value)) return text.toLowerCase() === value;
+  return text === value;
+}

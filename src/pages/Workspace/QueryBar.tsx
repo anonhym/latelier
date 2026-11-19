@@ -33,6 +33,7 @@ import { useTextareaAutocomplete } from '../../features/fieldSuggestions/useText
 import { useCollectionWorkspace } from './context';
 import { useCrossPaste } from './crossPaste';
 import { PasteWarningStrip } from './PasteWarningStrip';
+import { ReferenceDiscoveryStrip } from './ReferenceDiscoveryStrip';
 import {
   consumeSavedRename,
   consumeTabRequest,
@@ -1486,6 +1487,7 @@ function QueryBarInner({
         connectionId={meta.connectionId}
         surfaces={['filter', 'sort', 'projection']}
       />
+      <ReferenceDiscoveryStrip tabId={meta.tabId} />
 
       {expandOpen && (
         <QueryExpandModal

@@ -9,6 +9,7 @@ import { CANCELLED_NOTICE_MS, _resetRunClocksForTests, useRunClock } from '../..
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState } from '@shared/types';
 import { getPasteWarning, showPasteWarning } from '../../src/state/pasteWarning';
+import { armDiscovery, getReferenceSuggestion } from '../../src/state/referenceDiscovery';
 
 function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
   return {
@@ -1700,5 +1701,39 @@ describe('useQueryRunner: the Cross-Connection Paste warning', () => {
       throw Object.assign(new Error('boom'), { code: 'MONGO_OP' });
     });
     expect(getPasteWarning('t1')).toMatchObject({ emphasised: false });
+  });
+});
+
+describe('useQueryRunner: reference discovery', () => {
+  const ID = '507f1f77bcf86cd799439011';
+
+  async function runWith(find: IpcApi['query']['find']) {
+    installAtelierMock({
+      query: { find, count: async () => ({ count: 0 }) },
+      prefs: { get: async () => null, set: async (_k: string, v: unknown) => v } as unknown as IpcApi['prefs'],
+      refs: { list: (async () => []) as unknown as IpcApi['refs']['list'] },
+    });
+    armDiscovery('t1', { origin: { dbName: 'app', collection: 'orders', field: 'userId' }, seq: 1, values: [ID] });
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: makeTarget(), patchCollectionState: vi.fn(), loadingDelayMs: 0 }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+    return result;
+  }
+
+  it('offers the rule when the run returns a document holding the pasted value', async () => {
+    await runWith(async () => ({ documents: [{ _id: { $oid: ID } }], durationMs: 1, hasMore: false }));
+    await waitFor(() => expect(getReferenceSuggestion('t1')).toBeDefined());
+    expect(getReferenceSuggestion('t1')?.key).toBe('c1|app.orders.userId->app.users._id');
+  });
+
+  it('offers nothing for a run that returns no match', async () => {
+    const result = await runWith(async () => ({ documents: [{ _id: { $oid: 'f'.repeat(24) } }], durationMs: 1, hasMore: false }));
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(getReferenceSuggestion('t1')).toBeUndefined();
   });
 });

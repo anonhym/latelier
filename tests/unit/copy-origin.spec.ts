@@ -5,7 +5,14 @@ vi.mock('../../src/theme/notifications', () => ({
 }));
 
 import { copyToClipboard } from '../../src/utils/clipboard';
-import { clearCopyOrigin, copySourceOf, getCopyOrigin, recordCopyOrigin } from '../../src/utils/copyOrigin';
+import {
+  clearCopyOrigin,
+  copySourceOf,
+  getCopyOrigin,
+  recordCopyOrigin,
+  sourceFieldPathOf,
+  withFieldPath,
+} from '../../src/utils/copyOrigin';
 import { notify } from '../../src/theme/notifications';
 
 const A = { connectionId: 'conn-a', dbName: 'shop', collection: 'orders' };
@@ -29,7 +36,8 @@ describe('Copy Origin store', () => {
 
   it('records the source, the text and the distinctive values extracted from it', () => {
     recordCopyOrigin(A, `ObjectId("${ID}")`);
-    expect(getCopyOrigin()).toEqual({ ...A, text: `ObjectId("${ID}")`, distinctive: [ID] });
+    expect(getCopyOrigin()).toEqual({ ...A, text: `ObjectId("${ID}")`, distinctive: [ID], seq: expect.any(Number) });
+    expect(getCopyOrigin()).not.toHaveProperty('fieldPath');
   });
 
   it('keeps only the most recent copy', () => {
@@ -46,6 +54,40 @@ describe('Copy Origin store', () => {
 
   it('copySourceOf keeps the three identity fields and nothing else', () => {
     expect(copySourceOf({ ...A, tabId: 't1', isLoading: false } as typeof A)).toEqual(A);
+  });
+});
+
+describe('Copy Origin field path and seq', () => {
+  it('records the field the text came from', () => {
+    recordCopyOrigin({ ...A, fieldPath: 'customerId' }, ID);
+    expect(getCopyOrigin()).toMatchObject({ ...A, fieldPath: 'customerId' });
+  });
+
+  it('gives every recorded copy a new seq, even after a clear', () => {
+    recordCopyOrigin(A, ID);
+    const first = getCopyOrigin()!.seq;
+    recordCopyOrigin(A, ID);
+    const second = getCopyOrigin()!.seq;
+    clearCopyOrigin();
+    recordCopyOrigin(A, ID);
+    expect(second).toBeGreaterThan(first);
+    expect(getCopyOrigin()!.seq).toBeGreaterThan(second);
+  });
+
+  it('a path through an array names no field', () => {
+    expect(sourceFieldPathOf('customerId')).toBe('customerId');
+    expect(sourceFieldPathOf('address.city')).toBe('address.city');
+    expect(sourceFieldPathOf('items.0.sku')).toBeUndefined();
+    expect(sourceFieldPathOf('items.12')).toBeUndefined();
+    expect(sourceFieldPathOf('a1.b2')).toBe('a1.b2');
+    expect(sourceFieldPathOf('1a.b')).toBe('1a.b');
+    expect(sourceFieldPathOf('')).toBeUndefined();
+  });
+
+  it('withFieldPath adds the path to the three identity fields, or nothing without an origin', () => {
+    expect(withFieldPath({ ...A, tabId: 't1' } as typeof A, '_id')).toEqual({ ...A, fieldPath: '_id' });
+    expect(withFieldPath(A, 'items.0')).toStrictEqual(A);
+    expect(withFieldPath(undefined, '_id')).toBeUndefined();
   });
 });
 

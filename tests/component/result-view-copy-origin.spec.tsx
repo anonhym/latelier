@@ -158,6 +158,32 @@ describe('copies that record the origin', () => {
     expect(getCopyOrigin()!.text).toContain(expectedText);
   });
 
+  it('names the field a value or an id came from, and no field for a whole document', async () => {
+    click(field(META), 'Copy value');
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, fieldPath: 'name' }));
+    click(doc(META), 'Copy _id');
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, fieldPath: '_id' }));
+    click(doc(META), 'Copy document');
+    await vi.waitFor(() => expect(getCopyOrigin()!.text).toContain('Alice'));
+    expect(getCopyOrigin()).not.toHaveProperty('fieldPath');
+  });
+
+  it('a value inside an array names no field', async () => {
+    click(
+      fieldMenuItems({
+        fieldPath: 'items.0.sku',
+        value: 'ABCDEF-1',
+        hasValue: true,
+        filterBarValid: true,
+        onAddToFilter: vi.fn(async () => undefined),
+        origin: META,
+      }),
+      'Copy value',
+    );
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: 'ABCDEF-1' }));
+    expect(getCopyOrigin()).not.toHaveProperty('fieldPath');
+  });
+
   it('Copy field path clears it', async () => {
     recordCopyOrigin(OLD, 'older-value-here');
     click(field(META), 'Copy field path');
@@ -189,7 +215,7 @@ describe('copies that record the origin', () => {
   it('the row id copy button records the document id for its tab', async () => {
     wrap('Tree', <DocIdLabel doc={DOCS[0]} />);
     fireEvent.click(screen.getByRole('button', { name: /Copy _id of document/ }));
-    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: ID }));
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: ID, fieldPath: '_id' }));
   });
 
   it('the row id copy button outside any tab has no origin to record, so it clears', async () => {
@@ -206,6 +232,27 @@ describe('copies that record the origin', () => {
     fireEvent.keyDown(grid, { key: 'c', metaKey: true, shiftKey: true });
     await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject(META));
     expect(getCopyOrigin()!.distinctive).toContain(ID);
+  });
+
+  it('⌘C on a clicked Table cell records the value with its field, and a double-click does too', async () => {
+    const { container } = wrap('Table', <TableView documents={DOCS} onColumnResize={vi.fn()} onRowExpand={vi.fn()} />);
+    const grid = container.querySelector<HTMLElement>('[role="grid"]')!;
+    const cell = container.querySelector<HTMLElement>('[data-cell-key$=":name"]')!;
+    fireEvent.click(cell);
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'c', metaKey: true });
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: 'Alice Wonderland', fieldPath: 'name' }));
+    recordCopyOrigin(OLD, 'older-value-here');
+    fireEvent.doubleClick(cell);
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: 'Alice Wonderland', fieldPath: 'name' }));
+  });
+
+  it('a double-click on a field of an expanded Tree row records the value with its field', async () => {
+    const { container } = wrap('Tree', <TreeView documents={DOCS} expandedRows={{ [ID]: true }} onSelect={vi.fn()} onRowExpand={vi.fn()} />);
+    const row = container.querySelector<HTMLElement>('[id$="::name"]');
+    if (row === null) throw new Error(`no field row: ${[...container.querySelectorAll('[id]')].map((e) => e.id).join(', ')}`);
+    fireEvent.doubleClick(row);
+    await vi.waitFor(() => expect(getCopyOrigin()).toMatchObject({ ...META, text: 'Alice Wonderland', fieldPath: 'name' }));
   });
 
   it('⌘C on a Tree row records the document for its tab', async () => {

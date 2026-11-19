@@ -90,7 +90,8 @@ interface FieldNodeProps {
   /** Opens the Document Editor on a field; the full-value popover's `Open in editor`. */
   onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
-  onCopy: (path: string, value: unknown) => void;
+  /** `fieldPath` is the document field the value belongs to. */
+  onCopy: (path: string, value: unknown, fieldPath: string) => void;
   // #68 — mouse path only; `DocFieldTree` injects `returnFocusTo` before
   // this reaches the caller.
   onOpenMenu: (payload: Omit<FieldMenuOpenPayload, 'returnFocusTo'>) => void;
@@ -230,7 +231,7 @@ function FieldNodeImpl({
         aria-expanded={isExpandable ? isExpanded : undefined}
         onDoubleClick={(e) => {
           e.stopPropagation();
-          onCopy(path, value);
+          onCopy(path, value, fieldPath);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -500,7 +501,7 @@ export interface DocFieldTreeProps {
   /** Opens the Document Editor on a field (the full-value popover's `Open in editor`). */
   onOpenInEditor?: (fieldPath: string) => void;
   copiedPath: string | null;
-  onCopy: (path: string, value: unknown) => void;
+  onCopy: (path: string, value: unknown, fieldPath: string) => void;
   // #68 — widened from `(e: React.MouseEvent, fieldPath, value) => void` so a
   // keyboard open (no `MouseEvent`) and a mouse open converge on one shape.
   onOpenMenu: (payload: FieldMenuOpenPayload) => void;
