@@ -30,10 +30,10 @@ const previewKeys = (c: HTMLElement) =>
  * store behind `api.rowSummary`. The stateful store is what lets a save made in
  * the picker come back through `get` into the strip, which a static mock cannot.
  */
-function Harness() {
+function Harness({ state = STATE }: { state?: CollectionTabState }) {
   return (
     <CollectionWorkspaceProvider
-      state={STATE}
+      state={state}
       actions={emptyWorkspaceActions()}
       meta={emptyWorkspaceMeta({ connectionId: 'c1', dbName: 'shop', collection: 'customers' })}
     >
@@ -92,6 +92,25 @@ describe('TreeView — Row Summary', () => {
     await waitFor(() => expect(previewKeys(container).slice(0, 2)).toEqual(['plan.tier', 'name']));
     expect(container.textContent).toContain('gold');
     expect(previewKeys(container)).not.toContain('city');
+  });
+
+  it('does not show a saved summary field the Fields list hides, nor one under a hidden parent', async () => {
+    stored = {
+      id: 'rs1',
+      owner: { connectionId: 'c1' },
+      dbName: 'shop',
+      collection: 'customers',
+      fields: ['city', 'plan.tier', 'name'],
+      updatedAt: '2026-01-01T00:00:00Z',
+      origin: 'local',
+    };
+    const hidden = { ...STATE, columnConfig: { hidden: ['city', 'plan'] } } as CollectionTabState;
+    const { container } = render(<Harness state={hidden} />);
+    await waitFor(() => expect(previewKeys(container)).toContain('name'));
+    expect(previewKeys(container)).not.toContain('city');
+    expect(previewKeys(container)).not.toContain('plan.tier');
+    expect(container.textContent).not.toContain('Paris');
+    expect(container.textContent).not.toContain('gold');
   });
 
   it('round-trips: picking fields in the picker redraws the strip, and clearing brings the fallback back', async () => {

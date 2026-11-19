@@ -7,6 +7,8 @@ import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
 import { notifyConnectionsChanged } from '../../state/connections';
+import { notifyReferenceRulesChanged } from '../references/useReferenceRules';
+import { notifyRowSummaryChanged } from '../rowSummary/useRowSummary';
 import { notify } from '../../theme/notifications';
 import { tlsWarning } from '../../utils/hostLocality';
 import { relativeTime } from '../../utils/relativeTime';
@@ -326,6 +328,9 @@ export function ConnectionExpandedTable({
   }, [reloadFamilies]);
   const familyChanged = React.useCallback(() => {
     notifyConnectionsChanged();
+    // Membership decides which shared rules and Row Summary a Connection uses, so the mounted readers re-ask.
+    notifyReferenceRulesChanged();
+    notifyRowSummaryChanged();
     void reloadFamilies();
   }, [reloadFamilies]);
   // Paste URIs opens the app's one Import Wizard, which stacks on this table

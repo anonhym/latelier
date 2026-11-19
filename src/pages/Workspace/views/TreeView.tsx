@@ -363,8 +363,9 @@ function DocRowImpl({
 
         <DocIdLabel doc={doc} />
 
+        {/* The redacted document: a saved Row Summary may name a field the projection or Fields list hides. */}
         <CollapsedRowPreview
-          doc={doc}
+          doc={shownDoc}
           previewFields={previewFields}
         />
 
@@ -421,7 +422,7 @@ function DocRowImpl({
           attribute) and, since #20, its own roving-focus tab stop. */}
       {isExpanded && isRecord(doc) && (
         <DocFieldTree
-          doc={shownDoc}
+          doc={doc}
           docId={docId}
           expandedPaths={deepPaths}
           onToggle={toggleDeepPath}

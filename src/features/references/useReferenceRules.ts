@@ -2,6 +2,15 @@ import React from 'react';
 import type { EffectiveReferenceRule, ReferenceRule } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
 
+// A Family change (joining, leaving, deleting, applying an export) happens in a
+// dialog with no common parent to the mounted readers, so it announces itself
+// here and every reader re-asks for what its Connection now uses.
+const changed = new EventTarget();
+
+export function notifyReferenceRulesChanged(): void {
+  changed.dispatchEvent(new Event('changed'));
+}
+
 export interface UseReferenceRulesResult {
   /** What the Connection uses: its own rules plus its Family's shared ones it does not override. */
   rules: EffectiveReferenceRule[];
@@ -53,6 +62,12 @@ export function useReferenceRules(
     queueMicrotask(() => {
       void reload();
     });
+  }, [reload]);
+
+  React.useEffect(() => {
+    const onChanged = () => void reload();
+    changed.addEventListener('changed', onChanged);
+    return () => changed.removeEventListener('changed', onChanged);
   }, [reload]);
 
   const byField = React.useMemo(() => {
