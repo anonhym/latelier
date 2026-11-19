@@ -254,8 +254,8 @@ describe('ReferenceRulesEditor — target database and collection suggestions', 
     const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
     await user.clear(db);
     await user.type(db, 'crm');
-    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm' }));
-    expect(listCollections).not.toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'c' });
+    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm', includeStats: false }));
+    expect(listCollections).not.toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'c', includeStats: false });
     const coll = screen.getByRole('combobox', { name: 'Target collection' }) as HTMLInputElement;
     await user.click(coll);
     await user.click(await screen.findByRole('option', { name: 'accounts' }));
@@ -293,7 +293,7 @@ describe('ReferenceRulesEditor — target database and collection suggestions', 
     const db = screen.getByRole('combobox', { name: 'Target database' }) as HTMLInputElement;
     await user.clear(db);
     await user.type(db, 'crm');
-    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm' }));
+    await waitFor(() => expect(listCollections).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'crm', includeStats: false }));
     await user.clear(db);
     await user.type(db, 'crm');
     await new Promise((r) => setTimeout(r, 400));

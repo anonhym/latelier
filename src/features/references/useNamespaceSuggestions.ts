@@ -56,7 +56,7 @@ export function useNamespaceSuggestions(connectionId: string, dbName: string): N
     if (db === '' || requested.current.has(collectionsKey)) return;
     const timer = setTimeout(() => {
       requested.current.add(collectionsKey);
-      api.meta.listCollections({ connectionId, dbName: db }).then(
+      api.meta.listCollections({ connectionId, dbName: db, includeStats: false }).then(
         (list) => {
           if (mounted.current) setCollectionsByKey((c) => ({ ...c, [collectionsKey]: { names: list.map((x) => x.name) } }));
         },

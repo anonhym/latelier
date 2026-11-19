@@ -230,4 +230,35 @@ describe('useReferenceDrawer — resolving through the active Connection', () =>
     expect(resolve).toHaveBeenCalledOnce();
     expect(resolve.mock.calls[0]![0]).toMatchObject({ ruleId: 'r1', connectionId: 'c1' });
   });
+
+  it('does not let a hover still pending on one Connection fill the cache for another', async () => {
+    let settle!: (r: Awaited<ReturnType<IpcApi['refs']['resolve']>>) => void;
+    const resolve = vi
+      .fn<IpcApi['refs']['resolve']>()
+      .mockImplementationOnce(() => new Promise((res) => { settle = res; }))
+      .mockImplementation(async () => ({ ruleId: 'r1', found: true, documents: [{ _id: 'b' }], durationMs: 0 }));
+    installAtelierMock({ refs: { resolve } });
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const tabs = [makeCollectionTab('t1'), { ...makeCollectionTab('t2', [], false), connectionId: 'c2' }];
+    const { result, rerender } = renderHook(({ activeId }) => useReferenceDrawer(activeId, tabs, vi.fn(), activeId), {
+      initialProps: { activeId: 't1' },
+    });
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+    rerender({ activeId: 't2' });
+    await act(async () => {
+      settle({ ruleId: 'r1', found: true, documents: [{ _id: 'a' }], durationMs: 0 });
+      await pending;
+    });
+    await act(async () => {
+      await result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve.mock.calls[1]![0]).toMatchObject({ connectionId: 'c2' });
+    expect(result.current.refHover?.result?.documents).toEqual([{ _id: 'b' }]);
+  });
 });

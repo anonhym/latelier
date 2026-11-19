@@ -67,6 +67,8 @@ export function useReferenceDrawer(
     if (activeTabIdRef.current === activeTabId) return;
     activeTabIdRef.current = activeTabId;
     resolveCacheRef.current.clear();
+    // A hover still pending on the previous tab must not settle into this one's cache.
+    hoverReqIdRef.current++;
     setRefHover(null);
     if (refDrawerPinned) return;
     const tab = allTabs.find((t) => t.id === activeTabId);
@@ -134,7 +136,7 @@ export function useReferenceDrawer(
     async (rule: ReferenceRule, value: unknown, rect: DOMRect) => {
       const reqId = ++hoverReqIdRef.current;
       const valueEjson = ejsonStringify(value);
-      const cacheKey = `${rule.id}:${valueEjson}`;
+      const cacheKey = `${activeConnectionIdRef.current ?? ''}:${rule.id}:${valueEjson}`;
       const cached = resolveCacheRef.current.get(cacheKey);
       if (cached) {
         setRefHover({ rule, anchorRect: rect, result: cached, loading: false, error: null });
