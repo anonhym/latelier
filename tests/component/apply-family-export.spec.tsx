@@ -266,6 +266,19 @@ describe('ApplyFamilyExportDialog', () => {
       expect(progress()).toBe('Step 2 of 4: Target');
     });
 
+    it('forgets the answers when Back leads to another family, since they were about the first one\'s settings', async () => {
+      const user = userEvent.setup();
+      render(<Harness onClose={onClose} />);
+      await toConflicts(user);
+      await user.click(screen.getByRole('button', { name: 'Keep current for all remaining' }));
+      expect(disabled(applyButton())).toBe(false);
+      await user.click(screen.getByRole('button', { name: 'Back' }));
+      await user.selectOptions(screen.getByLabelText('Apply to'), 'f2');
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByRole('list', { name: 'Conflicting settings' });
+      expect(disabled(applyButton())).toBe(true);
+    });
+
     it('checks again when the family changed meanwhile, keeping answers that still apply', async () => {
       const user = userEvent.setup();
       render(<Harness onClose={onClose} />);

@@ -61,6 +61,8 @@ export function ApplyFamilyExportDialog({ families, connections, initialFamilyId
   const [newName, setNewName] = React.useState('');
   const [plan, setPlan] = React.useState<FamilyApplyPlan | null>(null);
   const [resolutions, setResolutions] = React.useState<Record<string, FamilyApplyChoice>>({});
+  // The target the answers were given for: a conflict key names a setting, not a family, so another family's answers are not these.
+  const answeredFor = React.useRef<string | null>(null);
   const [result, setResult] = React.useState<FamilyApplyResult | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -112,9 +114,13 @@ export function ApplyFamilyExportDialog({ families, connections, initialFamilyId
   const planCall = async () => {
     const next = await api.families.planApply({ token: file!.token, target });
     setPlan(next);
-    // An answer to a conflict that has gone away is dropped; the others stand.
+    // For the same family, an answer to a conflict that has gone away is dropped and the others stand;
+    // for another family none stands, as each answer was about the first one's current settings.
+    const targetKey = JSON.stringify(target);
+    const sameTarget = answeredFor.current === targetKey;
+    answeredFor.current = targetKey;
     const keys = new Set(next.conflicts.map((c) => c.key));
-    setResolutions((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => keys.has(k))));
+    setResolutions((prev) => (sameTarget ? Object.fromEntries(Object.entries(prev).filter(([k]) => keys.has(k))) : {}));
     // With nothing to ask, the conflicts step is skipped and the file is applied.
     if (next.conflicts.length === 0) await applyCall({});
     else setStep('conflicts');
