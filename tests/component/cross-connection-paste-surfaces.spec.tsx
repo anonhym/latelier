@@ -16,6 +16,7 @@ import { FieldsControl } from '../../src/pages/Workspace/FieldsControl';
 import { StageAccordion } from '../../src/pages/Workspace/Aggregation/StageAccordion';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { ScriptEditor } from '../../src/components/ScriptEditor';
+import { MongoShellPane } from '../../src/pages/Workspace/MongoShellPane';
 import { DocumentEditor } from '../../src/pages/Workspace/DocumentEditor';
 import { clearCopyOrigin, recordCopyOrigin } from '../../src/utils/copyOrigin';
 import { getPasteWarning } from '../../src/state/pasteWarning';
@@ -364,9 +365,26 @@ describe('Cross-Connection Paste: aggregation stage body', () => {
 });
 
 describe('Cross-Connection Paste: surfaces that never warn', () => {
-  it('a shell or script editor takes the paste without a hook', async () => {
-    const { container } = render(<ScriptEditor value="" onChange={() => {}} />);
-    paste(container.querySelector<HTMLElement>('.cm-content')!, `{ _id: "${ID}" }`);
+  // Both sit inside a tab on Connection B, so a paste hook wired into either
+  // would find a tab to warn on: that is what these cases would catch.
+  it('the shell pane takes the paste without a warning', async () => {
+    installAtelierMock({
+      conn: { list: async () => [conn('conn-a', 'Client A'), conn('conn-b', 'Client B')] },
+      mshell: {
+        start: async () => ({ sessionId: 's1', connectionId: 'conn-b', startedAt: new Date().toISOString() }),
+        write: async () => undefined,
+        stop: async () => undefined,
+        list: async () => [],
+        onOutput: () => () => {},
+      },
+    });
+    render(
+      <Tab>
+        <MongoShellPane connectionId="conn-b" connectionName="Client B" height={260} onClose={() => {}} />
+      </Tab>,
+    );
+    const input = await screen.findByLabelText('Mongo shell input');
+    paste(input, pastedId);
     await expectNotWarned();
   });
 
@@ -375,21 +393,24 @@ describe('Cross-Connection Paste: surfaces that never warn', () => {
       conn: { list: async () => [conn('conn-a', 'Client A'), conn('conn-b', 'Client B')] },
     });
     render(
-      <DocumentEditor
-        mode="insert"
-        connectionId="conn-b"
-        dbName="shop"
-        collection="orders"
-        initialDocJson="{}"
-        onClose={vi.fn()}
-        onInserted={vi.fn()}
-        onPartialInsert={vi.fn()}
-      />,
+      <Tab>
+        <DocumentEditor
+          mode="insert"
+          connectionId="conn-b"
+          dbName="shop"
+          collection="orders"
+          initialDocJson="{}"
+          onClose={vi.fn()}
+          onInserted={vi.fn()}
+          onPartialInsert={vi.fn()}
+        />
+      </Tab>,
     );
     const dialog = await screen.findByRole('dialog', { name: 'Insert document' });
     const fields = dialog.querySelectorAll('textarea, input, .cm-content');
     expect(fields.length).toBeGreaterThan(0);
     for (const field of fields) paste(field, pastedId);
+    paste(dialog, pastedId);
     await expectNotWarned();
   });
 });

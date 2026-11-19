@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { use } from 'react';
 import { ActionIcon, Button, Popover, VisuallyHidden } from '@mantine/core';
 import { copyToClipboard } from '../../../utils/clipboard';
-import type { CopySource } from '../../../utils/copyOrigin';
+import { CollectionWorkspaceContext } from '../context';
 
 interface FullValuePopoverProps {
   /** The value's display text, untruncated. */
@@ -23,8 +23,6 @@ interface FullValuePopoverProps {
   /** `-1` keeps the trigger out of Tab order where the host already opens
    * the popover from the keyboard (Enter on the active Tree leaf). */
   tabIndex?: number;
-  /** The tab the value is copied in, recorded as the Copy Origin. */
-  origin?: CopySource;
 }
 
 /**
@@ -49,8 +47,9 @@ export function FullValuePopover({
   visible,
   ariaLabel = 'Expand cell value',
   tabIndex,
-  origin,
 }: FullValuePopoverProps) {
+  // Table cells and Tree leaves both sit in a workspace, which names the tab the value is copied in.
+  const origin = use(CollectionWorkspaceContext)?.meta;
   const labelId = React.useId();
   // A stable callback ref runs once per mount of the dropdown, which the
   // popover's transition renders a commit or more after `opened` flips.

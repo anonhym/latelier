@@ -665,7 +665,6 @@ function TableCell({
           onChange={setExpandOpen}
           visible={affordanceVisible}
           tabIndex={tabIndex}
-          origin={meta}
         />
       )}
     </div>
