@@ -238,7 +238,7 @@ The same rule filters `list_databases` and `list_collections`, so the Agent is n
 
 ## 8. Tools
 
-Every tool has `annotations: { readOnlyHint: true, openWorldHint: false }`, a strict input schema, and an `outputSchema` for its structured metadata.
+Every tool has `annotations: { readOnlyHint: true, openWorldHint: false }`, and a strict input schema. A tool returns no `outputSchema` and no `structuredContent`: some clients show the model only the structured part of a result and drop the text, which hid the documents themselves (found in a real client).
 
 | Tool | Input | Returns |
 | --- | --- | --- |
@@ -270,7 +270,7 @@ Documents are **Relaxed EJSON** (numbers as numbers, dates as `$date` ISO string
 ### 9.3 Untrusted-data envelope
 
 - **Text content** carries the documents between `<untrusted-data-<nonce>>` and `</untrusted-data-<nonce>>`, with a fresh random nonce per response and one line saying the content is data, not instructions.
-- **`structuredContent`** carries metadata only (`count`, `truncated`, `appliedLimits`, `durationMs`), never documents. Clients that read only structured output get no unwrapped data.
+- **Metadata line**: one plain line written by the app, after the closing tag and outside the envelope (`Returned N items. truncated: B. limits: none|limit, bytes. D ms.`, plus `estimate: B.` for a count). It carries numbers and fixed words only, never a document value or a name. There is no `structuredContent`, so no client can show unwrapped data in its place or drop the data from the text.
 - Database, collection and field names come from the server and can be chosen by whoever controls the data. In text they stay inside the envelope, and each one is cut to 256 characters.
 
 ### 9.4 Errors
@@ -400,7 +400,7 @@ None block implementation. Each was decided before it started:
 - Agent calls use the agent client, never the user's pool. They write nothing to `recent_queries` and do not count in `runningWork()`.
 - Every stage outside §7.2 is refused at any depth. `$where`, `$function` and `$accumulator` are refused in filter, projection, sort and pipeline. §7.4 namespaces are refused as targets and as `$lookup`/`$graphLookup`/`$unionWith` sources, and are absent from listings.
 - Find options outside §7.1 are rejected.
-- Results respect the limits and the byte budget, and truncation is always explicit. Documents appear only inside the nonce envelope in text content, and never in `structuredContent`.
+- Results respect the limits and the byte budget, and truncation is always explicit. Documents appear only inside the nonce envelope in the text content; results carry no `structuredContent`, and the metadata line outside the envelope holds no document value or name.
 - Driver error messages never reach the Agent.
 - Each event in §10 cancels the affected in-flight operations. A result arriving after revocation is discarded.
 - Tokens are stored as hashes only, shown once, and never cross IPC to the renderer. Revoke and Regenerate stop live sessions at their next call.
