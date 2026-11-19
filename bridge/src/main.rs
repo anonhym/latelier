@@ -7,9 +7,11 @@
 //! Exit codes: 0 a clean close, 1 the stream broke after it connected, 2 the
 //! token is missing or malformed, 3 the app is not reachable, 4 the app
 //! refused the handshake (an unknown or revoked token, or a protocol it does
-//! not speak).
+//! not speak), 5 the pipe is not served by the current user's process (Windows
+//! only; the token was not sent).
 
 mod endpoint;
+mod peer;
 mod relay;
 mod token;
 
@@ -75,6 +77,10 @@ fn main() -> ExitCode {
         Err(RunError::Refused(refusal)) => {
             eprintln!("{}", if refusal == Refusal::Token { TOKEN_REFUSED } else { PROTOCOL_REFUSED });
             ExitCode::from(4)
+        }
+        Err(RunError::PeerRejected(reason)) => {
+            eprintln!("latelier-agent-bridge: {reason}");
+            ExitCode::from(5)
         }
         Err(RunError::Io(err)) => {
             eprintln!("latelier-agent-bridge: connection lost ({:?})", err.kind());

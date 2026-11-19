@@ -11,6 +11,10 @@ pub enum RunError {
     Io(io::Error),
     /// The app answered the handshake with its refusal line, then closed.
     Refused(Refusal),
+    /// The pipe is not served by this user's process (or that could not be established), so the
+    /// token was never sent. The text is the one line to print. Windows only.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    PeerRejected(String),
 }
 
 /// What the app's refusal line said (`REFUSED_CODE` and `UNSUPPORTED_PROTOCOL_CODE` in `electron/agent/handshake.ts`).
