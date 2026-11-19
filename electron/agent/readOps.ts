@@ -220,6 +220,9 @@ export function runListIndexes(input: ListIndexesInput, ctx: ToolContext): Promi
   assertTargetAllowed(input.database, input.collection);
   return withLease(input, ctx, async (lease) => {
     // `listIndexes` reads the index catalogue: it never runs `$indexStats`, which is refused as a stage.
+    // It cannot be handed `lease.signal`: `ListIndexesOptions` (driver 7.7) has no `signal`, and the type
+    // refuses it. A revocation still ends the call, by closing the agent client under it (the gate does that
+    // on every revocation), and `assertStill` below discards whatever arrived late. `maxTimeMS` bounds it.
     const rows = await lease.client
       .db(input.database)
       .collection(input.collection)
