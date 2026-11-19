@@ -16,7 +16,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { ReferenceDiscoveryStrip } from '../../src/pages/Workspace/ReferenceDiscoveryStrip';
-import { settleReferenceDiscovery } from '../../src/pages/Workspace/referenceDiscovery';
+import { onSuggestionSaved, settleReferenceDiscovery } from '../../src/pages/Workspace/referenceDiscovery';
 import { clearCopyOrigin, recordCopyOrigin } from '../../src/utils/copyOrigin';
 import type { CollectionTabState, ReferenceRule, ReferenceRuleCreateInput } from '@shared/types';
 import type { IpcApi } from '@shared/ipc';
@@ -216,6 +216,26 @@ describe('Save', () => {
       targetField: '_id',
     });
     expect(notify.success).toHaveBeenCalled();
+  });
+
+  it('tells the rule readers once the rule is saved, and not after it is unsubscribed or when the save fails', async () => {
+    const listener = vi.fn();
+    const off = onSuggestionSaved(listener);
+    create.mockRejectedValueOnce(Object.assign(new Error('nope'), { code: 'CONFLICT' }));
+    render(<Tab />);
+    await pasteAndRun();
+    await screen.findByTestId('reference-discovery-strip');
+    await userEvent.click(inStrip('Save'));
+    await waitFor(() => expect(notify.error).toHaveBeenCalled());
+    expect(listener).not.toHaveBeenCalled();
+    await userEvent.click(inStrip('Save'));
+    await waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+    off();
+    await pasteAndRun();
+    await screen.findByTestId('reference-discovery-strip');
+    await userEvent.click(inStrip('Save'));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('shares the rule with the Family of a member, and can keep it on the Connection alone', async () => {

@@ -98,6 +98,20 @@ export async function settleReferenceDiscovery(target: DiscoveryTarget, document
 /** Where a saved suggestion lives: the Family it is shared with by default, or the Connection alone. */
 export type SuggestionScope = 'default' | 'connection';
 
+const savedListeners = new Set<() => void>();
+
+/**
+ * Runs `listener` after a suggested rule is saved, so a reader of the rules
+ * (the mounted tab's `useReferenceRules`) can reload them: without it the
+ * results gain no chip for the new rule until the tab changes. Returns the unsubscribe.
+ */
+export function onSuggestionSaved(listener: () => void): () => void {
+  savedListeners.add(listener);
+  return () => {
+    savedListeners.delete(listener);
+  };
+}
+
 /** Create the suggested rule. The strip stays when this throws. */
 export async function saveSuggestion(tabId: string, s: ReferenceSuggestion, scope: SuggestionScope): Promise<void> {
   const owner = s.family !== null && scope === 'default' ? { familyId: s.family.id } : { connectionId: s.connectionId };
@@ -110,6 +124,7 @@ export async function saveSuggestion(tabId: string, s: ReferenceSuggestion, scop
     targetCollection: s.pair.target.collection,
     targetField: s.pair.target.field,
   });
+  for (const listener of savedListeners) listener();
   clearSuggestion(tabId);
 }
 

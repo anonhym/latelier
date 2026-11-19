@@ -22,11 +22,11 @@ const BASE: ReferenceRule = {
   updatedAt: '2026-04-01T00:00:00Z',
 };
 
-function mount(rule: ReferenceRule, resolve: IpcApi['refs']['resolve']) {
+function mount(rule: ReferenceRule, resolve: IpcApi['refs']['resolve'], frameConnectionId?: string) {
   installAtelierMock({ refs: { resolve } });
   render(
     <ReferenceDrawer
-      stack={[{ id: 'f1', rule, value: 'u1', label: 'userId' }]}
+      stack={[{ id: 'f1', rule, value: 'u1', label: 'userId', connectionId: frameConnectionId }]}
       connectionId="tab-conn"
       pinned={false}
       onPush={vi.fn()}
@@ -49,6 +49,20 @@ describe('ReferenceDrawer — resolving a frame', () => {
   it('reads a Connection-owned rule through its owner', async () => {
     const resolve = vi.fn<IpcApi['refs']['resolve']>(async () => ({ ruleId: 'r1', found: false, documents: [], durationMs: 0 }));
     mount({ ...BASE, owner: { connectionId: 'owner-conn' } }, resolve);
+    await waitFor(() => expect(resolve).toHaveBeenCalledOnce());
+    expect(resolve.mock.calls[0]![0].connectionId).toBe('owner-conn');
+  });
+
+  it('keeps a shared rule on the Connection its frame was opened on after the tab moves to another', async () => {
+    const resolve = vi.fn<IpcApi['refs']['resolve']>(async () => ({ ruleId: 'r1', found: false, documents: [], durationMs: 0 }));
+    mount(BASE, resolve, 'opened-on-conn');
+    await waitFor(() => expect(resolve).toHaveBeenCalledOnce());
+    expect(resolve.mock.calls[0]![0].connectionId).toBe('opened-on-conn');
+  });
+
+  it('reads a Connection-owned rule through its owner even when the frame names another Connection', async () => {
+    const resolve = vi.fn<IpcApi['refs']['resolve']>(async () => ({ ruleId: 'r1', found: false, documents: [], durationMs: 0 }));
+    mount({ ...BASE, owner: { connectionId: 'owner-conn' } }, resolve, 'opened-on-conn');
     await waitFor(() => expect(resolve).toHaveBeenCalledOnce());
     expect(resolve.mock.calls[0]![0].connectionId).toBe('owner-conn');
   });
