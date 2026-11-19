@@ -30,7 +30,7 @@ The design was settled in a discussion that started from a study of the official
 
 - A global **Agent Access** switch, off by default, that only main can turn on.
 - A per-Connection **Shared with Agents** flag, off by default, set only through a main-process dialog that also checks the database user's privileges.
-- A local socket server in main speaking MCP, and an **Agent Bridge**: the app's own binary started with `--agent-stdio`, which an Agent client launches as a stdio MCP server.
+- A local socket server in main speaking MCP, and an **Agent Bridge**: a small separate Rust executable shipped inside the app bundle, which an Agent client launches as a stdio MCP server.
 - Named **Agent Tokens**: stored hashed, shown once, revocable and regenerable.
 - An agent-only read path with its own client per shared Connection, its own limits, and no side effects on the user's history or the quit prompt.
 - Ten read-only tools (§8), a stage allowlist for pipelines, and a namespace denylist.
@@ -58,6 +58,7 @@ The design was settled in a discussion that started from a study of the official
 - [C13](./C13-connection-export-import.md): Connection Export must not carry the new flag.
 - [X23](./X23-connection-families.md) and [X24](./X24-family-export.md): Shared with Agents is a property of one Connection and is never shared through a Family or a Family Export.
 - [ADR 0005](../docs/adr/0005-read-only-connection-enforcement.md): read handles and their limits.
+- New toolchain: Rust, to build the Agent Bridge. The build script builds it with `cargo build --release` for each target, and CI and the release workflow install the toolchain with pinned versions. The crate has no dependencies.
 - New dependency: the MCP TypeScript SDK. Its package name and major version are pinned at implementation, because v2 split the SDK into separate packages.
 
 ## 1. Terms
@@ -66,7 +67,7 @@ The design was settled in a discussion that started from a study of the official
 - **Agent Access**: the app-wide setting that lets Agents in.
 - **Shared with Agents**: a persisted flag on one Connection that makes it visible to Agents while it is open.
 - **Agent Token**: the secret an Agent presents, one per named Agent.
-- **Agent Bridge**: the app's binary run with `--agent-stdio`, forwarding between an Agent's stdio and the app's socket.
+- **Agent Bridge**: the `latelier-agent-bridge` executable, forwarding bytes between an Agent's stdio and the app's socket. It speaks no MCP itself.
 - **Agent Read Log**: the record of every Agent tool call.
 
 "MCP server" stays an implementation word. Avoid "assistant", "bot" and "AI mode" in the UI.
@@ -114,24 +115,24 @@ The check runs each time the flag is turned on, and nothing is cached. The share
 ### 4.1 Shape
 
 ```
-Agent client ──stdio──▶ Agent Bridge (latelier --agent-stdio) ──socket──▶ main: AgentServer ──▶ AgentGate ──▶ agent client per Connection
+Agent client ──stdio──▶ Agent Bridge (latelier-agent-bridge) ──socket──▶ main: AgentServer ──▶ AgentGate ──▶ agent client per Connection
 ```
 
 There is no HTTP server and no TCP port. Every Agent client in scope supports stdio servers.
 
 ### 4.2 Agent Bridge
 
-- The packaged app ships with the `runAsNode` fuse off (`electron-builder.yml`, asserted by `scripts/verify-fuses.mjs`), so the bridge cannot be a script run under `ELECTRON_RUN_AS_NODE`, and this spec does not turn the fuse on. The bridge is the app's own executable started with `--agent-stdio`.
-- `--agent-stdio` is handled before `app.requestSingleInstanceLock()`, before any window, before the database opens. Otherwise the running app would receive a `second-instance` event and focus its window, or the bridge would quit on the lock. A check inside `electron/main.ts` is not early enough: its module-scope imports (the native SQLite module, the logger's file setup) run before any statement in its body. So the main entry becomes a thin dispatcher that loads either the bridge module or the app, and the bridge module imports only `node:net` and what it needs to find the socket.
-- In bridge mode the process opens no window, no database, no vault and no Mongo client. On macOS it hides the Dock icon before anything else. It reads `LATELIER_AGENT_TOKEN` from its environment, connects to the socket (§4.3), sends the handshake (§4.5), then pipes bytes both ways until either side closes, and exits.
-- If the socket is not reachable (the app is not running, or Agent Access is off), the bridge writes one line to stderr, "L'Atelier is not running or Agent Access is off", and exits non-zero. It never starts the app.
-- Whether Electron starts windowless and Dock-less quickly enough to serve as a stdio bridge is open question 1 (§15).
+- The bridge is **a separate Rust executable**, `latelier-agent-bridge`, in a `bridge/` crate, using the standard library only (no dependencies). It is built for every target the app ships, copied into the bundle as an extra resource, unpacked from the asar, and signed and notarized with the app on macOS and signed on Windows.
+- It is not the Electron binary. A spike measured `--agent-stdio` on the Electron binary at about 185 ms median to the first handshake byte, about 214 MB RSS across three processes (the main process plus two Chromium helpers), and a short Foreground activation state before `app.dock.hide()` could run. A Rust spike measured about 2 ms median, 1.9 MB RSS, 296 KB on disk, and no Dock registration at all. See §14.
+- The bridge opens no window, database, vault or Mongo client. It reads `LATELIER_AGENT_TOKEN` from its environment (and refuses a token with characters outside `A-Z a-z 0-9 - _`, so it can never build a malformed handshake), connects to the socket (§4.3), sends the handshake (§4.5), then pipes bytes both ways until either side closes, and exits. It never logs the token.
+- If the socket is not reachable (the app is not running, or Agent Access is off), the bridge writes one line to stderr, "L'Atelier is not running or Agent Access is off", and exits non-zero (3). A missing or malformed token exits 2. It never starts the app.
+- Because the bridge is separate, `electron/main.ts` needs no early-dispatch change: there is no second mode of the app, no interaction with `requestSingleInstanceLock()`, and the `runAsNode` fuse stays off.
 
 ### 4.3 Socket
 
 - **macOS and Linux**: a Unix domain socket `agent.sock` inside a directory `agent/` under `userData`, created with mode `0700`, the socket itself `0600`. If the full path would exceed the platform limit (about 104 bytes on macOS, 108 on Linux; long E2E temp dirs hit this), it falls back to a short per-user directory (`$TMPDIR/latelier-<uid>/`, also `0700`). A stale socket file is removed at start only when nothing answers on it.
 - **Windows**: a named pipe `\\.\pipe\latelier-agent-<user SID>`. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. Until that is resolved (open question 2), the Windows threat model relies on the token alone against other users.
-- The bridge derives the socket path from `userData` the same way main does, so the client configuration never holds it. Settings shows it for troubleshooting.
+- The bridge derives the socket path from the app's platform-default `userData` location (and tries the short-path fallback above if the first is absent), so the client configuration does not hold it. `LATELIER_AGENT_SOCKET`, if set, overrides it; the E2E tests use that for their throwaway `userData`. Settings shows the path for troubleshooting.
 
 ### 4.4 Lifecycle
 
@@ -142,7 +143,7 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 
 ### 4.5 Handshake and sessions
 
-- The bridge's first line on the socket is `{"agentToken":"<token>"}\n`. Main hashes it and compares it in constant time against the stored hashes (§5). On failure it writes one JSON-RPC error line and closes. On success the rest of the stream belongs to MCP.
+- The bridge's first line on the socket is `{"agentToken":"<token>","protocol":1}\n`. Main hashes the token and compares it in constant time against the stored hashes (§5). A `protocol` value main does not support is refused the same way, so a bridge and an app that drifted apart fail loudly instead of mis-speaking. On failure it writes one JSON-RPC error line and closes. On success the rest of the stream belongs to MCP.
 - Main runs one MCP `Server` per socket connection, over the SDK's `StdioServerTransport` constructed on the socket's own streams (the SDK supports this for Unix sockets). `maxBufferSize` is set to 1 MiB, so an oversized message closes that session only.
 - `initialize.clientInfo` (name and version) is recorded with the token's name on every Agent Read Log row.
 - The session's token is re-checked on every tool call, so a revoked token stops a live session at its next call.
@@ -156,7 +157,7 @@ A new table `agent_tokens`: `id` (UUID), `name` (user-chosen, e.g. "Claude Code,
 ### 5.2 Actions
 
 - **Add Agent**: name it. Main generates the token and shows it once, in a main-owned dialog, with a **Copy configuration** button.
-- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the app's executable, the args are `["--agent-stdio"]`, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
+- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the absolute path of the bridge executable (open question 5 covers keeping it stable), there are no args, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
 - **Regenerate**: a new token replaces the hash and the old token stops working at once, live sessions included.
 - **Revoke**: the row is deleted; live sessions using it close.
 - The list shows name, created and last used. It never shows the token.
@@ -364,6 +365,9 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
   - Claude Desktop's remote connectors are reportedly reached from Anthropic's side and could not reach a loopback address, so a stdio bridge would likely be needed anyway (not verified, and not needed to reject HTTP).
   - The socket plus bridge removes all three problems.
 - **`ELECTRON_RUN_AS_NODE` script as the bridge.** Blocked by the `runAsNode` fuse, which stays off.
+- **The app's own Electron binary with `--agent-stdio`.** Spiked and measured (§4.2): about 185 ms to first byte, about 214 MB RSS across three processes per Agent client session, and a brief Foreground state at launch, so a Dock flash is likely each time a client starts the bridge. It would also force the main entry to become a dispatcher so the bridge runs before the SQLite and logger imports and before the single-instance lock. Rejected.
+- **A helper `.app` with `LSUIElement`.** Would remove the macOS Dock flash but is macOS-only, still boots Electron, and electron-builder has no clean support for it. Not tried.
+- **A Node single-executable bridge.** Keeps the repository to one language but embeds a Node runtime, roughly 60 to 100 MB per bridge. Rejected for size.
 - **The user's pooled client for Agent queries.** Simpler, but at `maxPoolSize: 1` every Agent query would block the user's UI for up to 10 s.
 - **A stage denylist.** Every stage a server version adds would be allowed by default.
 - **Following the Focused Tab instead of a share flag.** Switching tabs would change what an Agent can reach in the middle of its task.
@@ -371,14 +375,16 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 
 ## 15. Open questions
 
-1. **Bridge start-up.** Can the Electron binary in `--agent-stdio` mode start without a window, without a Dock icon flash, and quickly enough (target: under 300 ms to the first byte) to serve as a stdio bridge? If not, ship a small separate bridge executable, signed and notarized with the app.
-2. **Windows pipe ACL.** How to make the named pipe owner-only from Node (or a native helper), or accept the token as the only protection there and say so in the UI.
+1. **Resolved: bridge start-up.** The Electron binary measured too slow and too heavy and flashes in the Dock, so the bridge is a separate Rust executable (§4.2, §14). The Unix spike is done; the Windows named-pipe client, cross-compilation for every shipped target, and signing are still to build.
+2. **Windows pipe ACL.** How to make the named pipe owner-only from Node (or a native helper), or accept the token as the only protection there and say so in the UI. The Rust bridge also needs the user SID to find the pipe name, which std does not give.
 3. **SSH-tunnelled Connections, once the app supports them.** The agent client must reuse the Connection's existing tunnel. If that cannot be done cleanly, either share the pooled client for SSH Connections only, or refuse to share SSH Connections.
 4. **Stage allowlist review.** Confirm that the allowlisted stages are read-only on the oldest server version the app supports, and that `$graphLookup` and `$unionWith` are same-database like `$lookup`.
+5. **Stable bridge path.** The client configuration holds an absolute path to the bridge. It breaks if the app is moved, if a Windows updater installs into versioned folders, and on Linux AppImage, which mounts at a random `/tmp/.mount_*` path. Decide whether the app copies the bridge to a fixed per-user location (and keeps it current on update) and the snippet points there.
 
 ## Acceptance criteria
 
-- With Agent Access off, nothing listens and the bridge exits non-zero with its stderr message.
+- With Agent Access off, nothing listens and the bridge exits 3 with its stderr message.
+- The bridge is a std-only Rust executable that is built for every shipped target, present and signed in every package (on macOS, Developer ID signed with the hardened runtime inside the app bundle so it is covered by the app's notarization, checked by a release-workflow step such as `codesign --verify --strict` on the built bridge before upload, in the style of `scripts/verify-fuses.mjs`), never logs the token, and rejects a token with characters outside `A-Z a-z 0-9 - _`. The handshake carries `protocol: 1` and an unsupported protocol is refused.
 - Agent Access can only be turned on through main's dialog. Writing its `app_state` key from the renderer is refused.
 - Shared with Agents can only be set through `agentAccess:set-shared` and its dialog. A `shareWithAgents` key sent to `conn:create` or `conn:update` is stripped and leaves the stored flag unchanged. Duplicate, Export, Import and Family Export never carry it.
 - The share dialog shows the privilege result in each of the four §3.3 cases. No authenticated user and a failed check never read as a pass.
@@ -449,16 +455,17 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 
 **E2E**
 
-- Turn on Agent Access, share a Connection, add an Agent, then start the bridge binary with the token as a child process from the test:
+- Turn on Agent Access, share a Connection, add an Agent, then start the built bridge executable with the token (and `LATELIER_AGENT_SOCKET` for the throwaway `userData`) as a child process from the test:
   - `list_connections` lists the shared Connection;
   - `find` returns documents;
   - stopping the share makes the next call fail with `NOT_SHARED`.
-- Bridge with Agent Access off exits non-zero.
+- Bridge with Agent Access off exits 3 with its stderr message; with no token it exits 2.
+- A bridge speaking an unsupported `protocol` is refused.
 
 **Manual**
 
-- Configure Claude Code, Claude Desktop and Cursor with the copied snippet against a signed build. Ask each for a count and a find on a shared Connection. Confirm no Dock icon flash on macOS.
+- Configure Claude Code, Claude Desktop and Cursor with the copied snippet against a signed build. Ask each for a count and a find on a shared Connection. Confirm no Dock icon appears on macOS, that the bridge is signed and notarized in the packaged build, and that the configured path still works after an auto-update.
 
 ## Definition of done
 
-All eight gates in `CLAUDE.md` § Definition of done apply. This is code, a migration, build config and IPC.
+All eight gates in `CLAUDE.md` § Definition of done apply. This is code, a migration, build config and IPC. The bridge crate adds `cargo test` and `cargo clippy` runs to the build script; they do not replace any gate.
