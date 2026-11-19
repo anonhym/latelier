@@ -1242,6 +1242,79 @@ export interface FamilySettings {
   rowSummaries: RowSummary[];
 }
 
+// ─── Family Export (X24) ─────────────────────────────────────────────────────
+
+export type FamilyExportItemKind = 'rule' | 'rowSummary';
+
+/** One shared setting as the Apply flow shows it. `key` is its natural key and what a resolution is filed under. */
+export interface FamilyExportItem {
+  key: string;
+  kind: FamilyExportItemKind;
+  dbName: string;
+  collection: string;
+  /** The source field, on a rule. */
+  field?: string;
+  /** What the setting does, in words: the target and projection of a rule, the fields of a Row Summary. */
+  detail: string;
+}
+
+export interface FamilyExportInput {
+  familyId: string;
+}
+
+export type FamilyExportResult =
+  | { saved: false }
+  | { saved: true; path: string; ruleCount: number; rowSummaryCount: number };
+
+export type FamilyReadExportResult =
+  | { cancelled: true }
+  | { cancelled?: undefined; token: string; familyName: string; ruleCount: number; rowSummaryCount: number };
+
+/** Where an Apply lands: any existing Family, or a new one made with this name. */
+export type FamilyApplyTarget = { familyId: string } | { newName: string };
+
+export interface FamilyApplyPlanInput {
+  token: string;
+  target: FamilyApplyTarget;
+}
+
+export interface FamilyApplyConflict {
+  key: string;
+  current: FamilyExportItem;
+  incoming: FamilyExportItem;
+}
+
+export interface FamilyApplyPlan {
+  added: FamilyExportItem[];
+  unchanged: FamilyExportItem[];
+  conflicts: FamilyApplyConflict[];
+}
+
+export type FamilyApplyChoice = 'keep' | 'take';
+
+export interface FamilyApplyInput {
+  token: string;
+  target: FamilyApplyTarget;
+  /** One choice per conflict of the plan, filed under the conflict's `key`. */
+  resolutions: Record<string, FamilyApplyChoice>;
+}
+
+/** A member whose own row hides a setting this Apply added or replaced. */
+export interface FamilyApplyOverriddenBy {
+  connectionId: string;
+  keys: string[];
+  items: FamilyExportItem[];
+}
+
+export interface FamilyApplyResult {
+  familyId: string;
+  added: number;
+  replaced: number;
+  kept: number;
+  unchanged: number;
+  overriddenBy: FamilyApplyOverriddenBy[];
+}
+
 export interface RefsOverrideInput {
   connectionId: string;
   sharedRuleId: string;

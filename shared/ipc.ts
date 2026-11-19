@@ -67,9 +67,16 @@ import type {
   ValType,
   ConnectionFamily,
   EffectiveRowSummary,
+  FamilyApplyInput,
+  FamilyApplyPlan,
+  FamilyApplyPlanInput,
+  FamilyApplyResult,
   FamilyCreateInput,
   FamilyDeleteInput,
+  FamilyExportInput,
+  FamilyExportResult,
   FamilyOverrides,
+  FamilyReadExportResult,
   FamilyRenameInput,
   FamilySettings,
   FamilySetMembershipInput,
@@ -574,6 +581,12 @@ export interface IpcApi {
     overrides: (input: { id: string }) => Promise<FamilyOverrides>;
     /** The shared Reference Rules and Row Summaries a Family owns, for its view. */
     settings: (input: { id: string }) => Promise<FamilySettings>;
+    /** Family Export (X24): write a Family's shared settings to a file main asks the user to name. */
+    export: (input: FamilyExportInput) => Promise<FamilyExportResult>;
+    /** Pick a Family Export file; main validates it and holds it under a token. */
+    readExport: () => Promise<FamilyReadExportResult>;
+    planApply: (input: FamilyApplyPlanInput) => Promise<FamilyApplyPlan>;
+    apply: (input: FamilyApplyInput) => Promise<FamilyApplyResult>;
   };
 
   /** The fields a collapsed Tree row shows, saved per collection (X23). */
@@ -807,6 +820,10 @@ export const IPC_CHANNELS = {
   familiesDelete:        'families:delete',
   familiesOverrides:     'families:overrides',
   familiesSettings:      'families:settings',
+  familiesExport:        'families:export',
+  familiesReadExport:    'families:readExport',
+  familiesPlanApply:     'families:planApply',
+  familiesApply:         'families:apply',
   rowSummaryGet:         'rowSummary:get',
   rowSummarySet:         'rowSummary:set',
   rowSummaryClear:       'rowSummary:clear',
@@ -881,6 +898,7 @@ type RefsListInput =
 // method, or a result parsed from a wire form.
 interface AdaptedSig {
   'families:list':           { in: EmptyObject; out: ApiOut<'families', 'list'> };
+  'families:readExport':     { in: EmptyObject; out: ApiOut<'families', 'readExport'> };
   'conn:importOpen':         { in: EmptyObject; out: ApiOut<'conn', 'importOpen'> };
   'app:diagnosticBundle':    { in: EmptyObject; out: ApiOut<'app', 'diagnosticBundle'> };
   'app:getInfo':             { in: EmptyObject; out: ApiOut<'app', 'getInfo'> };
