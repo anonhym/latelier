@@ -335,6 +335,23 @@ describe('Family Export', () => {
         expect(svc.planApply({ token, target: T() }).conflicts).toHaveLength(2);
       });
 
+      it('refuses a take whose current row changed since the plan, and lets a keep through', () => {
+        const plan = svc.planApply({ token, target: T() });
+        const ruleKey = plan.conflicts.find((c) => c.current.kind === 'rule')!.key;
+        const summaryKey = plan.conflicts.find((c) => c.current.kind === 'rowSummary')!.key;
+        const current = rulesRepo.listByOwner(T()).find((r) => r.sourceField === 'customerId')!;
+        rulesRepo.update(current.id, { projection_json: JSON.stringify(['edited-meanwhile']), updated_at: new Date().toISOString() });
+        const before = { r: rulesOf(target.id), s: summariesOf(target.id) };
+
+        expect(() =>
+          svc.apply({ token, target: T(), resolutions: { [ruleKey]: 'take', [summaryKey]: 'take' } }),
+        ).toThrow(ConflictError);
+        expect({ r: rulesOf(target.id), s: summariesOf(target.id) }).toEqual(before);
+
+        const kept = svc.apply({ token, target: T(), resolutions: { [ruleKey]: 'keep', [summaryKey]: 'take' } });
+        expect(kept).toMatchObject({ kept: 1, replaced: 1 });
+      });
+
       it('refuses with VALIDATION when apply is called without a plan and a conflict has no choice', () => {
         expect(() => svc.apply({ token, target: T(), resolutions: {} })).toThrow(ValidationError);
       });

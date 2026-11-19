@@ -55,8 +55,12 @@ export interface FamilyExportDialogs {
 interface Held {
   file: FamilyExportFile;
   expiresAt: number;
-  /** The target and conflicts the last plan showed, so a conflict that appears later is told apart from one never answered. */
-  planned?: { target: string; conflictKeys: Set<string> };
+  /**
+   * The target and each conflict's current row (by key) the last plan showed: a
+   * conflict that appears later is told apart from one never answered, and a
+   * row that changed since is told apart from the one the answer was given for.
+   */
+  planned?: { target: string; conflicts: Map<string, string> };
 }
 
 function toRule(rule: ReferenceRule): FamilyExportRule {
@@ -170,7 +174,10 @@ export class FamilyExportService {
   planApply(input: FamilyApplyPlanInput): FamilyApplyPlan {
     const held = this.heldFor(input.token);
     const plan = planApply(this.fileItems(held.file), this.targetItems(input.target));
-    held.planned = { target: targetId(input.target), conflictKeys: new Set(plan.conflicts.map((c) => c.key)) };
+    held.planned = {
+      target: targetId(input.target),
+      conflicts: new Map(plan.conflicts.map((c) => [c.key, c.current.detail])),
+    };
     return plan;
   }
 
@@ -185,9 +192,18 @@ export class FamilyExportService {
       const choices = new Map<string, 'keep' | 'take'>();
       for (const [key, choice] of Object.entries(input.resolutions)) choices.set(key, choice);
       const unresolved = plan.conflicts.filter((c) => !choices.has(c.key));
+      const planned = held.planned?.target === targetId(input.target) ? held.planned.conflicts : null;
+      // "Take" overwrites the current row, so it must be the row the user saw. "Keep" changes nothing, so a row that moved is harmless there.
+      const moved = plan.conflicts.filter(
+        (c) => choices.get(c.key) === 'take' && planned !== null && planned.has(c.key) && planned.get(c.key) !== c.current.detail,
+      );
+      if (moved.length > 0) {
+        throw new ConflictError('The family changed since it was checked. Check it again.', {
+          keys: moved.map((c) => c.key),
+        });
+      }
       if (unresolved.length > 0) {
-        const known = held.planned?.target === targetId(input.target) ? held.planned.conflictKeys : null;
-        const fresh = known === null ? [] : unresolved.filter((c) => !known.has(c.key));
+        const fresh = unresolved.filter((c) => planned !== null && !planned.has(c.key));
         if (fresh.length > 0) {
           throw new ConflictError('The family changed since it was checked. Check it again.', {
             keys: fresh.map((c) => c.key),
