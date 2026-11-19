@@ -179,12 +179,16 @@ export class AgentGate {
     };
     try {
       releaseSlot = await limit.acquire(signal);
+      // Before the open: a revocation that landed while this call waited found no client to close, so opening one now would cache a client for a Connection that is no longer open.
+      assertStill();
       const client = await untilAborted(this.clientFor(connectionId), signal);
-      // After both waits, the slot and the open: a gate that closed meanwhile refuses the call here.
+      // And again after it: a gate that closed during the open refuses the call here.
       assertStill();
       return { client, signal, assertStill, release };
     } catch (err) {
       release();
+      // No client may outlive a Connection that fails its gates, whichever wait the refusal came from.
+      if (this.checkConnection(connectionId) !== 'ok') this.closeClient(connectionId);
       throw err;
     }
   }

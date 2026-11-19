@@ -336,6 +336,42 @@ describe('AgentGate with a real pool', () => {
     });
   });
 
+  describe('a revocation that lands while a call waits for its slot', () => {
+    it('refuses the call before any client is opened', async () => {
+      await setup();
+      // The revocation is already queued when the call starts: it finds no client to close and no slot yet.
+      queueMicrotask(() => {
+        f.h.connRepo.setShared(f.connectionId, false);
+        gate.revokeConnection(f.connectionId);
+      });
+      expect(await refusal(gate.acquire(f.connectionId, identity(), live()))).toBe('CANCELLED');
+      await gate.whenClosed();
+      expect(f.m.agentClients.opened).toBe(0);
+      expect(gate.hasClient(f.connectionId)).toBe(false);
+    });
+
+    it('closes a client that finished opening for a Connection whose gate closed meanwhile', async () => {
+      await setup();
+      let finish: (() => void) | undefined;
+      const real = f.m.pool.openAgentClient.bind(f.m.pool);
+      vi.spyOn(f.m.pool, 'openAgentClient').mockImplementationOnce(
+        (id) =>
+          new Promise((resolve, reject) => {
+            finish = () => void real(id).then(resolve, reject);
+          }),
+      );
+      const pending = refusal(gate.acquire(f.connectionId, identity(), live()));
+      await flush();
+      // Flipped in the row only, with no revocation: nothing else would close the client.
+      f.h.connRepo.setShared(f.connectionId, false);
+      finish!();
+      expect(await pending).toBe('CANCELLED');
+      await gate.whenClosed();
+      expect(f.m.agentClients).toEqual({ opened: 1, closed: 1 });
+      expect(gate.hasClient(f.connectionId)).toBe(false);
+    });
+  });
+
   describe('a client that is still opening', () => {
     /** A server that accepts the TCP connection and never answers, as a database that stopped responding does. */
     async function silentConnection(): Promise<string> {
