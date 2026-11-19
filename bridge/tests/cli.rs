@@ -1,13 +1,16 @@
 //! Runs the built bridge as a process: exit codes, the exact stderr line, the
 //! handshake bytes on the wire, and what the token does and does not touch.
 
+#[cfg(unix)]
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_latelier-agent-bridge");
 const NOT_RUNNING: &str = "L'Atelier is not running or Agent Access is off\n";
+#[cfg(unix)]
 const TOKEN_REFUSED: &str = "L'Atelier refused this Agent token\n";
+#[cfg(unix)]
 const PROTOCOL_REFUSED: &str = "L'Atelier does not support this bridge's protocol version\n";
 const SECRET: &str = "s3cret-Token_0123456789";
 
