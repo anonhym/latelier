@@ -69,8 +69,19 @@ _Avoid_: chip, connection chip, tab section
 A Connection with a persisted flag that blocks every MongoDB write reachable through it — document writes, collection/database/index/user admin operations, `$out`/`$merge` aggregation stages, and script/shell-pane writes. Enforced in the main process, never only hidden in the renderer, because the shell pane is unsandboxed (see [ADR 0005](docs/adr/0005-read-only-connection-enforcement.md)). A whole-connection property, not scoped to individual Databases within it. Unrelated to the pre-existing `readOnly` prop on components like `ScriptEditor`/`BuilderPane`, which is renderer-only editor/view state and enforces nothing against MongoDB.
 _Avoid_: read-only mode (ambiguous with the unrelated UI-state prop of the same name)
 
+**Connection Family**:
+A named set of Connections that reach separate deployments of the same schema — one per client, say — and so share configuration: Reference Rules and Row Summaries. A Connection belongs to at most one Family. Shared configuration applies to a Collection by Database and Collection name, so it reaches every member whose server has a Database and Collection of those names, and nothing anywhere else. The data is never shared: members are separate servers, which is why a value copied on one member is worth a warning when it is used on another.
+_Avoid_: connection group, group (a Tab Group is the run of tabs belonging to one Connection), cluster (MongoDB's own term for a replica set or sharded deployment)
+
+**Override**:
+A member Connection's own value for a setting its Connection Family shares, which wins over the shared value on that Connection only. A Reference Rule override replaces the shared Rule for the same Database, Collection and source field, or switches it off. A Connection's setting that has no shared counterpart is a local setting, not an Override.
+
+**Family Export**:
+A file holding one Connection Family's shared configuration — its Reference Rules and Row Summaries — and nothing else: no Connections, no member list, no Overrides or local settings, no secrets, so no passphrase. Written from a Family as a whole. **Applied**, never imported: the user picks the target — any existing Family, or a new one made from the file — and the name inside the file only suggests one. Applying merges into the target, asking on each setting that already exists for the same Database, Collection and source field, and never deletes anything; members' Overrides are left as they are and still win. Applies to Families only.
+_Avoid_: family import, template, profile; never call it a Connection Export
+
 **Connection Export**:
-A file holding one or more Connections, written by **Export** and read by **Import**. Carries Connections only — never their saved queries, tabs or Audit Log — and never credential file paths. Importing one always adds new Connections; it never changes an existing one.
+A file holding one or more Connections, written by **Export** and read by **Import**. Carries Connections only — never their saved queries, tabs or Audit Log, never their Connection Family or its shared configuration — and never credential file paths. Importing one always adds new Connections; it never changes an existing one.
 _Avoid_: backup (implies the whole app state), config, profile
 
 **Checked Connection**:
@@ -115,6 +126,16 @@ _Avoid_: query bar, search box
 **Query Builder**:
 The structured, row-per-condition panel beside the Filter Bar. It presents the same filter as editable rows, and stays in two-way sync with the Filter Bar.
 _Avoid_: filter panel, builder pane
+
+**Row Summary**:
+The fields a collapsed row in the Tree view shows beside its `_id`. A saved, per-Collection choice, shareable through a Connection Family; with none saved, the row shows the first visible fields of the tab's Fields list. Independent of the Fields list otherwise: choosing a Row Summary hides no column and changes no projection.
+_Avoid_: preview fields, preview (a Preview Tab and an aggregation stage preview are other things)
+
+**Copy Origin**:
+The Connection, Database and Collection that the most recent data-bearing copy came from. A data-bearing copy is one carrying data from a server: a value, a document id, one or more documents, aggregation output, or text selected inside a result view. Only the most recent one is remembered, in memory, for as long as the app runs. Any other in-app copy clears it, such as a field or collection name, a query, a pipeline or a connection string, because those are the same on every server.
+
+**Cross-Connection Paste**:
+Pasting, into a query surface (the Filter Bar, a Query Builder value, sort, projection or an aggregation stage body), text that contains a distinctive value whose Copy Origin is a different Connection from the Focused Tab's. A distinctive value is an ObjectId, a UUID, or a string or number of at least 6 characters, never a boolean, null or a short value. The paste always goes through, followed by a warning, because Connections are separate servers and the value almost certainly belongs to the other one. Members of the same Connection Family are no exception: shared Database and Collection names are what make the mistake easy. The same Connection with a different Collection is never a Cross-Connection Paste, and neither is a paste into the Document Editor or the shell.
 
 ### Editing documents
 

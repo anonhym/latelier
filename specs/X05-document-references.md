@@ -24,8 +24,10 @@ underlying data is never joined or mutated.
     source row visually.
   - Auto-prefetch on row render (v1 resolves only on hover / click).
   - Reference rendering in TableView / JsonView. V1 targets TreeView.
-  - Rule import/export, cross-connection references, schema-validator
-    or index-based detection.
+  - Schema-validator or index-based detection. Sharing rules across
+    Connections and exporting them came later, as Connection Families
+    (X23) and the Family Export (X24). A rule still only ever points
+    within its own Connection's server.
 
 ## Dependencies
 
@@ -36,6 +38,7 @@ underlying data is never joined or mutated.
 
 ## See also
 
+- **X23 — Connection Families**: a rule can be owned by a Connection Family as well as by a Connection, and every rule read goes through X23's resolution of shared rules and Overrides.
 - **X06 — Contextual feature hints**: defines a `refs.configure` hint anchored to the **References** button on `ResultViewer` (formerly `ResultArea`, see X11), fired the first time a collection's results contain `_id`/`Id`-suffixed fields and no rules exist. Discoverability for this feature lives there.
 
 ## 1. Types
