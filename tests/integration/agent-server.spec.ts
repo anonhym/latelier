@@ -420,17 +420,23 @@ describe('Agent server', () => {
   });
 
   describe('tools/list', () => {
-    it('offers list_connections read-only, with strict input and metadata-only output schemas', async () => {
+    it('offers every tool read-only, with strict input and metadata-only output schemas', async () => {
       const { socketPath, token } = await start();
       const a = await agentFor(socketPath, token);
       const { tools } = await a.client.listTools();
-      expect(tools.map((t) => t.name)).toEqual(['list_connections']);
-      const tool = tools[0]!;
-      expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
-      expect(tool.inputSchema).toMatchObject({ type: 'object', additionalProperties: false });
-      expect(Object.keys(tool.outputSchema!.properties as object).sort((x, y) => x.localeCompare(y))).toEqual([
-        'appliedLimits', 'count', 'durationMs', 'estimate', 'truncated',
+      expect(tools.map((t) => t.name)).toEqual(['list_connections', 'find', 'count', 'aggregate']);
+      for (const tool of tools) {
+        expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
+        expect(tool.inputSchema).toMatchObject({ type: 'object', additionalProperties: false });
+        expect(Object.keys(tool.outputSchema!.properties as object).sort((x, y) => x.localeCompare(y))).toEqual([
+          'appliedLimits', 'count', 'durationMs', 'estimate', 'truncated',
+        ]);
+      }
+      const find = tools.find((t) => t.name === 'find')!;
+      expect(Object.keys(find.inputSchema.properties as object).sort((x, y) => x.localeCompare(y))).toEqual([
+        'collection', 'connectionId', 'database', 'filter', 'limit', 'projection', 'skip', 'sort',
       ]);
+      expect((find.inputSchema.properties as Record<string, unknown>).filter).toMatchObject({ type: 'object' });
     });
 
     it('carries instructions that call results untrusted data', async () => {
