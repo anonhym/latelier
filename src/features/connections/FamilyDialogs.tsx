@@ -5,6 +5,7 @@ import { api, getErrorMessage } from '../../api/atelier';
 import { SubmitButton } from '../../components/SubmitButton';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { NEW_FAMILY, plural } from './familyCopy';
+import { logFailure } from '../../utils/rendererLog';
 
 /**
  * Add Connections to a Family: an existing one, or a new one made from the
@@ -38,12 +39,25 @@ export function AddToFamilyDialog({ connections, families, onCancel, onDone }: {
     setError(null);
     try {
       let familyId = choice;
-      if (creating) familyId = (await api.families.create({ name: name.trim() })).id;
-      const all = await api.families.setMembership({
-        connectionIds: ids,
-        familyId,
-        keepAsLocal: moving.length > 0 ? keepAsLocal : undefined,
-      });
+      let createdId: string | null = null;
+      if (creating) {
+        createdId = (await api.families.create({ name: name.trim() })).id;
+        familyId = createdId;
+      }
+      let all: ConnectionFamily[];
+      try {
+        all = await api.families.setMembership({
+          connectionIds: ids,
+          familyId,
+          keepAsLocal: moving.length > 0 ? keepAsLocal : undefined,
+        });
+      } catch (e) {
+        // Two calls make one action: a family just made for this must not outlive its failure, or a retry meets its own name.
+        if (createdId !== null) {
+          await api.families.delete({ id: createdId, keepAsLocal: false }).catch((err: unknown) => logFailure('removing the family just created', err));
+        }
+        throw e;
+      }
       const target = all.find((f) => f.id === familyId);
       if (target) onDone(target);
     } catch (e) {
