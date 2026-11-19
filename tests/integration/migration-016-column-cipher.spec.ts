@@ -183,7 +183,7 @@ describe('migration 016 and encryptLegacyRows', () => {
       insert.run('v1', 'mac-1', now);
       insert.run('v2', 'mac-2', now);
       expect(() => insert.run('v3', 'mac-1', now)).toThrow(/UNIQUE/);
-      expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 18 });
+      expect(db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 19 });
 
       db.prepare("DELETE FROM connections WHERE id = 'c1'").run();
       expect(db.prepare('SELECT COUNT(*) AS n FROM recent_field_values').get()).toEqual({ n: 0 });

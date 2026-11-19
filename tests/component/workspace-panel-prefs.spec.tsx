@@ -21,7 +21,7 @@ const DOC = { _id: '1', sku: 'widget', customerId: 'cust-1' };
 
 const RULE: ReferenceRule = {
   id: 'r1',
-  connectionId: 'c1',
+  owner: { connectionId: 'c1' },
   sourceDb: 'shop',
   sourceCollection: 'orders',
   sourceField: 'customerId',

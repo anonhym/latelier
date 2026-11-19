@@ -204,7 +204,7 @@ describe('TableView — rendering and interaction', () => {
   it('renders a ReferenceChip for a column with a matching reference rule', () => {
     const rule: ReferenceRule = {
       id: 'r1',
-      connectionId: 'c1',
+      owner: { connectionId: 'c1' },
       sourceDb: 'app',
       sourceCollection: 'orders',
       sourceField: 'userId',
@@ -226,7 +226,7 @@ describe('TableView — rendering and interaction', () => {
   it('renders a chip on the parent object cell for a dotted rule and opens it with the nested path and value', () => {
     const rule: ReferenceRule = {
       id: 'r2',
-      connectionId: 'c1',
+      owner: { connectionId: 'c1' },
       sourceDb: 'app',
       sourceCollection: 'orders',
       sourceField: 'address.userId',

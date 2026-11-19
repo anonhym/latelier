@@ -12,7 +12,7 @@ function withTheme(ui: React.ReactElement) {
 
 const RULE: ReferenceRule = {
   id: 'rule-1',
-  connectionId: 'conn-1',
+  owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',
   sourceCollection: 'orders',
   sourceField: 'contact_id',
@@ -106,6 +106,7 @@ describe('ReferenceDrawer', () => {
       withTheme(
         <ReferenceDrawer
           stack={[frame]}
+          connectionId="conn-1"
           pinned={false}
           width={380}
           onPush={() => {}}
@@ -136,6 +137,7 @@ describe('ReferenceDrawer', () => {
       withTheme(
         <ReferenceDrawer
           stack={[frame]}
+          connectionId="conn-1"
           pinned={false}
           width={380}
           onPush={() => {}}
@@ -184,6 +186,7 @@ describe('ReferenceDrawer (multi-doc array source)', () => {
       withTheme(
         <ReferenceDrawer
           stack={[frame]}
+          connectionId="conn-1"
           pinned={false}
           width={380}
           onPush={onPush}
@@ -227,6 +230,7 @@ describe('ReferenceDrawer (multi-doc array source)', () => {
       return (
         <ReferenceDrawer
           stack={stack}
+          connectionId="conn-1"
           pinned={false}
           width={380}
           onPush={(frame) => setStack((s) => [...s, frame])}

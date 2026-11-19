@@ -64,7 +64,7 @@ describe('sqlite bootstrap', () => {
       .map((r) => (r as { name: string }).name);
     expect(names).not.toContain('preview_fields');
     const version = tmp.db.prepare('SELECT version FROM schema_version').get() as { version: number };
-    expect(version.version).toBe(18);
+    expect(version.version).toBe(19);
   });
 
   it('reopening an existing DB does not re-run migrations', () => {

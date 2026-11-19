@@ -19,6 +19,8 @@ export interface ReferenceFrame {
 
 export interface ReferenceDrawerProps {
   stack: ReferenceFrame[];
+  /** The Connection the drawer's collection tab is on: the one a shared (Family-owned) frame's rules are read through. */
+  connectionId: string;
   pinned: boolean;
   onPush: (frame: ReferenceFrame) => void;
   onPop: () => void;
@@ -35,8 +37,20 @@ interface LoadedFrame {
   picked?: boolean;
 }
 
+/**
+ * The Connection a frame's rule reads through: its owner when a Connection
+ * owns it, else the tab's. A frame persisted before rules had an owner
+ * carries `connectionId` instead, so that is read too.
+ */
+function frameConnectionId(rule: ReferenceRule, tabConnectionId: string): string {
+  const legacy = (rule as { connectionId?: unknown }).connectionId;
+  if (typeof legacy === 'string') return legacy;
+  return 'connectionId' in rule.owner ? rule.owner.connectionId : tabConnectionId;
+}
+
 export function ReferenceDrawer({
   stack,
+  connectionId,
   pinned,
   onPush,
   onPop,
@@ -100,7 +114,7 @@ export function ReferenceDrawer({
   }, [topFrame?.id]);
 
   const nestedRules = useReferenceRules(
-    topFrame?.rule.connectionId ?? null,
+    topFrame ? frameConnectionId(topFrame.rule, connectionId) : null,
     topFrame?.rule.targetDb ?? null,
     topFrame?.rule.targetCollection ?? null,
   );

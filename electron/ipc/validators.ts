@@ -19,6 +19,12 @@ export const CollectionTargetSchema = z.object({
   collection: NonEmpty,
 });
 
+/** Exactly one owner, so a payload naming both a Connection and a Family is refused. */
+export const SettingOwnerSchema = z.union([
+  z.object({ connectionId: NonEmpty }).strict(),
+  z.object({ familyId: NonEmpty }).strict(),
+]);
+
 export const IdInputSchema = z.object({ id: NonEmpty });
 
 /**

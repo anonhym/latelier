@@ -418,7 +418,7 @@ describe('ariaSortFor (#53)', () => {
 describe('nestedReferenceFor', () => {
   const mk = (id: string, sourceField: string): ReferenceRule => ({
     id,
-    connectionId: 'c1',
+    owner: { connectionId: 'c1' },
     sourceDb: 'app',
     sourceCollection: 'orders',
     sourceField,

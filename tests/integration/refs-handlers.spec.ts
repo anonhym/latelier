@@ -44,7 +44,7 @@ const ACME = new ObjectId();
 const GLOBEX = new ObjectId();
 
 const ruleInput = (overrides: Record<string, unknown> = {}) => ({
-  connectionId: CONN,
+  owner: { connectionId: CONN },
   sourceDb: DB,
   sourceCollection: 'orders',
   sourceField: 'customer_id',
@@ -108,7 +108,7 @@ describe('refs:* channels via router', () => {
       expect(env.ok).toBe(true);
       if (!env.ok) return;
       expect(env.data).toMatchObject({
-        connectionId: CONN,
+        owner: { connectionId: CONN },
         sourceField: 'customer_id',
         targetCollection: 'customers',
         targetField: '_id',
@@ -116,6 +116,26 @@ describe('refs:* channels via router', () => {
         projection: [],
       });
       expect(env.data.id).toEqual(expect.any(String));
+    });
+
+    it.each([
+      ['both a connection and a family', { owner: { connectionId: CONN, familyId: 'f' } }],
+      ['no owner', { owner: undefined }],
+      ['the old top-level connectionId', { owner: undefined, connectionId: CONN }],
+      ['an empty owner id', { owner: { connectionId: '' } }],
+    ])('refuses an owner naming %s with VALIDATION', async (_name, over) => {
+      const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput(over));
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it('answers NOT_FOUND for a family that does not exist', async () => {
+      const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ owner: { familyId: 'no-such-family' } }));
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('NOT_FOUND');
+      expect(env.error.message).toContain('family no-such-family not found');
     });
 
     it('answers CONFLICT for a second rule on the same source field', async () => {
@@ -129,7 +149,7 @@ describe('refs:* channels via router', () => {
     it('answers NOT_FOUND for a connection that does not exist', async () => {
       const env = await shim.invoke(
         IPC_CHANNELS.refsCreate,
-        ruleInput({ connectionId: 'no-such-conn' }),
+        ruleInput({ owner: { connectionId: 'no-such-conn' } }),
       );
       expect(env.ok).toBe(false);
       if (env.ok) return;
@@ -179,7 +199,7 @@ describe('refs:* channels via router', () => {
     it('returns every rule of the connection and none of another', async () => {
       await createRule({ sourceField: 'customer_id' });
       await createRule({ sourceCollection: 'invoices', sourceField: 'customer_id' });
-      await createRule({ connectionId: GHOST_CONN });
+      await createRule({ owner: { connectionId: GHOST_CONN } });
       const env = await shim.invoke<ReferenceRule[]>(IPC_CHANNELS.refsList, {
         connectionId: CONN,
       });
@@ -382,7 +402,7 @@ describe('refs:* channels via router', () => {
     });
 
     it('answers NOT_FOUND when the rule belongs to a connection the pool does not know', async () => {
-      const rule = await createRule({ connectionId: GHOST_CONN });
+      const rule = await createRule({ owner: { connectionId: GHOST_CONN } });
       const env = await shim.invoke(IPC_CHANNELS.refsResolve, {
         ruleId: rule.id,
         valueEjson: oidEjson(ACME),
