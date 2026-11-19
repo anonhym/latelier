@@ -198,7 +198,7 @@ export function ShellSection({
                 switcherProps={switcherProps}
                 caches={navigatorData.tree.caches}
                 loadDbs={(id) => void navigatorData.loadDbs(id)}
-                loadColls={(id, db) => void navigatorData.loadColls(id, db)}
+                loadColls={(id, db, opts) => void navigatorData.loadColls(id, db, opts)}
                 onOpenCollection={(input, { newTab }) =>
                   void tabs.openCollection({ ...input, reuseExisting: !newTab })
                 }

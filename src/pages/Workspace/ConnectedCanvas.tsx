@@ -15,7 +15,7 @@ interface ConnectedCanvasProps {
   /** The navigator's cache for `connection`; what is missing is loaded from here. */
   cache: ConnectionCache | undefined;
   loadDbs: (connectionId: string) => unknown;
-  loadColls: (connectionId: string, dbName: string) => unknown;
+  loadColls: (connectionId: string, dbName: string, opts?: { stats?: boolean }) => unknown;
   onOpen: (input: { connectionId: string; dbName: string; collection: string }) => void;
   onSearch: () => void;
 }
@@ -42,6 +42,9 @@ export function ConnectedCanvas({ connection, cache, loadDbs, loadColls, onOpen,
   // until eight are known. Each database is asked once, so a failed read
   // does not retry in a loop.
   const asked = React.useRef(new Set<string>());
+  // The sweep lists names only, so the databases these rows come from are read
+  // once with their figures; the cached ones show (marked) until those land.
+  const statted = React.useRef(new Set<string>());
   const id = connection.id;
   React.useEffect(() => {
     if (!cache?.dbs) {
@@ -51,10 +54,16 @@ export function ConnectedCanvas({ connection, cache, loadDbs, loadColls, onOpen,
       }
       return;
     }
+    for (const dbName of new Set(rows.map((r) => r.dbName))) {
+      if (statted.current.has(dbName) || ownGet(cache.collsLoading, dbName)) continue;
+      statted.current.add(dbName);
+      loadColls(id, dbName, { stats: true });
+    }
     if (rows.length >= MAX_ROWS || Object.values(cache.collsLoading).some(Boolean)) return;
     const next = dbs.find((d) => !ownGet(cache.colls, d.name) && !asked.current.has(d.name));
     if (next) {
       asked.current.add(next.name);
+      statted.current.add(next.name);
       loadColls(id, next.name);
     }
   });
