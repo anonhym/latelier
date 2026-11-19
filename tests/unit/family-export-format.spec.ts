@@ -262,4 +262,13 @@ describe('familyFileName', () => {
     expect(familyFileName('..hidden')).toBe('hidden.latelier-family.json');
     expect(familyFileName('   ')).toBe('family.latelier-family.json');
   });
+
+  it('cleans paths and a blank template as the rule service does, so a hand-edited file stores nothing Mongo rejects', () => {
+    const raw = valid();
+    const rules = raw.referenceRules as Record<string, unknown>[];
+    rules[0] = { ...rules[0], projection: ['', ' a ', 'a', 'b'], displayTemplate: '   ' };
+    const file = parseFamilyExport(JSON.stringify(raw));
+    expect(file.referenceRules[0]!.projection).toEqual(['a', 'b']);
+    expect(file.referenceRules[0]!.displayTemplate).toBeUndefined();
+  });
 });

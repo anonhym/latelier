@@ -109,7 +109,7 @@ function buildInsert(input: ReferenceRuleCreateInput): ReferenceRuleInsert {
     target_collection: input.targetCollection,
     target_field: input.targetField ?? '_id',
     projection_json: JSON.stringify(normalizeProjection(input.projection)),
-    display_template: input.displayTemplate ?? null,
+    display_template: input.displayTemplate === undefined || input.displayTemplate === '' ? null : input.displayTemplate,
     enabled: input.enabled === false ? 0 : 1,
     created_at: now,
     updated_at: now,

@@ -34,7 +34,11 @@ export function useReferenceRules(
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  // Only the newest read may settle: a slower answer for the previous Collection must not overwrite this one's.
+  const latest = React.useRef(0);
+
   const reload = React.useCallback(async () => {
+    const mine = ++latest.current;
     if (!connectionId || !dbName || !collection) {
       setRules([]);
       return;
@@ -49,12 +53,14 @@ export function useReferenceRules(
         collection,
         effective: true,
       })) as EffectiveReferenceRule[];
-      setRules(rows.filter((r) => r.enabled));
+      if (mine === latest.current) setRules(rows.filter((r) => r.enabled));
     } catch (err) {
-      setError(isIpcError(err) ? err.message : String(err));
-      setRules([]);
+      if (mine === latest.current) {
+        setError(isIpcError(err) ? err.message : String(err));
+        setRules([]);
+      }
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [connectionId, dbName, collection]);
 

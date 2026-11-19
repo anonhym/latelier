@@ -9,7 +9,8 @@ import { logFailure } from '../../utils/rendererLog';
  * the same as for a Connection with no Family.
  */
 export function useConnectionFamily(connectionId: string): { id: string; name: string } | null {
-  const [family, setFamily] = React.useState<{ id: string; name: string } | null>(null);
+  // Held with the Connection it was read for, so another Connection's Family never stands in for this one's while it loads or if the read fails.
+  const [read, setRead] = React.useState<{ connectionId: string; family: { id: string; name: string } | null } | null>(null);
   React.useEffect(() => {
     let live = true;
     api.families
@@ -17,12 +18,15 @@ export function useConnectionFamily(connectionId: string): { id: string; name: s
       .then((all) => {
         if (!live) return;
         const mine = all.find((f) => f.memberIds.includes(connectionId));
-        setFamily(mine ? { id: mine.id, name: mine.name } : null);
+        setRead({ connectionId, family: mine ? { id: mine.id, name: mine.name } : null });
       })
-      .catch((err) => logFailure('family list', err));
+      .catch((err) => {
+        if (live) setRead({ connectionId, family: null });
+        logFailure('family list', err);
+      });
     return () => {
       live = false;
     };
   }, [connectionId]);
-  return family;
+  return read?.connectionId === connectionId ? read.family : null;
 }

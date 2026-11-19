@@ -164,6 +164,20 @@ describe('Reference Rules shared through a Family', () => {
       expect(svc.get(shared.id).targetCollection).toBe('customers');
     });
 
+    it('stores a cleared display template on a new Override as none, as an update does', () => {
+      const shared = svc.create({
+        owner: { familyId },
+        sourceDb: DB,
+        sourceCollection: 'orders',
+        sourceField: 'customer_id',
+        targetDb: DB,
+        targetCollection: 'customers',
+        displayTemplate: '{name}',
+      });
+      const o = svc.override({ connectionId: MEMBER_A, sharedRuleId: shared.id, patch: { displayTemplate: '' } });
+      expect(o.displayTemplate).toBeUndefined();
+    });
+
     it('updates the existing Override when asked again for the same rule', () => {
       const shared = create({ familyId }, 'customer_id');
       const first = svc.override({ connectionId: MEMBER_A, sharedRuleId: shared.id, patch: { enabled: false } });

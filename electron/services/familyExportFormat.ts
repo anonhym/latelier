@@ -50,6 +50,8 @@ const MAX_PATHS = 200;
 
 const Name = z.string().min(1).max(MAX_NAME);
 const Paths = z.array(z.string().max(MAX_NAME)).max(MAX_PATHS);
+// A rule's projection is cleaned as the rule service cleans its own input (trimmed, no blanks, no repeats, order kept), so a hand-edited file cannot store a path Mongo rejects.
+const Projection = Paths.transform((paths) => Array.from(new Set(paths.map((p) => p.trim()).filter((p) => p.length > 0))));
 
 const RuleSchema = z.strictObject({
   sourceDb: Name,
@@ -58,8 +60,13 @@ const RuleSchema = z.strictObject({
   targetDb: Name,
   targetCollection: Name,
   targetField: Name,
-  projection: Paths,
-  displayTemplate: z.string().max(MAX_TEMPLATE).optional(),
+  projection: Projection,
+  // A blank template is no template, as the rule service stores it.
+  displayTemplate: z
+    .string()
+    .max(MAX_TEMPLATE)
+    .optional()
+    .transform((t) => (t === undefined || t.trim() === '' ? undefined : t)),
   enabled: z.boolean(),
 });
 

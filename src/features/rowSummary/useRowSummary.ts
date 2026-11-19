@@ -21,25 +21,31 @@ export function useRowSummary(
   dbName: string | null,
   collection: string | null,
 ): { summary: EffectiveRowSummary | null; loaded: boolean; reload: () => Promise<void> } {
-  const [summary, setSummary] = React.useState<EffectiveRowSummary | null>(null);
-  const [loaded, setLoaded] = React.useState(false);
+  // Held with the namespace it was read for: another Collection's summary is not this one's while its own is read.
+  const key = `${connectionId}\u0000${dbName}\u0000${collection}`;
+  const [read, setRead] = React.useState<{ key: string; summary: EffectiveRowSummary | null } | null>(null);
+  const summary = read?.key === key ? read.summary : null;
+  const loaded = read?.key === key;
+
+  // Only the newest read may settle: a slower answer for the previous Collection must not overwrite this one's.
+  const latest = React.useRef(0);
 
   const reload = React.useCallback(async () => {
+    const mine = ++latest.current;
     if (!connectionId || !dbName || !collection) {
-      setSummary(null);
-      setLoaded(true);
+      setRead({ key, summary: null });
       return;
     }
     try {
-      setSummary(await api.rowSummary.get({ connectionId, dbName, collection }));
+      const next = await api.rowSummary.get({ connectionId, dbName, collection });
+      if (mine === latest.current) setRead({ key, summary: next });
     } catch (err) {
       // The row keeps today's behaviour; the reason goes to the log, not the screen.
       logFailure('row summary read', err);
-      setSummary(null);
-    } finally {
-      setLoaded(true);
+      if (mine === latest.current) setRead({ key, summary: null });
     }
-  }, [connectionId, dbName, collection]);
+  }, [connectionId, dbName, collection, key]);
+
 
   React.useEffect(() => {
     queueMicrotask(() => void reload());

@@ -17,8 +17,10 @@ const ruleArb = fc
     targetDb: name,
     targetCollection: name,
     targetField: fc.constantFrom('_id', 'id', 'code'),
-    projection: fc.array(path, { maxLength: 4 }),
-    displayTemplate: fc.option(fc.constantFrom('{name}', '', '{a} {b}'), { nil: undefined }),
+    // The rule service never stores a repeated path, so neither does a real rule.
+    projection: fc.uniqueArray(path, { maxLength: 4 }),
+    // The rule service stores a blank template as none, so a real rule never has one.
+    displayTemplate: fc.option(fc.constantFrom('{name}', '{a} {b}'), { nil: undefined }),
     enabled: fc.boolean(),
   })
   .map((r): ReferenceRule => ({ ...r, id: 'i', owner: { familyId: 'f' }, createdAt: 'c', updatedAt: 'u' }));
