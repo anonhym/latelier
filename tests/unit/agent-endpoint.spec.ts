@@ -47,6 +47,33 @@ describe('resolveEndpoint on Unix', () => {
     expect(r.fallback).toBe(true);
   });
 
+  it('prefers $XDG_RUNTIME_DIR on Linux over a name in the shared temp dir', () => {
+    const r = resolveEndpoint({ ...base, platform: 'linux', userData: userDataFor(200), xdgRuntimeDir: '/run/user/501' });
+    expect(r).toEqual({
+      kind: 'unix',
+      path: '/run/user/501/latelier/agent-ab12cd34.sock',
+      dir: '/run/user/501/latelier',
+      fallback: true,
+    });
+  });
+
+  it.each([['relative', 'run/user'], ['empty', ''], ['unset', null], ['undefined', undefined]])(
+    'ignores a %s $XDG_RUNTIME_DIR',
+    (_n, xdg) => {
+      const r = resolveEndpoint({ ...base, platform: 'linux', userData: userDataFor(200), xdgRuntimeDir: xdg });
+      expect(r.dir).toBe('/var/tmp/latelier-501');
+    },
+  );
+
+  it('ignores $XDG_RUNTIME_DIR on macOS', () => {
+    const r = resolveEndpoint({ ...base, platform: 'darwin', userData: userDataFor(200), xdgRuntimeDir: '/run/user/501' });
+    expect(r.dir).toBe('/var/tmp/latelier-501');
+  });
+
+  it('does not touch the runtime dir when the preferred path fits', () => {
+    expect(resolveEndpoint({ ...base, platform: 'linux', userData: '/data', xdgRuntimeDir: '/run/user/501' }).fallback).toBe(false);
+  });
+
   it('gives each fallback a random file name', () => {
     let n = 0;
     const a = resolveEndpoint({ ...base, platform: 'linux', userData: userDataFor(200), randomHex: () => `r${(n += 1)}` });

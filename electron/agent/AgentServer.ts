@@ -8,6 +8,7 @@ import { AgentSession } from './AgentSession.ts';
 import type { AgentSessionIdentity } from './AgentGate.ts';
 import type { AgentToolRunner } from './AgentToolRunner.ts';
 import type { AgentTool } from './tools.ts';
+import { ensureOwnedPrivateDir } from './ownedDir.ts';
 import { agentDir, endpointFile, pipeSuffixFrom, resolveEndpoint, type ResolvedEndpoint } from './endpoint.ts';
 import { readHandshake, refuse } from './handshake.ts';
 import { hashToken, matchHash } from './token.ts';
@@ -23,6 +24,8 @@ export interface AgentServerDeps {
   platform?: NodeJS.Platform;
   tmpdir?: string;
   uid?: string | number;
+  /** Defaults to `$XDG_RUNTIME_DIR`. */
+  xdgRuntimeDir?: string | null;
 }
 
 /**
@@ -70,13 +73,18 @@ export class AgentServer {
       userData: this.deps.userData,
       tmpdir: this.deps.tmpdir ?? os.tmpdir(),
       uid: this.deps.uid ?? process.getuid?.() ?? 'user',
+      xdgRuntimeDir: this.deps.xdgRuntimeDir === undefined ? process.env.XDG_RUNTIME_DIR : this.deps.xdgRuntimeDir,
       randomHex: (n) => randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n),
       existingPipeSuffix: existing,
     });
     // The 0700 agent/ directory is the real access control on Unix; the
     // socket's own mode below is a second line.
     ensurePrivateDir(agentDir(this.deps.userData));
-    if (endpoint.dir !== null) ensurePrivateDir(endpoint.dir);
+    if (endpoint.dir !== null) {
+      // The fallback lives where another user may have planted the name: it must be ours, a real directory, 0700.
+      if (endpoint.fallback) ensureOwnedPrivateDir(endpoint.dir, process.getuid?.() ?? -1);
+      else ensurePrivateDir(endpoint.dir);
+    }
     if (endpoint.kind === 'unix' && !(await this.clearStaleSocket(endpoint.path))) {
       this.deps.log.warn('agent', 'another process answers on the Agent socket; not starting');
       return false;

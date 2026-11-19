@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, handshakeLine, openSocket, readUntilClosed, textOf, type AgentConnection } from '../helpers/agentSocket';
 import { readHandshake } from '../../electron/agent/handshake';
+import { AgentServer } from '../../electron/agent/AgentServer';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
 
 const posix = process.platform !== 'win32';
@@ -435,6 +436,56 @@ describe('Agent server', () => {
       const { socketPath, token } = await start();
       const a = await agentFor(socketPath, token);
       expect(a.client.getInstructions()).toMatch(/untrusted data/);
+    });
+  });
+
+  describe.runIf(posix)('short-path fallback directory', () => {
+    const cleanup: string[] = [];
+    afterEach(() => {
+      for (const d of cleanup.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    });
+
+    function serverWith(tmpdir: string) {
+      const userData = path.join(fs.mkdtempSync(path.join(tmpdir, 'u-')), 'x'.repeat(120));
+      cleanup.push(path.dirname(userData));
+      const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
+      return new AgentServer({
+        userData,
+        runner: {} as never,
+        tools: [],
+        tokens: { list: () => [] },
+        log,
+        platform: process.platform,
+        tmpdir,
+        uid: process.getuid!(),
+        xdgRuntimeDir: null,
+      });
+    }
+
+    it('listens in a freshly created 0700 directory when the path is too long', async () => {
+      const tmpdir = fs.mkdtempSync(path.join('/tmp', 'fb-'));
+      cleanup.push(tmpdir);
+      const server = serverWith(tmpdir);
+      try {
+        expect(await server.start()).toBe(true);
+        const dir = path.join(tmpdir, `latelier-${process.getuid!()}`);
+        expect(server.socketPath!.startsWith(dir)).toBe(true);
+        expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it('refuses to listen when the fallback name is a symlink planted in the shared temp dir', async () => {
+      const tmpdir = fs.mkdtempSync(path.join('/tmp', 'fb-'));
+      cleanup.push(tmpdir);
+      const attacker = fs.mkdtempSync(path.join('/tmp', 'fb-attacker-'));
+      cleanup.push(attacker);
+      fs.symlinkSync(attacker, path.join(tmpdir, `latelier-${process.getuid!()}`));
+      const server = serverWith(tmpdir);
+      await expect(server.start()).rejects.toThrow(/symbolic link/);
+      expect(fs.readdirSync(attacker)).toEqual([]);
+      expect(server.socketPath).toBeNull();
     });
   });
 });

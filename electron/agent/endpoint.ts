@@ -16,6 +16,8 @@ export interface EndpointInput {
   uid: string | number;
   /** `n` lowercase hex characters from a CSPRNG. Injected so the paths are testable. */
   randomHex: (n: number) => string;
+  /** `$XDG_RUNTIME_DIR`: a per-user 0700 directory the system provides. Preferred on Linux for the short-path fallback. */
+  xdgRuntimeDir?: string | null;
   /** The Windows pipe suffix kept from a previous run, reused while the endpoint file exists. */
   existingPipeSuffix?: string | null;
 }
@@ -51,8 +53,9 @@ export function pipeSuffixFrom(content: string): string | null {
 /**
  * Where the Agent socket lives (X27 §4.3). The preferred path is
  * `<userData>/agent/agent.sock`; when that would not fit a `sockaddr_un`, a
- * short per-user directory under the temp dir is used, with a random file name
- * so two instances never share a path. Windows uses a named pipe whose random
+ * short per-user directory is used (`$XDG_RUNTIME_DIR/latelier` on Linux when
+ * set, else `<tmpdir>/latelier-<uid>`), with a random file name so two
+ * instances never share a path. Windows uses a named pipe whose random
  * suffix is stable across restarts.
  */
 export function resolveEndpoint(input: EndpointInput): ResolvedEndpoint {
@@ -69,7 +72,15 @@ export function resolveEndpoint(input: EndpointInput): ResolvedEndpoint {
   if (Buffer.byteLength(preferred) <= limit) {
     return { kind: 'unix', path: preferred, dir, fallback: false };
   }
-  const fallbackDir = path.join(input.tmpdir, `latelier-${input.uid}`);
+  // A name under a shared temp dir is predictable, so another user could
+  // squat it; `ensureOwnedPrivateDir` refuses such a directory. On Linux the
+  // per-user runtime dir avoids the shared directory altogether.
+  const runtimeDir =
+    input.platform === 'linux' && input.xdgRuntimeDir && path.isAbsolute(input.xdgRuntimeDir)
+      ? input.xdgRuntimeDir
+      : null;
+  const fallbackDir =
+    runtimeDir === null ? path.join(input.tmpdir, `latelier-${input.uid}`) : path.join(runtimeDir, 'latelier');
   const fallback = path.join(fallbackDir, `agent-${input.randomHex(8)}.sock`);
   if (Buffer.byteLength(fallback) > limit) {
     throw new SystemError('INTERNAL', 'No Agent socket path fits the platform limit.', {
