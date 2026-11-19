@@ -35,10 +35,13 @@ const VITEST_BIN = join(dirname(vitestManifest), createRequire(vitestManifest)('
 // legitimately takes ~5 min on CI's 2-core runner and was clearing the kill by
 // 8 seconds, less than the observed run-to-run variance.
 //
-// Size this at several times the slowest project's real wall-clock. If the
-// component project ever approaches 15 minutes, the answer is to look at why,
-// not to raise this again.
-const TIMEOUT_MS = 15 * 60 * 1000;
+// Size this at several times the slowest project's real wall-clock. The
+// component project now runs 11-15 minutes on CI's 2-core runner under
+// --coverage (638s-867s measured, and one run past 900s that was killed with
+// every finished test green), so 15 minutes sat inside the run-to-run variance
+// again. Raising this is the stopgap; CI shards the project to bring the real
+// wall-clock back down.
+const TIMEOUT_MS = 30 * 60 * 1000;
 
 // Extra arguments go to every project (`npm test -- --coverage` in CI). Each
 // project is its own vitest run and would wipe the previous one's report, so a

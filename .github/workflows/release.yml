@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: read
     # Same budget as ci.yml's test job, which runs the same steps.
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -48,12 +48,13 @@ jobs:
     # otherwise add ~7 minutes to every hand-triggered Playwright run.
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Must stay above `run-tests.mjs`'s per-project watchdog (15m), or GitHub
+    # Must stay above `run-tests.mjs`'s per-project watchdog (30m), or GitHub
     # cancels the job first and the watchdog's hang diagnostic can never print
     # here — which is the only place it matters.
-    # The job today is ~7m: install + Electron + lint + typecheck + audit +
-    # ~5m of tests. 25 leaves the watchdog room to fire and still bounds a hang.
-    timeout-minutes: 25
+    # The job today is ~17m: install + Electron + lint + typecheck + audit +
+    # ~15m of tests, of which the component project is ~12-15m. 45 leaves the
+    # watchdog room to fire and still bounds a hang.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
