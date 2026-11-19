@@ -69,6 +69,22 @@ _Avoid_: chip, connection chip, tab section
 A Connection with a persisted flag that blocks every MongoDB write reachable through it — document writes, collection/database/index/user admin operations, `$out`/`$merge` aggregation stages, and script/shell-pane writes. Enforced in the main process, never only hidden in the renderer, because the shell pane is unsandboxed (see [ADR 0005](docs/adr/0005-read-only-connection-enforcement.md)). A whole-connection property, not scoped to individual Databases within it. Unrelated to the pre-existing `readOnly` prop on components like `ScriptEditor`/`BuilderPane`, which is renderer-only editor/view state and enforces nothing against MongoDB.
 _Avoid_: read-only mode (ambiguous with the unrelated UI-state prop of the same name)
 
+**Agent**:
+An external AI client (Claude Code, Claude Desktop, Cursor) connected to L'Atelier over MCP. It reads only through the app and never sees a host, connection string or credential (see [X26](specs/X26-agent-access.md)).
+_Avoid_: assistant, bot, AI mode, MCP client (an implementation word)
+
+**Agent Access**:
+The app-wide setting that lets Agents in, off by default and turned on only through a confirmation in the main process. With it off, nothing listens.
+_Avoid_: MCP server (the implementation, not the setting), agent mode
+
+**Shared with Agents**:
+A persisted flag on one Connection that makes it visible to Agents while it is an Open Connection and Agent Access is on. Agents only ever read through it, whatever the Connection's own Read-Only flag says. Never copied by Duplicate, Connection Export, Import or a Connection Family.
+_Avoid_: exposed, published, agent-enabled
+
+**Agent Read Log**:
+The record of every Agent tool call, refused ones included: who asked, on which Connection, what, and how much came back. Separate from the Audit Log, which records writes only.
+_Avoid_: agent audit log, agent history
+
 **Connection Export**:
 A file holding one or more Connections, written by **Export** and read by **Import**. Carries Connections only — never their saved queries, tabs or Audit Log — and never credential file paths. Importing one always adds new Connections; it never changes an existing one.
 _Avoid_: backup (implies the whole app state), config, profile
