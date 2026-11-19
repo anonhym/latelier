@@ -52,12 +52,13 @@ describe('canvas header', () => {
     await waitFor(() => expect(prefsSet).toHaveBeenCalledWith(DEFAULT_VIEW_PREF_KEY, 'JSON'));
   });
 
-  it('`⋯` holds Bulk actions and Data, each in its group', async () => {
+  it('`⋯` holds Display, Bulk actions and Data, each in its group', async () => {
     mount();
     await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
     const menu = await screen.findByRole('menu');
     const rows = [...menu.querySelectorAll('.mantine-Menu-label, [role="menuitem"]')].map((el) => el.textContent);
-    expect(rows).toEqual(['Bulk actions', 'Update matching…', 'Delete matching…', 'Data', 'Export…', 'Import…']);
+    // On the Tree view the menu also carries the Row summary, under Display.
+    expect(rows).toEqual(['Display', 'Row summary…', 'Bulk actions', 'Update matching…', 'Delete matching…', 'Data', 'Export…', 'Import…']);
   });
 
   it('Insert is an outline button, not a filled one', () => {
