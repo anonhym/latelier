@@ -14,6 +14,9 @@ const session: AgentSessionIdentity = {
 };
 
 /** The nesting `JSON.parse` accepts but `JSON.stringify` refuses, as a hostile client can send. */
+// Deep enough to overflow JSON.stringify under any stack size, including Stryker's larger one.
+const DEEP = 1_000_000;
+
 function deepArray(depth: number): unknown {
   return JSON.parse('['.repeat(depth) + ']'.repeat(depth));
 }
@@ -37,8 +40,8 @@ describe('requestJsonOf', () => {
   });
 
   it('replaces arguments too deep to serialise with a marker', () => {
-    expect(() => JSON.stringify(deepArray(20_000))).toThrow(RangeError);
-    expect(requestJsonOf({ filter: deepArray(20_000) })).toBe('{"unserializable":true}');
+    expect(() => JSON.stringify(deepArray(DEEP))).toThrow(RangeError);
+    expect(requestJsonOf({ filter: deepArray(DEEP) })).toBe('{"unserializable":true}');
   });
 
   it('does not hide any other failure', () => {
@@ -51,7 +54,7 @@ describe('requestJsonOf', () => {
 describe('AgentToolRunner with arguments too deep to serialise', () => {
   it('still writes the row and keeps the refusal code instead of answering DB_ERROR', async () => {
     const rows: AgentReadLogEntry[] = [];
-    const args = { connectionId: '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11', database: 'admin', collection: 'c', filter: { a: deepArray(20_000) } };
+    const args = { connectionId: '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11', database: 'admin', collection: 'c', filter: { a: deepArray(DEEP) } };
     const { result } = await runner(rows).call(session, 'find', args, new AbortController().signal);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ tool: 'find', requestJson: '{"unserializable":true}', database: 'admin', outcome: 'INVALID_INPUT' });
