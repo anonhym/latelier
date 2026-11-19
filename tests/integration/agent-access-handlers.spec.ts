@@ -609,6 +609,13 @@ describe('agentAccess:* channels', () => {
       expect(h.states.at(-1)!.tokens).toHaveLength(0);
     });
 
+    it('pushes nothing after stop, even when something later changes', async () => {
+      await h.svc.stop();
+      const after = h.states.length;
+      await h.svc.addTokenWithDialog('Late');
+      expect(h.states).toHaveLength(after);
+    });
+
     it('folds a burst of reads into one push of the count, and pushes nothing once stopped', async () => {
       const socketPath = await turnOn();
       const token = await addTokenAndCopy();
