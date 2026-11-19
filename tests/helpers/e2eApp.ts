@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, type ElectronApplication } from 'playwright';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
+import { isCi } from './ci';
 import { startMongoMemoryServer } from './startMongoMemoryServer';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,15 +23,6 @@ const MAIN_JS = path.resolve(here, '../..', 'dist-electron/main.js');
  */
 
 const MEMORY_SERVERS: MongoMemoryServer[] = [];
-
-/**
- * Playwright's own reading of `CI`: unset, empty, `0` and `false` all mean
- * "not CI", so a developer exporting `CI=0` is not treated as a runner.
- */
-function isCi(): boolean {
-  const ci = process.env.CI?.toLowerCase();
-  return ci !== undefined && ci !== '' && ci !== '0' && ci !== 'false';
-}
 
 /**
  * A vault spec that finds no usable keychain skips on a developer machine,
