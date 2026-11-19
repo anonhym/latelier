@@ -138,7 +138,12 @@ export class FamilyExportService {
         await fs.writeFile(partial, content, 'utf8');
         await fs.rename(partial, target);
       } catch (err) {
-        await fs.rm(partial, { force: true });
+        // The write error is what the user needs; a cleanup that also fails must not replace it.
+        await fs.rm(partial, { force: true }).catch((cleanupErr: unknown) => {
+          this.log?.warn('family-export', 'could not remove the partial export file', {
+            code: (cleanupErr as NodeJS.ErrnoException).code ?? 'unknown',
+          });
+        });
         throw err;
       }
     } catch (err) {

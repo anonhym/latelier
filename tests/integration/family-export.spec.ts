@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Database } from 'better-sqlite3';
@@ -167,6 +168,31 @@ describe('Family Export', () => {
       fs.writeFileSync(path.join(files, 'blocker'), 'x');
       savePath = path.join(files, 'blocker', 'out.json');
       await expect(svc.export({ familyId: f.id })).rejects.toMatchObject({ code: 'INTERNAL' });
+    });
+  });
+
+  describe('export cleanup', () => {
+    it('keeps the write error when removing the partial file fails too, and logs the cleanup failure', async () => {
+      const warn = vi.fn();
+      const logged = new FamilyExportService({
+        families: familyRepo,
+        rules: rulesRepo,
+        summaries: summaryRepo,
+        dialogs: { savePath: async () => path.join(files, 'out.json'), openPath: async () => null },
+        log: { warn } as never,
+      });
+      const f = source();
+      const write = vi.spyOn(fsp, 'writeFile').mockRejectedValue(new Error('disk full'));
+      const rm = vi
+        .spyOn(fsp, 'rm')
+        .mockRejectedValue(Object.assign(new Error('permission denied'), { code: 'EPERM' }));
+      try {
+        await expect(logged.export({ familyId: f.id })).rejects.toThrow(/disk full/);
+        expect(warn).toHaveBeenCalledWith('family-export', expect.any(String), { code: 'EPERM' });
+      } finally {
+        write.mockRestore();
+        rm.mockRestore();
+      }
     });
   });
 
