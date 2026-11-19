@@ -37,6 +37,27 @@ const findSection = (root: ParentNode, key: SectionKey) =>
 /** How long a pill click's flash stays on the section it jumped to. */
 const FLASH_MS = 1200;
 
+const flashTimers = new WeakMap<HTMLElement, number>();
+
+function clearFlash(el: HTMLElement) {
+  window.clearTimeout(flashTimers.get(el));
+  flashTimers.delete(el);
+  el.removeAttribute('data-flash');
+}
+
+// Every pill click answers, even when the section is already in view and
+// nothing scrolls: focus moves to it and it flashes briefly. A timer left
+// running past unmount only strips an attribute from a detached element.
+function jumpTo(root: ParentNode, key: SectionKey) {
+  const el = findSection(root, key);
+  if (!el) return;
+  el.scrollIntoView?.({ block: 'start' });
+  el.focus({ preventScroll: true });
+  for (const other of root.querySelectorAll<HTMLElement>('[data-flash]')) clearFlash(other);
+  el.setAttribute('data-flash', 'true');
+  flashTimers.set(el, window.setTimeout(() => clearFlash(el), FLASH_MS));
+}
+
 /**
  * The collection tab's "Schema & indexes" view (W16 §16, ADR 0003): a stat
  * strip, section pills, then the namespace-scoped indexes, the sampled schema
@@ -67,7 +88,6 @@ export function StructureView({
   const [active, setActive] = React.useState<SectionKey>('Indexes');
   const pane = React.useRef<HTMLDivElement>(null);
   const bar = React.useRef<HTMLDivElement>(null);
-  const flashed = React.useRef<{ el: HTMLElement; timer: number } | null>(null);
   const isView = details?.type === 'view';
   const hasValidation = details?.type === 'collection';
   const pills: { key: SectionKey; label: string }[] = [
@@ -82,37 +102,6 @@ export function StructureView({
     const h = bar.current?.offsetHeight;
     if (h) pane.current?.style.setProperty('--structure-bar-h', `${h}px`);
   });
-
-  React.useEffect(
-    () => () => {
-      if (flashed.current) {
-        window.clearTimeout(flashed.current.timer);
-        flashed.current.el.removeAttribute('data-flash');
-      }
-    },
-    [],
-  );
-
-  // Every pill click answers, even when the section is already in view and
-  // nothing scrolls: focus moves to it and it flashes briefly.
-  const jumpTo = (root: ParentNode, key: SectionKey) => {
-    const el = findSection(root, key);
-    if (!el) return;
-    el.scrollIntoView?.({ block: 'start' });
-    el.focus({ preventScroll: true });
-    if (flashed.current) {
-      window.clearTimeout(flashed.current.timer);
-      flashed.current.el.removeAttribute('data-flash');
-    }
-    el.setAttribute('data-flash', 'true');
-    flashed.current = {
-      el,
-      timer: window.setTimeout(() => {
-        el.removeAttribute('data-flash');
-        flashed.current = null;
-      }, FLASH_MS),
-    };
-  };
 
   // Scroll-spy: the section nearest the top of the pane is the one in view.
   // ponytail: jsdom and old engines have no IntersectionObserver; the pills still jump, they just don't follow.
