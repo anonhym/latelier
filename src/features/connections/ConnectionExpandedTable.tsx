@@ -19,7 +19,9 @@ import { useConnectionTransfer } from './ConnectionTransferProvider';
 import { ConnectionExportDialog } from './ConnectionExportDialog';
 import { ConnectionDeleteDialog } from './ConnectionDeleteDialog';
 import { AddToFamilyDialog, LeaveFamilyDialog } from './FamilyDialogs';
+import { plural } from './familyCopy';
 import { FamilyView } from './FamilyView';
+import { ApplyFamilyExportDialog } from './ApplyFamilyExportDialog';
 import type { Connection, ConnectionFamily, ConnectionSummary } from '@shared/types';
 
 // the header row is built from this list (rather than each `Table.Th`
@@ -79,19 +81,35 @@ type Stacked =
   | { addToFamily: string[] }
   | { leaveFamily: string[] }
   | { family: string }
+  /** The apply dialog; `returnTo` is the Family view it was opened from, shown again when it closes. */
+  | { applyExport: { familyId: string | null; returnTo: string | null } }
   | null;
 
 /**
  * Renders the Family view once the family is in the loaded list, so a rename
  * (which reloads the list) shows its new name; a family that is gone closes it.
  */
-function FamilyViewHost({ family, connections, onClose, onChanged }: {
+function FamilyViewHost({ family, connections, onClose, onChanged, onApplyExport }: {
   family: ConnectionFamily | null;
   connections: ConnectionSummary[];
   onClose: () => void;
   onChanged: () => void;
+  onApplyExport: (family: ConnectionFamily) => void;
 }) {
   if (!family) return null;
+  const exportFamily = async () => {
+    try {
+      const res = await api.families.export({ familyId: family.id });
+      if (!res.saved) return;
+      notify.success(
+        res.ruleCount === 0 && res.rowSummaryCount === 0
+          ? `Saved an empty export: "${family.name}" shares nothing yet.`
+          : `Exported ${plural(res.ruleCount, 'rule')} and ${plural(res.rowSummaryCount, 'row summary')} from "${family.name}".`,
+      );
+    } catch (e) {
+      notify.error(getErrorMessage(e, 'Could not write the family export'));
+    }
+  };
   return (
     <FamilyView
       family={family}
@@ -102,6 +120,8 @@ function FamilyViewHost({ family, connections, onClose, onChanged }: {
         onChanged();
         onClose();
       }}
+      onExport={() => void exportFamily()}
+      onApplyExport={onApplyExport}
     />
   );
 }
@@ -707,6 +727,14 @@ export function ConnectionExpandedTable({
           >
             Import
           </Button>
+          <Button
+            size="compact-xs"
+            variant="default"
+            title="Add the shared reference rules and row summaries of a family export to a family"
+            onClick={() => setStacked({ applyExport: { familyId: null, returnTo: null } })}
+          >
+            Apply family export…
+          </Button>
         </div>
 
         {/* Drawn on the first check and gone with the last: it used to sit
@@ -853,6 +881,16 @@ export function ConnectionExpandedTable({
           connections={connections}
           onClose={() => setStacked(null)}
           onChanged={familyChanged}
+          onApplyExport={(f) => setStacked({ applyExport: { familyId: f.id, returnTo: f.id } })}
+        />
+      )}
+      {stacked !== null && typeof stacked === 'object' && 'applyExport' in stacked && (
+        <ApplyFamilyExportDialog
+          families={families}
+          connections={connections}
+          initialFamilyId={stacked.applyExport.familyId}
+          onClose={() => setStacked(stacked.applyExport.returnTo ? { family: stacked.applyExport.returnTo } : null)}
+          onApplied={familyChanged}
         />
       )}
       {stacked !== null && typeof stacked === 'object' && 'deleting' in stacked && (

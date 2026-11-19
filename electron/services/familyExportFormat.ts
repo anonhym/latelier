@@ -87,8 +87,9 @@ const UNKNOWN_VERSION_MESSAGE = "This Family Export has a version L'Atelier does
 
 /** `name` as a file name stem: path separators and other characters a file system refuses become `-`. */
 export function familyFileName(name: string): string {
-  const stem = name
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+  const stem = Array.from(name, (ch) => (ch.charCodeAt(0) < 0x20 ? '-' : ch))
+    .join('')
+    .replace(/[\\/:*?"<>|]/g, '-')
     .trim()
     .replace(/^\.+/, '');
   return `${stem === '' ? 'family' : stem}${FAMILY_FILE_SUFFIX}`;

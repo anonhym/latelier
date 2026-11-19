@@ -254,6 +254,9 @@ describe('familyFileName', () => {
   it('replaces characters a file name cannot hold', () => {
     expect(familyFileName('a/b\\c:d*e?f"g<h>i|j')).toBe('a-b-c-d-e-f-g-h-i-j.latelier-family.json');
   });
+  it('replaces control characters', () => {
+    expect(familyFileName('a\nb\tc')).toBe('a-b-c.latelier-family.json');
+  });
   it('strips leading dots and falls back for an empty stem', () => {
     expect(familyFileName('a..b')).toBe('a..b.latelier-family.json');
     expect(familyFileName('..hidden')).toBe('hidden.latelier-family.json');
