@@ -253,6 +253,18 @@ describe('Save', () => {
     expect(create.mock.calls[1]![0].owner).toEqual({ connectionId: 'c1' });
   });
 
+  it('saves nothing, and drops the suggestion, when the Connection left the Family it was made for', async () => {
+    families = [{ id: 'f1', name: 'Client deployments', memberIds: ['c1', 'c9'] }];
+    render(<Tab />);
+    await pasteAndRun();
+    await screen.findByTestId('reference-discovery-strip');
+    families = [{ id: 'f1', name: 'Client deployments', memberIds: ['c9'] }];
+    await userEvent.click(inStrip('Save'));
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('family changed')));
+    expect(create).not.toHaveBeenCalled();
+    expect(strip()).toBeNull();
+  });
+
   it('a Connection outside any Family has no connection-only button', async () => {
     families = [{ id: 'f1', name: 'Other', memberIds: ['c9'] }];
     render(<Tab />);

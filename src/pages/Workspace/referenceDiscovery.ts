@@ -114,6 +114,12 @@ export function onSuggestionSaved(listener: () => void): () => void {
 
 /** Create the suggested rule. The strip stays when this throws. */
 export async function saveSuggestion(tabId: string, s: ReferenceSuggestion, scope: SuggestionScope): Promise<void> {
+  // The Family was captured when the suggestion was made. Joining or leaving one since would send the rule to a Family this Connection is no longer in.
+  const family = (await api.families.list()).find((f) => f.memberIds.includes(s.connectionId));
+  if ((family?.id ?? null) !== (s.family?.id ?? null)) {
+    clearSuggestion(tabId);
+    throw new Error("This connection's family changed since the suggestion was made. Copy the value again for a fresh one.");
+  }
   const owner = s.family !== null && scope === 'default' ? { familyId: s.family.id } : { connectionId: s.connectionId };
   await api.refs.create({
     owner,
