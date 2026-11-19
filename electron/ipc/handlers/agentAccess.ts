@@ -7,7 +7,8 @@ import type { AgentAccessService } from '../../services/AgentAccessService.ts';
 const NoInput = z.undefined().or(z.null()).or(z.object({}).strict());
 
 const SetSharedInput = z.strictObject({ connectionId: z.string().uuid(), shared: z.boolean() });
-const AddTokenInput = z.strictObject({ name: z.string().trim().min(1).max(64) });
+// The name is printed in main's own token dialog: a control character (a newline) would let a compromised renderer forge lines in it.
+const AddTokenInput = z.strictObject({ name: z.string().trim().min(1).max(64).regex(/^[^\p{Cc}]+$/u) });
 const TokenIdInput = z.strictObject({ id: z.string().uuid() });
 
 /**

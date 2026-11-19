@@ -77,6 +77,8 @@ export class AgentAccessService {
   /** Last privilege verdict per Connection, this run only. Display only: sharing always re-checks. */
   private privilegeByConnection = new Map<string, PrivilegeResult>();
   private enabling: Promise<{ enabled: boolean }> | null = null;
+  /** One share question per Connection at a time. */
+  private sharing = new Map<string, Promise<{ shared: boolean; privilege?: PrivilegeResult }>>();
   private emitTimer: NodeJS.Timeout | null = null;
   private stopped = false;
   /** Serialises start and stop, so a quick off-on never races two listeners. */
@@ -267,7 +269,20 @@ export class AgentAccessService {
    * closed one, then runs the privilege check on the user's own client and
    * shows the verdict in a dialog. The flag is written only on "Share".
    */
-  async requestSetShared(connectionId: string, shared: boolean): Promise<{ shared: boolean; privilege?: PrivilegeResult }> {
+  requestSetShared(connectionId: string, shared: boolean): Promise<{ shared: boolean; privilege?: PrivilegeResult }> {
+    if (!shared) return this.applySetShared(connectionId, false);
+    // Two clicks while the dialog is up are one question, not two.
+    let pending = this.sharing.get(connectionId);
+    if (!pending) {
+      pending = this.applySetShared(connectionId, true).finally(() => {
+        this.sharing.delete(connectionId);
+      });
+      this.sharing.set(connectionId, pending);
+    }
+    return pending;
+  }
+
+  private async applySetShared(connectionId: string, shared: boolean): Promise<{ shared: boolean; privilege?: PrivilegeResult }> {
     const row = this.deps.connRepo.findById(connectionId);
     if (!row) throw new NotFoundError(`connection ${connectionId} not found`);
     if (!shared) {

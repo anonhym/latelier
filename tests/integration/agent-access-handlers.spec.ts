@@ -123,6 +123,8 @@ describe('agentAccess:* channels', () => {
       ['a blank name', { name: '   ' }],
       ['a name over 64 characters', { name: 'x'.repeat(65) }],
       ['a name that is not a string', { name: 7 }],
+      ['a name with a newline', { name: 'Claude\nTurn on?' }],
+      ['a name with a control character', { name: 'a\u0007b' }],
       ['an extra key', { name: 'ok', token: 'abc' }],
     ])('add-token refuses %s', async (_name, payload) => {
       const env = await invoke(IPC_CHANNELS.agentAccessAddToken, payload);
@@ -450,6 +452,25 @@ describe('agentAccess:* channels', () => {
       expect(out.shared).toBe(true);
       expect(out.privilege?.kind).toBe('no-auth');
       expect(h.connRepo.findById(id)?.share_with_agents).toBe(1);
+    });
+
+    it('unshares through the channel at once, with no dialog', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { shared: true });
+      expect(await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: false })).toEqual({ shared: false });
+      expect(h.connRepo.findById(id)?.share_with_agents).toBe(0);
+      expect(h.boxes).toHaveLength(0);
+    });
+
+    it('treats two share clicks on one Connection as one question', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod');
+      const [a, b] = await Promise.all([
+        invoke(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true }),
+        invoke(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true }),
+      ]);
+      expect(a).toEqual(b);
+      expect(h.boxes).toHaveLength(1);
     });
 
     it('answers {shared:false} and asks to open a Connection that is not open', async () => {
