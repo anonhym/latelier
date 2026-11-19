@@ -3,6 +3,7 @@ import type { AgentGate, AgentSessionIdentity } from './AgentGate.ts';
 import type { Logger } from '../log.ts';
 import { cutName, wrap } from './envelope.ts';
 import { AgentToolError } from './errorMap.ts';
+import { MAX_RESPONSE_BYTES, takeWithinBudget, type AppliedLimit } from './resultBudget.ts';
 import {
   aggregateInputSchema,
   collectionSchemaInputSchema,
@@ -24,6 +25,7 @@ import {
   runListCollections,
   runListDatabases,
   runListIndexes,
+  LISTING_LIMIT,
   visibleDatabases,
   withLease,
 } from './readOps.ts';
@@ -76,20 +78,56 @@ const listConnections = defineTool({
     'List the Connections the user has shared with Agents, with the databases an Agent may read on each open one. A Connection with state "unavailable" is shared but not open: ask the user to open it in the app.',
   inputSchema: z.strictObject({}),
   run: async (_input, ctx) => {
-    const rows = await Promise.all(
+    const built = await Promise.all(
       ctx.gate.listShared().map(async (c) => {
-        const row: { id: string; name: string; state: 'available' | 'unavailable'; databases?: string[] | null } = {
-          id: c.id,
-          name: cutName(c.name),
-          state: c.state,
-        };
-        if (c.state === 'available') row.databases = await databasesOrNull(c.id, ctx);
+        const row: ConnectionRow = { id: c.id, name: cutName(c.name), state: c.state };
+        if (c.state === 'available') {
+          const names = await databasesOrNull(c.id, ctx);
+          // The same cut `list_databases` makes, per Connection: one with thousands of databases must not crowd out the rest.
+          if (names !== null && names.length > LISTING_LIMIT) {
+            row.databases = names.slice(0, LISTING_LIMIT);
+            row.databasesTruncated = true;
+          } else {
+            row.databases = names;
+          }
+        }
         return row;
       }),
     );
-    return { text: wrap(JSON.stringify({ connections: rows }, null, 2)), count: rows.length };
+    // The awaits above are the window in which a Connection can be unshared or the token revoked: neither name nor databases may leave after that.
+    if (ctx.gate.checkToken(ctx.session) !== 'ok') throw new AgentToolError('CANCELLED');
+    const stillShared = new Set(ctx.gate.listShared().map((c) => c.id));
+    const rows = built.filter((row) => stillShared.has(row.id));
+    const result = await takeWithinBudget(rows, { limit: Number.POSITIVE_INFINITY });
+    const appliedLimits = [...result.appliedLimits];
+    if (rows.some((row) => row.databasesTruncated) && !appliedLimits.includes('limit')) appliedLimits.unshift('limit');
+    return {
+      text: wrap(`{"connections":${result.json}}`, {
+        truncationNote:
+          appliedLimits.length === 0 ? undefined : listConnectionsNote(result.count, rows.length, appliedLimits),
+      }),
+      count: result.count,
+      truncated: appliedLimits.length > 0,
+      appliedLimits,
+    };
   },
 });
+
+interface ConnectionRow {
+  id: string;
+  name: string;
+  state: 'available' | 'unavailable';
+  databases?: string[] | null;
+  /** Set when `databases` was cut at the listing limit. */
+  databasesTruncated?: true;
+}
+
+function listConnectionsNote(shown: number, total: number, applied: readonly AppliedLimit[]): string {
+  const cuts: string[] = [];
+  if (applied.includes('limit')) cuts.push(`a Connection's database list stopped at ${LISTING_LIMIT} entries (databasesTruncated), so more exist`);
+  if (applied.includes('bytes')) cuts.push(`stopped at the ${MAX_RESPONSE_BYTES / 1024 / 1024} MiB size limit after ${shown} of ${total} Connections`);
+  return `Incomplete: ${cuts.join(' and ')}.`;
+}
 
 /**
  * One Connection's visible databases, through the same gate and namespace

@@ -159,11 +159,11 @@ export async function runAggregate(input: AggregateInput, ctx: ToolContext): Pro
 }
 
 /** Listings are bounded like documents are: by count, then by bytes. */
-const LISTING_LIMIT = 5_000;
+export const LISTING_LIMIT = 5_000;
 /** `collection_schema` reads at most this many bytes of sampled documents, whatever `sampleSize` says. */
 export const MAX_SAMPLE_BYTES = 32 * 1024 * 1024;
 
-function listingNote(count: number, applied: readonly AppliedLimit[], noun: { one: string; many: string }): string {
+export function listingNote(count: number, applied: readonly AppliedLimit[], noun: { one: string; many: string }): string {
   const reasons: string[] = [];
   if (applied.includes('limit')) reasons.push(`stopped at ${LISTING_LIMIT} entries, so more exist`);
   if (applied.includes('bytes')) reasons.push(`stopped at the ${MAX_RESPONSE_BYTES / 1024 / 1024} MiB size limit`);

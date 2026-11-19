@@ -135,9 +135,11 @@ describe('Agent metadata tools', () => {
         await fx.m.hold.waitEntered(1);
         fx.h.svc.setShared(fx.connectionId, false);
         fx.m.hold.release();
-        // The row is gone from the list once unshared; what matters is that no database name left.
+        // The Connection is gone from the list once unshared: neither its databases nor its name may leave.
         const r = await pending;
         expect(textOf(r)).not.toContain(fx.dbName);
+        expect(body<{ connections: unknown[] }>(r).connections).toEqual([]);
+        expect(textOf(r)).not.toContain('prod');
       } finally {
         await fx.cleanup();
       }
