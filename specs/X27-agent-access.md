@@ -1,6 +1,6 @@
 # X27 — Agent Access: read-only MCP access to shared Connections
 
-> **Status: Draft.**
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -125,13 +125,13 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 - The bridge is **a separate Rust executable**, `latelier-agent-bridge`, in a `bridge/` crate, using the standard library only (no dependencies). It is built for every target the app ships, copied into the bundle as an extra resource, unpacked from the asar, and signed and notarized with the app on macOS and signed on Windows.
 - It is not the Electron binary. A spike measured `--agent-stdio` on the Electron binary at about 185 ms median to the first handshake byte, about 214 MB RSS across three processes (the main process plus two Chromium helpers), and a short Foreground activation state before `app.dock.hide()` could run. A Rust spike measured about 2 ms median, 1.9 MB RSS, 296 KB on disk, and no Dock registration at all. See §14.
 - The bridge opens no window, database, vault or Mongo client. It reads `LATELIER_AGENT_TOKEN` from its environment (and refuses a token with characters outside `A-Z a-z 0-9 - _`, so it can never build a malformed handshake), connects to the socket (§4.3), sends the handshake (§4.5), then pipes bytes both ways until either side closes, and exits. It never logs the token.
-- If the socket is not reachable (the app is not running, or Agent Access is off), the bridge writes one line to stderr, "L'Atelier is not running or Agent Access is off", and exits non-zero (3). A missing or malformed token exits 2. It never starts the app.
+- If the socket is not reachable (the app is not running, or Agent Access is off), the bridge writes one line to stderr, "L'Atelier is not running or Agent Access is off", and exits non-zero (3). A missing or malformed token exits 2. If the app refuses the handshake (unknown or revoked token, or an unsupported protocol) it prints one stderr line ("L'Atelier refused this Agent token", or "L'Atelier does not support this bridge's protocol version") and exits 4. On Windows, if the pipe is not served by a process of the current user (or that cannot be checked), it sends no token, prints one stderr line and exits 5. It never starts the app.
 - Because the bridge is separate, `electron/main.ts` needs no early-dispatch change: there is no second mode of the app, no interaction with `requestSingleInstanceLock()`, and the `runAsNode` fuse stays off.
 
 ### 4.3 Socket
 
 - **macOS and Linux**: a Unix domain socket `agent.sock` inside a directory `agent/` under `userData`, created with mode `0700`, the socket itself `0600`. If the full path would exceed the platform limit (about 104 bytes on macOS, 108 on Linux; long E2E temp dirs hit this), it falls back to a short per-user directory (`$TMPDIR/latelier-<uid>/`, also `0700`). A stale socket file is removed at start only when nothing answers on it.
-- **Windows**: a named pipe `\\.\pipe\latelier-agent-<random suffix>`. The bridge reads the suffix from the file under `userData`, so it needs no user SID. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. The Windows threat model therefore relies on the token alone against other users (decided, open question 2). The pipe name carries a random suffix generated at first enable and stored in a file under `userData` that only the owning user can read, so the name is not guessable by another user, but this is not an access control. Settings → Agent Access and the share dialog say so on Windows in plain words. A native ACL helper is a possible follow-up, not part of this spec.
+- **Windows**: a named pipe `\\.\pipe\latelier-agent-<random suffix>`. The bridge reads the suffix from the file under `userData`, so it needs no user SID. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. The Windows threat model therefore relies on the token alone against other users (decided, open question 2). The pipe name carries a random suffix generated at first enable and stored in a file under `userData` that only the owning user can read, so the name is not guessable by another user, but this is not an access control. The suffix is fresh on every start, and the endpoint file is cleared at launch and before listening, so a crash cannot leave a name a later process could squat. Before it sends the token the bridge checks that the pipe server runs as the current user. Settings → Agent Access and the share dialog say so on Windows in plain words. A native ACL helper is a possible follow-up, not part of this spec.
 - The bridge derives the socket path from the app's platform-default `userData` location (and tries the short-path fallback above if the first is absent), so the client configuration does not hold it. `LATELIER_AGENT_SOCKET`, if set, overrides it; the E2E tests use that for their throwaway `userData`. Settings shows the path for troubleshooting.
 
 ### 4.4 Lifecycle
@@ -248,7 +248,7 @@ Every tool has `annotations: { readOnlyHint: true, openWorldHint: false }`, a st
 | `list_indexes` | `connectionId`, `database`, `collection` | Index names, keys and options. No `$indexStats`. |
 | `collection_schema` | `connectionId`, `database`, `collection`, `sampleSize?` (default 50, max 200) | Field paths, BSON types per path, and how often each appears in the sample. **No values.** Inferred in main. |
 | `find` | target + §7.1 | Documents (§9). |
-| `count` | target + `filter?` | A count. Without a filter, `estimatedDocumentCount`, labelled as an estimate. |
+| `count` | target + `filter?` | A count. Without a filter, or with an empty one (`{}`), `estimatedDocumentCount`, labelled as an estimate. |
 | `aggregate` | target + `pipeline` | Documents (§9). A `$limit` is appended. |
 | `explain_find` | target + §7.1 | The `queryPlanner` plan only. Never `executionStats`, which runs the query. |
 | `explain_aggregate` | target + `pipeline` | The same, for a pipeline. |
@@ -289,6 +289,8 @@ Each of these cancels every Agent operation in flight on the affected Connection
 | Token revoked or regenerated | that token's sessions |
 | App quit | everything, first in the teardown |
 | MCP `notifications/cancelled` from the client | that one request (the SDK exposes it as the handler's abort signal) |
+
+The driver (7.7) accepts no abort signal on `listIndexes` or `estimatedDocumentCount`. Those two run to their end after a token revoke or an MCP cancel; revoking or closing the Connection, or turning Agent Access off, still stops them because the agent client is closed. Their result is discarded either way. An edit that changes which server or user a Connection points at (the fields the app already treats as identity) clears its Shared with Agents flag and cancels its in-flight work; the user shares it again through the dialog.
 
 After every `await` that returns data, the gates are checked again, **before** serialising. A result that arrives after revocation is discarded, and the call returns `CANCELLED`. No data leaves the app after the user said stop.
 
@@ -344,12 +346,13 @@ While Agent Access is on, the status bar shows an "Agents" indicator with the se
 
 Renderer-facing channels. None takes or returns a token. All go through `shared/ipc.ts`, `electron/preload.ts`, a zod schema with `router.register`, and a `registerAgentAccessChannels` call in `electron/main.ts`:
 
-- `agentAccess:get-state` → `{ enabled, socketPath, sessionReadCount, tokens: [{ id, name, createdAt, lastUsedAt }] }`
+- `agentAccess:get-state` → `{ enabled, socketPath, sessionReadCount, sessionCount, tokens: [{ id, name, createdAt, lastUsedAt }], bridgeInstalled, bridgePath, platformCaveat, privilege }`
+- `agentAccess:remove-bridge`: removes the per-user bridge copy; refused while Agent Access is on
 - `agentAccess:request-enable` (main dialog), `agentAccess:disable`
 - `agentAccess:set-shared` `{ connectionId, shared }`: on `true`, main runs §3.3 and its dialog
 - `agentAccess:add-token` `{ name }`, `agentAccess:regenerate-token` `{ id }`: the token is shown and copied in main-owned UI only
 - `agentAccess:revoke-token` `{ id }`
-- `agentAccess:state-event` (push): enabled, read count, session count
+- `agentAccess:state-event` (push): the same state object
 
 No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist is unchanged. The `ipc-channel-auditor` agent confirms this.
 
@@ -389,7 +392,7 @@ None block implementation. Each was decided before it started:
 ## Acceptance criteria
 
 - With Agent Access off, nothing listens and the bridge exits 3 with its stderr message.
-- The bridge is a std-only Rust executable that is built for every shipped target, present and signed in every package (on macOS, Developer ID signed with the hardened runtime inside the app bundle so it is covered by the app's notarization, checked by a release-workflow step such as `codesign --verify --strict` on the built bridge before upload, in the style of `scripts/verify-fuses.mjs`), never logs the token, and rejects a token with characters outside `A-Z a-z 0-9 - _`. The handshake carries `protocol: 1` and an unsupported protocol is refused.
+- The bridge is a std-only Rust executable that is built for every shipped target, present in every package, signed on macOS and unsigned on Windows (where the app itself is unsigned) (on macOS, Developer ID signed with the hardened runtime inside the app bundle so it is covered by the app's notarization, checked by a release-workflow step such as `codesign --verify --strict` on the built bridge before upload, in the style of `scripts/verify-fuses.mjs`), never logs the token, and rejects a token with characters outside `A-Z a-z 0-9 - _`. The handshake carries `protocol: 1` and an unsupported protocol is refused.
 - Agent Access can only be turned on through main's dialog. Writing its `app_state` key from the renderer is refused.
 - Shared with Agents can only be set through `agentAccess:set-shared` and its dialog. A `shareWithAgents` key sent to `conn:create` or `conn:update` is stripped and leaves the stored flag unchanged. Duplicate, Export, Import and Family Export never carry it.
 - The share dialog shows the privilege result in each of the four §3.3 cases. No authenticated user and a failed check never read as a pass.
@@ -441,7 +444,7 @@ None block implementation. Each was decided before it started:
   - each tool end to end through an in-process MCP client over a socket pair;
   - nothing lands in `recent_queries`;
   - the concurrency cap returns `BUSY`;
-  - `comment` and `maxTimeMS` are visible on the server's `currentOp`.
+  - `comment`, `maxTimeMS` and `allowDiskUse: false` appear on every command the driver sends, observed through the driver's command monitoring (the server's `currentOp` is not used: the operations are too short to catch reliably).
 - `agent-privilege-check.spec.ts`: read-only user, readWrite user and auth-off server, each giving its §3.3 result.
 - `agent-read-log.spec.ts`:
   - one row per call, including refusals;
@@ -464,7 +467,7 @@ None block implementation. Each was decided before it started:
   - `list_connections` lists the shared Connection;
   - `find` returns documents;
   - stopping the share makes the next call fail with `NOT_SHARED`.
-- Bridge with Agent Access off exits 3 with its stderr message; with no token it exits 2.
+- Bridge with Agent Access off exits 3 with its stderr message; with no token it exits 2; with a token the app refuses it exits 4.
 - A bridge speaking an unsupported `protocol` is refused.
 
 **Manual**
