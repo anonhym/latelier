@@ -178,7 +178,7 @@ export function ReferenceRulesEditor({
         await api.refs.update({ id: form.id, patch });
       } else {
         const input: ReferenceRuleCreateInput = {
-          connectionId,
+          owner: { connectionId },
           sourceDb: dbName,
           sourceCollection: collection,
           sourceField: form.sourceField,

@@ -642,6 +642,7 @@ export function PanelBody({
                               />
                               <ReferenceDrawer
                                 stack={refStack}
+                                connectionId={collection.tab.connectionId}
                                 pinned={refDrawerPinned}
                                 width={refDrawerWidth}
                                 onPush={(frame) => setRefStack((prev) => [...prev, frame])}

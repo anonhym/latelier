@@ -12,7 +12,7 @@ function withTheme(ui: React.ReactElement) {
 
 const RULE: ReferenceRule = {
   id: 'rule-1',
-  connectionId: 'conn-1',
+  owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',
   sourceCollection: 'orders',
   sourceField: 'contact_id',

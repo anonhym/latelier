@@ -19,6 +19,8 @@ export interface ReferenceFrame {
 
 export interface ReferenceDrawerProps {
   stack: ReferenceFrame[];
+  /** The Connection the drawer's collection tab is on: it reads the nested frame's rules. */
+  connectionId: string;
   pinned: boolean;
   onPush: (frame: ReferenceFrame) => void;
   onPop: () => void;
@@ -37,6 +39,7 @@ interface LoadedFrame {
 
 export function ReferenceDrawer({
   stack,
+  connectionId,
   pinned,
   onPush,
   onPop,
@@ -100,7 +103,7 @@ export function ReferenceDrawer({
   }, [topFrame?.id]);
 
   const nestedRules = useReferenceRules(
-    topFrame?.rule.connectionId ?? null,
+    topFrame ? connectionId : null,
     topFrame?.rule.targetDb ?? null,
     topFrame?.rule.targetCollection ?? null,
   );

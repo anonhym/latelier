@@ -20,7 +20,7 @@ afterEach(() => {
 
 const RULE: ReferenceRule = {
   id: 'r1',
-  connectionId: 'c1',
+  owner: { connectionId: 'c1' },
   sourceDb: 'app',
   sourceCollection: 'orders',
   sourceField: 'userId',
