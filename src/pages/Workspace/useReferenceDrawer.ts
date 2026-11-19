@@ -42,6 +42,14 @@ export function useReferenceDrawer(
   const [refEditorOpen, setRefEditorOpen] = React.useState(false);
   const [refHover, setRefHover] = React.useState<ReferenceDrawerState['refHover']>(null);
 
+  // The hover callback is stable (no deps), so it reads the active tab's
+  // Connection through a ref. A shared rule names no server of its own.
+  const activeConnectionIdRef = React.useRef<string | null>(null);
+  const activeConnectionId = allTabs.find((t) => t.id === activeTabId)?.connectionId ?? null;
+  React.useEffect(() => {
+    activeConnectionIdRef.current = activeConnectionId;
+  }, [activeConnectionId]);
+
   const hoverReqIdRef = React.useRef(0);
   // Tab-scoped resolve cache so repeated hovers on the same chip don't
   // re-hit IPC. Cleared when the Focused Tab changes.
@@ -134,7 +142,11 @@ export function useReferenceDrawer(
       }
       setRefHover({ rule, anchorRect: rect, result: null, loading: true, error: null });
       try {
-        const result = await api.refs.resolve({ ruleId: rule.id, valueEjson });
+        const result = await api.refs.resolve({
+          ruleId: rule.id,
+          connectionId: activeConnectionIdRef.current ?? undefined,
+          valueEjson,
+        });
         if (reqId !== hoverReqIdRef.current) return;
         resolveCacheRef.current.set(cacheKey, result);
         setRefHover((prev) =>

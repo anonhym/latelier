@@ -1,9 +1,10 @@
 import React from 'react';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule, ReferenceRule } from '@shared/types';
 import { api, isIpcError } from '../../api/atelier';
 
 export interface UseReferenceRulesResult {
-  rules: ReferenceRule[];
+  /** What the Connection uses: its own rules plus its Family's shared ones it does not override. */
+  rules: EffectiveReferenceRule[];
   byField: Map<string, ReferenceRule>;
   loading: boolean;
   error: string | null;
@@ -20,7 +21,7 @@ export function useReferenceRules(
   dbName: string | null,
   collection: string | null,
 ): UseReferenceRulesResult {
-  const [rules, setRules] = React.useState<ReferenceRule[]>([]);
+  const [rules, setRules] = React.useState<EffectiveReferenceRule[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -32,7 +33,13 @@ export function useReferenceRules(
     setLoading(true);
     setError(null);
     try {
-      const rows = await api.refs.list({ connectionId, dbName, collection });
+      // `effective` makes every row an `EffectiveReferenceRule`; the bridge types it as the base rule.
+      const rows = (await api.refs.list({
+        connectionId,
+        dbName,
+        collection,
+        effective: true,
+      })) as EffectiveReferenceRule[];
       setRules(rows.filter((r) => r.enabled));
     } catch (err) {
       setError(isIpcError(err) ? err.message : String(err));

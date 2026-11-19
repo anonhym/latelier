@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor, within, act } from '../helpers/render';
 import { ReferenceRulesEditor } from '../../src/features/references/ReferenceRulesEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule } from '@shared/types';
 
 /**
  * X15 T8 — the dialog shell and the unsaved-changes guard.
@@ -16,7 +16,8 @@ import type { ReferenceRule } from '@shared/types';
  * named as such.
  */
 
-const RULE: ReferenceRule = {
+const RULE: EffectiveReferenceRule = {
+  origin: 'local',
   id: 'rule-1',
   owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',
