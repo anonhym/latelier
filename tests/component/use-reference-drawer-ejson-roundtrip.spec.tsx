@@ -215,3 +215,19 @@ describe('useReferenceDrawer — EJSON persistence round-trip', () => {
     );
   });
 });
+
+describe('useReferenceDrawer — resolving through the active Connection', () => {
+  it('names the focused tab\'s Connection when a chip is hovered, so a shared rule resolves', async () => {
+    const resolve = vi.fn<IpcApi['refs']['resolve']>(async () => ({ ruleId: 'r1', found: true, documents: [], durationMs: 0 }));
+    installAtelierMock({ refs: { resolve } });
+    const shared: ReferenceRule = { ...RULE, owner: { familyId: 'fam-1' } };
+    const { result } = renderHook(() => useReferenceDrawer('t1', [makeCollectionTab('t1')], vi.fn(), 't1'));
+
+    await act(async () => {
+      await result.current.handleRefHover(shared, 'u1', new DOMRect());
+    });
+
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve.mock.calls[0]![0]).toMatchObject({ ruleId: 'r1', connectionId: 'c1' });
+  });
+});
