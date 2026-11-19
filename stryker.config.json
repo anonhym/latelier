@@ -164,6 +164,11 @@
     "electron/services/import/compassReader.ts",
     "electron/services/import/detect.ts",
     "electron/services/import/review.ts",
-    "electron/services/import/latelierSource.ts"
+    "electron/services/import/latelierSource.ts",
+    "electron/agent/token.ts",
+    "electron/agent/gate.ts",
+    "electron/agent/envelope.ts",
+    "electron/agent/errorMap.ts",
+    "electron/agent/endpoint.ts"
   ]
 }
