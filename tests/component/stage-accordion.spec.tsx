@@ -61,6 +61,9 @@ function renderAccordion(stages: Stage[], overrides: Partial<AccordionProps> = {
       <StageAccordion
         stages={stages}
         activeId={overrides.activeId ?? null}
+        openIds={overrides.openIds ?? new Set(overrides.activeId == null ? [] : [overrides.activeId])}
+        multiOpen={overrides.multiOpen ?? false}
+        onToggleMultiOpen={overrides.onToggleMultiOpen ?? noop}
         collection="orders"
         sourceCount={1234}
         outputCount={overrides.outputCount ?? null}
@@ -135,6 +138,31 @@ describe('StageAccordion — stage rendering and operations', () => {
 
     const tip = await screen.findByRole('tooltip');
     expect(tip.textContent).toBe('Disable');
+  });
+
+  it('expands every card in openIds at once, and keeps the selection highlight separate', () => {
+    const { container } = renderAccordion([stage({ id: 1 }), stage({ id: 2 }), stage({ id: 3 })], {
+      activeId: 2,
+      openIds: new Set([1, 2]),
+      multiOpen: true,
+    });
+    const expanded = (id: number) =>
+      container.querySelector(`[data-testid="stage-row-${id}"] button[aria-expanded]`)!.getAttribute('aria-expanded');
+    expect([1, 2, 3].map(expanded)).toEqual(['true', 'true', 'false']);
+    expect(container.querySelectorAll('.stage-body')).toHaveLength(2);
+  });
+
+  it('single-open shows one expanded card, and the Several open switch reports its state', async () => {
+    const onToggleMultiOpen = vi.fn();
+    const { container } = renderAccordion([stage({ id: 1 }), stage({ id: 2 })], {
+      activeId: 1,
+      onToggleMultiOpen,
+    });
+    expect(container.querySelectorAll('.stage-body')).toHaveLength(1);
+    const toggle = screen.getByRole('switch', { name: 'Allow several stages open' }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    await userEvent.click(toggle);
+    expect(onToggleMultiOpen).toHaveBeenCalledOnce();
   });
 
   it('pressing Enter on a collapsed stage header expands it (keyboard equivalent of the click)', async () => {
@@ -249,6 +277,9 @@ function StageAccordionHarness() {
     <StageAccordion
       stages={[stage({ id: 1 })]}
       activeId={null}
+      openIds={new Set<number>()}
+      multiOpen={false}
+      onToggleMultiOpen={noop}
       collection="orders"
       sourceCount={1}
       outputCount={null}
@@ -382,6 +413,9 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
         <StageAccordion
           stages={stages}
           activeId={null}
+          openIds={new Set<number>()}
+          multiOpen={false}
+          onToggleMultiOpen={noop}
           collection="orders"
           sourceCount={1234}
           outputCount={null}
@@ -561,6 +595,9 @@ describe('StageAccordion — editable stage operator (T2.1)', () => {
       <StageAccordion
         stages={[stage({ id: 1, op: '$match' })]}
         activeId={null}
+        openIds={new Set<number>()}
+        multiOpen={false}
+        onToggleMultiOpen={noop}
         collection="orders"
         sourceCount={1234}
         outputCount={null}
@@ -693,6 +730,9 @@ describe('StageAccordion — stage body editor (T2.4)', () => {
         <StageAccordion
           stages={stages}
           activeId={activeId}
+          openIds={new Set(activeId === null ? [] : [activeId])}
+          multiOpen={false}
+          onToggleMultiOpen={noop}
           collection="orders"
           sourceCount={1234}
           outputCount={null}
@@ -985,6 +1025,9 @@ describe('StageAccordion — focus after adding or deleting a stage (N5.23)', ()
       <StageAccordion
         stages={stages}
         activeId={null}
+        openIds={new Set<number>()}
+        multiOpen={false}
+        onToggleMultiOpen={noop}
         collection="orders"
         sourceCount={1}
         outputCount={null}

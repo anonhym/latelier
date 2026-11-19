@@ -280,6 +280,12 @@ describe('tabs:update — the filter draft, via router and SQLite', () => {
     expect(state.queryRaw).toBe(DRAFT.queryRaw);
   });
 
+  it('round-trips the aggregation tab\'s several-open toggle and its open stages', async () => {
+    const aggregation = { stages: [], activeStageId: 2, multiOpen: true, openStageIds: [1, 2] };
+    expect((await update({ aggregation })).ok).toBe(true);
+    expect(storedState().aggregation).toEqual(aggregation);
+  });
+
   it('refuses a draft of the wrong shape and leaves the stored one alone', async () => {
     await update({ filterDraft: DRAFT });
     for (const filterDraft of [{ queryRaw: 1, root: DRAFT.root }, { queryRaw: '{}' }, { queryRaw: '{}', root: 'x' }, 'x']) {

@@ -1268,6 +1268,69 @@ describe('AggregationTab — regions (A01 §9.1)', () => {
   });
 });
 
+describe('AggregationTab — several stages open', () => {
+  const expanded = (id: number) => summary(id).getAttribute('aria-expanded');
+  const toggle = () => screen.getByRole('switch', { name: 'Allow several stages open' }) as HTMLInputElement;
+
+  it('keeps the single-open accordion by default', () => {
+    renderStatefulTab(twoStages);
+    expect(toggle().checked).toBe(false);
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    expect([expanded(1), expanded(2)]).toEqual(['false', 'true']);
+  });
+
+  it('opens two stages at once once the toggle is on, and the preview follows the last one', () => {
+    renderStatefulTab(twoStages);
+    fireEvent.click(toggle());
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+    expect(previewHeading()).toMatch(/^Stage 2 output/);
+  });
+
+  it('turning it on seeds the selected stage, and off collapses to the selected one', () => {
+    renderStatefulTab({ ...twoStages, activeStageId: 2 });
+    fireEvent.click(toggle());
+    expect([expanded(1), expanded(2)]).toEqual(['false', 'true']);
+    fireEvent.click(summary(1));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+    fireEvent.click(toggle());
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'false']);
+  });
+
+  it('patches the toggle and the open stages into the tab state', () => {
+    const onPatch = vi.fn();
+    render(
+      <DarkCtx.Provider value={false}>
+        <AggregationTab
+          connectionId="c1"
+          dbName="app"
+          collection="orders"
+          state={{ ...twoStages, activeStageId: 1 }}
+          darkMode={false}
+          sourceCount={42}
+          onPatch={onPatch}
+        />
+      </DarkCtx.Provider>,
+    );
+    fireEvent.click(toggle());
+    expect(onPatch).toHaveBeenCalledWith({ multiOpen: true, openStageIds: [1] });
+  });
+
+  it('removing an open stage leaves the others open, and a stage added afterwards opens', async () => {
+    renderStatefulTab(twoStages);
+    fireEvent.click(toggle());
+    fireEvent.click(summary(1));
+    fireEvent.click(summary(2));
+    await deleteStage(2);
+    expect(expanded(1)).toBe('true');
+    fireEvent.click(screen.getAllByRole('button', { name: /Add stage/ }).at(-1)!);
+    fireEvent.click(await screen.findByRole('option', { name: /\$sort/ }));
+    expect([expanded(1), expanded(2)]).toEqual(['true', 'true']);
+  });
+});
+
 describe('AggregationTab — selection drives the preview (A01 §9.4)', () => {
   const ran: AggregationTabState = {
     ...twoStages,

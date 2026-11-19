@@ -112,6 +112,7 @@
     "src/components/scriptEditor/stageBodyCompletions.ts",
     "src/pages/Workspace/Aggregation/pipeline.ts",
     "src/pages/Workspace/Aggregation/resultScope.ts",
+    "src/pages/Workspace/Aggregation/stageOpen.ts",
     "src/pages/Workspace/Aggregation/saveResultMessage.ts",
     "src/features/fieldSuggestions/aggGrammar.ts",
     "src/features/fieldSuggestions/operatorGroups.ts",
