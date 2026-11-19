@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   globalShortcut,
   ipcMain,
@@ -13,6 +14,7 @@ import {
   type WebContents,
 } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import type { Database } from 'better-sqlite3';
@@ -95,6 +97,9 @@ import { RecentFieldValueRepo } from './db/repositories/RecentFieldValueRepo.ts'
 import { RecentFieldValueService } from './services/RecentFieldValueService.ts';
 import { MaintenanceService } from './services/MaintenanceService.ts';
 import { AgentAccessService } from './services/AgentAccessService.ts';
+import { BridgeInstaller } from './agent/bridgeInstall.ts';
+import { bundledBridgePath, installedBridgePath } from './agent/bridgePaths.ts';
+import { registerAgentAccessChannels } from './ipc/handlers/agentAccess.ts';
 import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
 import { AgentTokenRepo } from './db/repositories/AgentTokenRepo.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
@@ -841,6 +846,23 @@ app.whenReady().then(() => {
   // Agent Access (X27). The switch is main-only; the server starts here when it
   // is already on and follows `AGENT_ACCESS_KEY` from then on.
   const agentReadLogRepo = new AgentReadLogRepo(db, cipher);
+  const bridgeInstaller = new BridgeInstaller({
+    sourcePath: bundledBridgePath({
+      platform: process.platform,
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      appRoot: process.env.APP_ROOT ?? '',
+    }),
+    installedPath: installedBridgePath({
+      platform: process.platform,
+      userData: userDataDir,
+      testInstance: process.env.ATELIER_USER_DATA_DIR !== undefined,
+      env: process.env,
+      homedir: os.homedir(),
+    }),
+    log,
+  });
   agentSvc = new AgentAccessService({
     appState,
     tokenRepo: new AgentTokenRepo(db),
@@ -849,6 +871,19 @@ app.whenReady().then(() => {
     pool,
     userData: userDataDir,
     log,
+    bridge: bridgeInstaller,
+    platform: process.platform,
+    dialogs: {
+      // The same window-or-none pattern as the quit question: a dialog that is
+      // main's own, which a compromised renderer cannot answer or skip.
+      showMessageBox: (options) =>
+        win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
+      writeClipboard: (text) => clipboard.writeText(text),
+    },
+    // The state holds no token; the renderer learns of every change from here.
+    emit: (state) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessStateEvent, state);
+    },
   });
   agentSvc.init();
   const router = createRouter(
@@ -935,6 +970,7 @@ app.whenReady().then(() => {
       : dialog.showMessageBox(options));
     return result.response === 1;
   }, () => ({ columnKeyProtected: columnKey.protected }));
+  registerAgentAccessChannels(router, agentSvc);
   registerTabsChannels(router, tabsSvc);
   // Same window-lookup + `saveFilters` pattern as `app.ts`'s `saveFile`,
   // kept as a closure here rather than an import into query.ts so that file

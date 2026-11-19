@@ -1,5 +1,5 @@
 import type { IpcApi } from '@shared/ipc';
-import type { CollectionTab, ConnectionSummary, WorkspaceTab } from '@shared/types';
+import type { AgentAccessState, CollectionTab, ConnectionSummary, WorkspaceTab } from '@shared/types';
 
 /**
  * Build a `window.atelier` stub for component tests. Every method defaults
@@ -15,6 +15,19 @@ type Deep<T> = {
     : T[K] extends object
       ? Deep<T[K]>
       : T[K];
+};
+
+/** Agent Access as a fresh install reports it: off, no tokens, nothing shared. */
+export const AGENT_ACCESS_OFF: AgentAccessState = {
+  enabled: false,
+  socketPath: '',
+  sessionReadCount: 0,
+  sessionCount: 0,
+  tokens: [],
+  bridgeInstalled: false,
+  bridgePath: '',
+  platformCaveat: null,
+  privilege: {},
 };
 
 export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
@@ -56,6 +69,17 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       getState: async () => ({ status: 'idle' as const }),
       check: async () => ({ status: 'idle' as const }),
       restart: async (): Promise<{ restarting: boolean }> => ({ restarting: true }),
+      onState: () => () => {},
+    },
+    agentAccess: {
+      getState: async () => AGENT_ACCESS_OFF,
+      requestEnable: async () => ({ enabled: false }),
+      disable: async () => ({ enabled: false as const }),
+      setShared: async ({ shared }) => ({ shared }),
+      addToken: async ({ name }) => ({ id: 'agent-token-1', name, createdAt: '2026-11-19T00:00:00.000Z' }),
+      regenerateToken: async ({ id }) => ({ id, name: 'Agent', createdAt: '2026-11-19T00:00:00.000Z' }),
+      revokeToken: async () => ({ ok: true as const }),
+      removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
     },
     docs: {
@@ -243,6 +267,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
     conn:   { ...base.conn,   ...(overrides.conn   ?? {}) } as IpcApi['conn'],
     app:    { ...base.app,    ...(overrides.app    ?? {}) } as IpcApi['app'],
     updates: { ...base.updates, ...(overrides.updates ?? {}) } as IpcApi['updates'],
+    agentAccess: { ...base.agentAccess, ...(overrides.agentAccess ?? {}) } as IpcApi['agentAccess'],
     docs:   { ...base.docs,   ...(overrides.docs   ?? {}) } as IpcApi['docs'],
     mongo:  { ...base.mongo,  ...(overrides.mongo  ?? {}) } as IpcApi['mongo'],
     meta:   { ...base.meta,   ...(overrides.meta   ?? {}) } as IpcApi['meta'],
@@ -288,6 +313,7 @@ export function connectionFixture(
     port: 27017,
     connectionType: 'standard',
     readOnly: false,
+    shareWithAgents: false,
     status: 'connected',
     ...overrides,
   };
@@ -430,6 +456,17 @@ function makePermissiveStub(): IpcApi {
       getState: async () => ({ status: 'idle' as const }),
       check: async () => ({ status: 'idle' as const }),
       restart: async (): Promise<{ restarting: boolean }> => ({ restarting: true }),
+      onState: () => () => {},
+    },
+    agentAccess: {
+      getState: async () => AGENT_ACCESS_OFF,
+      requestEnable: async () => ({ enabled: false }),
+      disable: async () => ({ enabled: false as const }),
+      setShared: async ({ shared }) => ({ shared }),
+      addToken: async ({ name }) => ({ id: 'agent-token-1', name, createdAt: '2026-11-19T00:00:00.000Z' }),
+      regenerateToken: async ({ id }) => ({ id, name: 'Agent', createdAt: '2026-11-19T00:00:00.000Z' }),
+      revokeToken: async () => ({ ok: true as const }),
+      removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
     },
     docs: {

@@ -2,16 +2,17 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { vi } from 'vitest';
 import type { MongoClient } from 'mongodb';
-import type { AgentPool } from '../../electron/agent/AgentGate';
+import type { AgentMessageBox } from '../../electron/agent/dialogCopy';
+import type { BridgeHandle } from '../../electron/agent/bridgeInstall';
 import type { Logger } from '../../electron/log';
 import { AppStateRepo } from '../../electron/db/repositories/AppStateRepo';
 import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
 import { AgentTokenRepo } from '../../electron/db/repositories/AgentTokenRepo';
 import { ConnectionRepo, inputToRow } from '../../electron/db/repositories/ConnectionRepo';
 import { AppStateService } from '../../electron/services/AppStateService';
-import { AgentAccessService } from '../../electron/services/AgentAccessService';
+import { AgentAccessService, type AgentAccessPool } from '../../electron/services/AgentAccessService';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
-import type { ConnectionInput } from '@shared/types';
+import type { AgentAccessState, ConnectionInput } from '@shared/types';
 import { createTempCipher, createTempDb, type TempDb } from './db';
 
 export type PoolStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -24,11 +25,12 @@ export interface PoolFactoryContext {
 
 export interface AgentHarnessOptions {
   /** Replaces the fake pool, e.g. with a real `MongoPool` over a memory server. */
-  makePool?: (ctx: PoolFactoryContext) => AgentPool;
+  makePool?: (ctx: PoolFactoryContext) => AgentAccessPool;
+  platform?: NodeJS.Platform;
 }
 
 /** A pool that only reports the statuses a test sets, and emits `status` like the real one. */
-class FakePool extends EventEmitter implements AgentPool {
+class FakePool extends EventEmitter implements AgentAccessPool {
   statuses = new Map<string, PoolStatus>();
   calls: string[] = [];
 
@@ -40,6 +42,31 @@ class FakePool extends EventEmitter implements AgentPool {
   openAgentClient(): Promise<MongoClient> {
     return Promise.reject(new Error('the fake pool opens no client'));
   }
+
+  readClient(): Promise<MongoClient> {
+    return Promise.reject(new Error('the fake pool opens no client'));
+  }
+}
+
+/** A bridge installer that touches no disk. */
+export class FakeBridge implements BridgeHandle {
+  installedPath = '/fake/bin/latelier-agent-bridge';
+  installed = false;
+  /** How many times the service asked for a copy. */
+  copies = 0;
+  isInstalled(): boolean {
+    return this.installed;
+  }
+  ensureCopy(): 'copied' {
+    this.copies += 1;
+    this.installed = true;
+    return 'copied';
+  }
+  remove(): boolean {
+    const was = this.installed;
+    this.installed = false;
+    return was;
+  }
 }
 
 export interface AgentHarness {
@@ -49,8 +76,19 @@ export interface AgentHarness {
   readLogRepo: AgentReadLogRepo;
   connRepo: ConnectionRepo;
   svc: AgentAccessService;
-  pool: AgentPool;
+  pool: AgentAccessPool;
   log: Logger;
+  /** Every state the service pushed to the renderer. */
+  states: AgentAccessState[];
+  /** Every message box the service showed, and the buttons the test script answers them with (default: button 0). */
+  boxes: AgentMessageBox[];
+  clipboard: string[];
+  /** Makes every clipboard write fail. */
+  clipboardFails: boolean;
+  answers: number[];
+  bridge: FakeBridge;
+  /** Runs when a message box opens, before it is answered. */
+  onBox: ((box: AgentMessageBox) => void) | null;
   /** Per-Connection status the fake pool reports; absent means disconnected. */
   statuses: Map<string, PoolStatus>;
   /** Every `status()` call, to prove an Agent call never asks for more than a status. */
@@ -97,7 +135,12 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
   const fake = new FakePool();
   const statuses = fake.statuses;
   const poolCalls = fake.calls;
-  const pool: AgentPool = options.makePool?.({ tmp, connRepo }) ?? fake;
+  const pool: AgentAccessPool = options.makePool?.({ tmp, connRepo }) ?? fake;
+  const states: AgentAccessState[] = [];
+  const boxes: AgentMessageBox[] = [];
+  const clipboard: string[] = [];
+  const answers: number[] = [];
+  const bridge = new FakeBridge();
   const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const svc = new AgentAccessService({
     appState,
@@ -107,10 +150,25 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     pool,
     userData: tmp.dir,
     log,
+    bridge,
+    platform: options.platform ?? 'darwin',
+    dialogs: {
+      // Button 0 (Cancel / Done) unless the test scripted another: a short script can never hang a spec.
+      showMessageBox: async (box) => {
+        boxes.push(box);
+        harness.onBox?.(box);
+        return { response: answers.shift() ?? 0 };
+      },
+      writeClipboard: async (text) => {
+        if (harness.clipboardFails) throw new Error('clipboard unavailable');
+        clipboard.push(text);
+      },
+    },
+    emit: (state) => void states.push(state),
   });
   svc.init();
 
-  return {
+  const harness: AgentHarness = {
     tmp,
     appState,
     tokenRepo,
@@ -119,6 +177,13 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     svc,
     pool,
     log,
+    states,
+    boxes,
+    clipboard,
+    clipboardFails: false,
+    answers,
+    bridge,
+    onBox: null,
     statuses,
     poolCalls,
     addConnection(id, name, opts = {}) {
@@ -143,4 +208,5 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
       fs.rmSync(tmp.dir, { recursive: true, force: true });
     },
   };
+  return harness;
 }

@@ -253,6 +253,21 @@ describe('encryption', () => {
   });
 });
 
+describe('Shared with Agents is never exported', () => {
+  it('builds an entry with no share field, whatever the Connection says', () => {
+    const e = toExportEntry(conn({ shareWithAgents: true }));
+    expect(Object.keys(e).filter((k) => /share|agent/i.test(k))).toEqual([]);
+    expect(JSON.stringify(e)).not.toMatch(/share|agent/i);
+  });
+
+  it('writes a file with no mention of it, and the entry is the same as for an unshared Connection', async () => {
+    const shared = await build([{ entry: toExportEntry(conn({ shareWithAgents: true })) }]);
+    const plainText = await build([{ entry: toExportEntry(conn({ shareWithAgents: false })) }]);
+    expect(shared).not.toMatch(/share|agent/i);
+    expect(shared).toBe(plainText);
+  });
+});
+
 describe('parseConnectionExport', () => {
   const fileOf = async () => JSON.parse(await plain()) as Record<string, any>;
   const parse = (f: unknown) => parseConnectionExport(JSON.stringify(f));
@@ -330,6 +345,10 @@ describe('parseConnectionExport', () => {
     ['plaintext password', (e: any) => (e.password = 'pw')],
     ['plaintext sshPassword', (e: any) => (e.sshPassword = 'pw')],
     ['plaintext sshPassphrase', (e: any) => (e.sshPassphrase = 'pw')],
+    // Shared with Agents (X27) is per Connection and per machine: a file that claims it is crafted, not exported.
+    ['shareWithAgents true', (e: any) => (e.shareWithAgents = true)],
+    ['shareWithAgents false', (e: any) => (e.shareWithAgents = false)],
+    ['share_with_agents', (e: any) => (e.share_with_agents = 1)],
   ])('rejects %s on an entry', async (_label, mutate) => {
     const f = await fileOf();
     mutate(f.connections[0]);

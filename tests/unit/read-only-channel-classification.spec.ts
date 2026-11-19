@@ -82,6 +82,8 @@ const READ_CHANNELS = new Set<string>([
   IPC_CHANNELS.aggExplain,
   IPC_CHANNELS.refsResolve,
   IPC_CHANNELS.refsAutodetect,
+  // Runs `connectionStatus` on the Connection to check the user's privileges before sharing; reads only.
+  IPC_CHANNELS.agentAccessSetShared,
 ]);
 
 const NON_MONGO_CHANNELS = new Set<string>([
@@ -123,6 +125,15 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.updatesStateEvent,
   IPC_CHANNELS.secretsSetPlaintextFallback,
   IPC_CHANNELS.secretsStatus,
+  // Agent Access (X27): the switch, the tokens and the bridge copy live in SQLite and on disk, never a write to MongoDB.
+  IPC_CHANNELS.agentAccessGetState,
+  IPC_CHANNELS.agentAccessRequestEnable,
+  IPC_CHANNELS.agentAccessDisable,
+  IPC_CHANNELS.agentAccessAddToken,
+  IPC_CHANNELS.agentAccessRegenerateToken,
+  IPC_CHANNELS.agentAccessRevokeToken,
+  IPC_CHANNELS.agentAccessRemoveBridge,
+  IPC_CHANNELS.agentAccessStateEvent,
   IPC_CHANNELS.savedList,
   IPC_CHANNELS.savedGet,
   IPC_CHANNELS.savedCreate,
