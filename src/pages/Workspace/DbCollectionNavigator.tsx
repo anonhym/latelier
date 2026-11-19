@@ -481,7 +481,7 @@ export function DbCollectionNavigator({
       if (!connectionId || !cache.dbs) return;
       for (const db of cache.dbs) {
         if (!ownGet(cache.colls, db.name) && !ownGet(cache.collsLoading, db.name)) {
-          void loadColls(connectionId, db.name);
+          void loadColls(connectionId, db.name, { stats: false });
         }
       }
     });

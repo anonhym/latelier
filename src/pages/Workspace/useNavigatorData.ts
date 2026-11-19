@@ -18,6 +18,11 @@ export interface LoadOptions {
   force?: boolean;
 }
 
+/** A collections load: `stats: false` lists names only (no per-collection `$collStats`). Default true. */
+export interface LoadCollsOptions extends LoadOptions {
+  stats?: boolean;
+}
+
 /**
  * The navigator's tree state and its two loaders, owned above the navigator so
  * the cache outlives a collapsed sidebar and the command palette reads the same
@@ -99,21 +104,41 @@ export function useNavigatorData() {
     [once, dispatch, isMounted],
   );
 
+  // Bumped whenever a load that reads figures starts for a database. A
+  // names-only load that began before it is the lesser answer and is dropped.
+  const statsSeq = React.useRef(new Map<string, number>());
+
   const loadColls = React.useCallback(
-    (id: string, dbName: string, opts: LoadOptions = {}): Promise<void> =>
-      once(`colls\u0000${id}\u0000${dbName}`, !!opts.force, async (isCurrent) => {
+    (id: string, dbName: string, opts: LoadCollsOptions = {}): Promise<void> => {
+      const stats = opts.stats !== false;
+      // Separate keys: a names-only sweep in flight must not swallow the load
+      // that refreshes a database's figures when the user opens it.
+      const key = (s: boolean) => `colls\u0000${id}\u0000${dbName}\u0000${s ? 'stats' : 'names'}`;
+      const seqKey = `${id}\u0000${dbName}`;
+      if (stats) statsSeq.current.set(seqKey, (statsSeq.current.get(seqKey) ?? 0) + 1);
+      const seqAtStart = statsSeq.current.get(seqKey) ?? 0;
+      return once(key(stats), !!opts.force, async (isCurrent) => {
         dispatch({ type: 'collsLoadStart', id, dbName });
         try {
-          const rows = await api.meta.listCollections({ connectionId: id, dbName });
+          const rows = await api.meta.listCollections({
+            connectionId: id,
+            dbName,
+            ...(stats ? {} : { includeStats: false }),
+          });
           // Sort A→Z so large databases are scannable; server returns insertion order.
           const sorted = [...rows].sort((a, b) =>
             a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
           );
-          if (isCurrent()) dispatch({ type: 'collsLoadSuccess', id, dbName, colls: sorted });
+          // Names-only is the lesser answer: it never lands over a load that
+          // started reading the figures for the same database after it did.
+          if (isCurrent() && (stats || (statsSeq.current.get(seqKey) ?? 0) === seqAtStart)) {
+            dispatch({ type: 'collsLoadSuccess', id, dbName, colls: sorted });
+          }
         } catch {
           if (isCurrent()) dispatch({ type: 'collsLoadError', id, dbName });
         }
-      }),
+      });
+    },
     [once, dispatch],
   );
 

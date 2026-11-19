@@ -193,6 +193,11 @@ export interface CollectionInfo {
   sizeBytes?: number;
   indexCount?: number;
   lastModified?: string;
+  /**
+   * The figures above were read earlier this session, not by this call: shown
+   * as they were, until the database is opened or refreshed.
+   */
+  countsCached?: boolean;
   capped: boolean;
 }
 
@@ -382,7 +387,12 @@ export interface IpcApi {
 
   meta: {
     listDatabases: (input: { connectionId: string; includeSystem?: boolean }) => Promise<DbInfo[]>;
-    listCollections: (input: { connectionId: string; dbName: string }) => Promise<CollectionInfo[]>;
+    listCollections: (input: {
+      connectionId: string;
+      dbName: string;
+      /** Default true. False skips the per-collection storage stats; see `CollectionInfo.countsCached`. */
+      includeStats?: boolean;
+    }) => Promise<CollectionInfo[]>;
     collectionDetails: (input: {
       connectionId: string;
       dbName: string;

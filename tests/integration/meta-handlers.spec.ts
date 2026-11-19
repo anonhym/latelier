@@ -123,6 +123,27 @@ describe('meta:* channels via router', () => {
       expect(typeof products?.indexCount).toBe('number');
     });
 
+    it('honours includeStats: false (names only) and rejects a non-boolean flag', async () => {
+      const env = await shim.invoke<CollectionInfo[]>(IPC_CHANNELS.metaListCollections, {
+        connectionId: CONN,
+        dbName: DB,
+        includeStats: false,
+      });
+      expect(env.ok).toBe(true);
+      if (!env.ok) return;
+      const products = env.data.find((c) => c.name === 'products');
+      // The service is shared with the full listing above, so figures may be
+      // there, but then only as cached ones: nothing was read for this call.
+      expect(products?.countsCached).toBe(true);
+
+      const bad = await shim.invoke(IPC_CHANNELS.metaListCollections, {
+        connectionId: CONN,
+        dbName: DB,
+        includeStats: 'no',
+      });
+      expect(bad.ok).toBe(false);
+    });
+
     it.each([
       ['a missing dbName', { connectionId: CONN }],
       ['an empty dbName', { connectionId: CONN, dbName: '' }],

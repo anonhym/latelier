@@ -1129,7 +1129,8 @@ function WorkspaceInner() {
       done.add(d.name);
       relist?.delete(d.name);
       inFlight++;
-      void loadColls(sweepId, d.name);
+      // Names only: the sweep completes the palette, it does not need counts.
+      void loadColls(sweepId, d.name, { stats: false });
     }
   }, [
     sweepId,

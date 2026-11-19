@@ -31,10 +31,10 @@ export function ConnectedCanvas({ connection, cache, loadDbs, loadColls, onOpen,
     () => [...(cache?.dbs ?? [])].sort((a, b) => Number(SYSTEM_DBS.has(a.name)) - Number(SYSTEM_DBS.has(b.name))),
     [cache?.dbs],
   );
-  const rows: { dbName: string; name: string; count?: number }[] = [];
+  const rows: { dbName: string; name: string; count?: number; cached?: boolean }[] = [];
   for (const db of dbs) {
     for (const c of (cache && ownGet(cache.colls, db.name)) ?? []) {
-      if (rows.length < MAX_ROWS) rows.push({ dbName: db.name, name: c.name, count: c.documentCount });
+      if (rows.length < MAX_ROWS) rows.push({ dbName: db.name, name: c.name, count: c.documentCount, cached: c.countsCached });
     }
   }
 
@@ -85,7 +85,13 @@ export function ConnectedCanvas({ connection, cache, loadDbs, loadColls, onOpen,
                   {r.name}
                 </span>
                 {r.count !== undefined && (
-                  <span style={{ color: T.textMuted, fontSize: T.fsXs }}>{r.count.toLocaleString()}</span>
+                  <span
+                    title={r.cached ? 'As of the last time this database was opened' : undefined}
+                    style={{ color: T.textMuted, fontSize: T.fsXs }}
+                  >
+                    {r.cached ? '~' : ''}
+                    {r.count.toLocaleString()}
+                  </span>
                 )}
               </UnstyledButton>
             </li>
