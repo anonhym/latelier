@@ -304,6 +304,34 @@ export function inputToRow(id: string, input: ConnectionInput, now: string): Con
 }
 
 /**
+ * What a Connection is, to a server: the fields `mongoRelevantFieldsChanged`
+ * compares, as one string. A share granted to Agents is a grant to this
+ * identity, so a caller that holds a grant across an `await` compares this
+ * before and after. Passwords live in the vault and are not part of it.
+ */
+export function connectionIdentityFingerprint(row: ConnectionRow): string {
+  return JSON.stringify([
+    row.connection_type,
+    row.host,
+    row.port,
+    row.default_db,
+    row.auth_mech,
+    row.auth_username,
+    row.auth_database,
+    row.tls_enabled,
+    row.tls_verify,
+    row.tls_ca_path,
+    row.tls_client_cert_path,
+    row.connect_timeout_ms,
+    row.socket_timeout_ms,
+    row.server_selection_timeout_ms,
+    row.max_pool_size,
+    row.read_preference,
+    row.direct_connection,
+  ]);
+}
+
+/**
  * Subset of input fields that, when changed on an existing connection, require
  * disconnecting the pool so the new config takes effect next connect.
  */

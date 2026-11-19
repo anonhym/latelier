@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { MongoClient } from 'mongodb';
-import type { AgentAccessState, AgentTokenInfo, PrivilegeResult } from '@shared/types';
+import type { AgentAccessState, AgentTokenInfo, ConnectionRuntime, PrivilegeResult } from '@shared/types';
 import { AGENT_ACCESS_KEY } from '../ipc/prefKeys.ts';
 import type { Logger } from '../log.ts';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.ts';
@@ -16,7 +16,7 @@ import { AGENT_TOOLS } from '../agent/tools.ts';
 import { generateToken, hashToken } from '../agent/token.ts';
 import type { AgentTokenRepo, AgentTokenRow } from '../db/repositories/AgentTokenRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
-import type { ConnectionRepo } from '../db/repositories/ConnectionRepo.ts';
+import { connectionIdentityFingerprint, type ConnectionRepo } from '../db/repositories/ConnectionRepo.ts';
 import type { AppStateService } from './AppStateService.ts';
 
 /**
@@ -26,6 +26,11 @@ import type { AppStateService } from './AppStateService.ts';
  */
 export interface AgentAccessPool extends AgentPool {
   readClient(id: string): Promise<MongoClient>;
+  /** Emitted when a Connection's identity changes (an edit that points it elsewhere) or the Connection is deleted. */
+  on(event: 'status', listener: (runtime: { id: string; status: ConnectionRuntime['status'] }) => void): unknown;
+  on(event: 'connection-identity-changed', listener: (id: string) => void): unknown;
+  off(event: 'status', listener: (runtime: { id: string; status: ConnectionRuntime['status'] }) => void): unknown;
+  off(event: 'connection-identity-changed', listener: (id: string) => void): unknown;
 }
 
 /** The native dialogs and clipboard, so the flows that use them run in a test with a scripted box. */
@@ -83,6 +88,13 @@ export class AgentAccessService {
   private stopped = false;
   /** Serialises start and stop, so a quick off-on never races two listeners. */
   private chain: Promise<void> = Promise.resolve();
+  /** An edit that points a Connection elsewhere ended its share (`ConnectionService.update` cleared the flag); a delete ends it too. */
+  private onIdentityChanged = (connectionId: string): void => {
+    this.gate.revokeConnection(connectionId);
+    this.privilegeByConnection.delete(connectionId);
+    // Not `emitState`: a delete announces itself before the row goes, and the coalesced push reads it after.
+    this.scheduleEmit();
+  };
 
   constructor(deps: AgentAccessDeps) {
     this.deps = deps;
@@ -113,6 +125,7 @@ export class AgentAccessService {
       log: deps.log,
     });
     this.server.setSessionsListener(() => this.emitState());
+    deps.pool.on('connection-identity-changed', this.onIdentityChanged);
   }
 
   isEnabled(): boolean {
@@ -151,6 +164,7 @@ export class AgentAccessService {
     await this.chain;
     await this.gate.close();
     this.gate.dispose();
+    this.deps.pool.off('connection-identity-changed', this.onIdentityChanged);
   }
 
   /** Resolves when every queued start or stop has finished. Tests use it to await the live switch. */
@@ -294,11 +308,18 @@ export class AgentAccessService {
     if (row.ssh_enabled === 1) {
       throw new ValidationError('A Connection that uses an SSH tunnel cannot be shared with Agents yet.');
     }
+    const fingerprint = connectionIdentityFingerprint(row);
     const result = await this.checkPrivileges(connectionId, row.name);
     if (result === 'not-open') return { shared: false };
     const answer = await this.deps.dialogs.showMessageBox(shareBox(row.name, result, this.deps.platform));
     if (answer.response !== 1) {
       return { shared: this.deps.connRepo.findById(connectionId)?.share_with_agents === 1, privilege: result };
+    }
+    // The verdict on the box described the Connection as it was when the question opened. Edited, deleted or moved to a tunnel meanwhile, it no longer describes what "Share" would grant.
+    const current = this.deps.connRepo.findById(connectionId);
+    if (!current) throw new NotFoundError(`connection ${connectionId} not found`);
+    if (current.ssh_enabled === 1 || connectionIdentityFingerprint(current) !== fingerprint) {
+      throw new ConflictError('The Connection changed while the question was open, so it was not shared. Share it again to review it.');
     }
     this.setShared(connectionId, true);
     this.privilegeByConnection.set(connectionId, result);

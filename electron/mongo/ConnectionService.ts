@@ -127,8 +127,12 @@ export class ConnectionService {
         updated_at: now,
         last_used_at: existing.last_used_at,
       };
+      // A share is a grant to the Connection as it was when the user approved it:
+      // an edit that points it somewhere else ends it, and the user shares again.
+      const unshare = existing.share_with_agents === 1 && mongoRelevantFieldsChanged(existing, merged);
       this.repo.transaction(() => {
         this.repo.update(newRow);
+        if (unshare) this.repo.setShared(id, false);
         this.applySecretPatch(id, 'password', patch.password, patch.clearPassword);
         this.applySecretPatch(id, 'ssh_password', patch.sshPassword, patch.clearSshPassword);
         this.applySecretPatch(id, 'ssh_passphrase', patch.sshPassphrase, patch.clearSshPassphrase);

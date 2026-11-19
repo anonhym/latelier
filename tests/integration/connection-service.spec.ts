@@ -198,6 +198,36 @@ describe('ConnectionService', () => {
     expect(svc.get(created.id).shareWithAgents).toBe(true);
   });
 
+  it.each<[string, Partial<ConnectionInput>]>([
+    ['the host', { host: 'elsewhere.example' }],
+    ['the port', { port: 27018 }],
+    ['the credentials', { authMech: 'scram256', authUsername: 'mallory', password: 'x' }],
+    ['the TLS settings', { tls: { enabled: true, verify: true } }],
+  ])('an edit to %s ends the share, and the user shares again through the dialog', async (_label, change) => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    repo.setShared(a.id, true);
+    // The flag a listener sees when the pool is told.
+    const flagWhenTold: Array<number | undefined> = [];
+    pool.on('connection-identity-changed', (id: string) => flagWhenTold.push(repo.findById(id)?.share_with_agents));
+    await svc.update(a.id, change);
+    expect(svc.get(a.id).shareWithAgents).toBe(false);
+    expect(repo.listShared()).toEqual([]);
+    expect(flagWhenTold).toEqual([0]);
+  });
+
+  it('an edit that changes nothing a server sees keeps the share', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    repo.setShared(a.id, true);
+    await svc.update(a.id, { name: 'Renamed', color: '#112233', readOnly: true });
+    expect(svc.get(a.id).shareWithAgents).toBe(true);
+  });
+
+  it('an identity edit leaves a Connection that was never shared unshared', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    await svc.update(a.id, { host: 'elsewhere.example' });
+    expect(svc.get(a.id).shareWithAgents).toBe(false);
+  });
+
   it("list carries each connection's default database, undefined when unset", async () => {
     await svc.create(validInput({ name: 'With', defaultDb: 'smoke' }));
     await svc.create(validInput({ name: 'Without' }));

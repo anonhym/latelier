@@ -583,6 +583,14 @@ describe('revocation mid-query, through the socket', () => {
     });
   });
 
+  it('cancels the call when the Connection\'s identity changes, with no status change to say so', async () => {
+    const { pending } = await startFind('after');
+    f.m.pool.emit('connection-identity-changed', f.connectionId);
+    f.m.hold.release();
+    expect(textOf((await pending).reply!)).toMatch(/^CANCELLED: /);
+    await vi.waitFor(() => expect(f.m.agentClients).toEqual({ opened: 1, closed: 1 }));
+  });
+
   it('serialises nothing once a gate has closed: the held document is discarded before it is encoded', async () => {
     const encode = vi.spyOn(ejsonModule, 'ejsonStringifyRelaxed');
     const { pending } = await startFind('after');

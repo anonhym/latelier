@@ -553,6 +553,72 @@ describe('agentAccess:* channels', () => {
     });
   });
 
+  describe('a share that does not survive a change of identity', () => {
+    const okClient = { db: () => ({ command: async () => ({ authInfo: { authenticatedUsers: [], authenticatedUserRoles: [], authenticatedUserPrivileges: [] } }) }) };
+
+    it('conn:update to another host ends the share', async () => {
+      const conn = await ok<Connection>(IPC_CHANNELS.connCreate, connInput('A'));
+      h.connRepo.setShared(conn.id, true);
+      await ok(IPC_CHANNELS.connUpdate, { id: conn.id, patch: { host: 'elsewhere.example' } });
+      expect(h.connRepo.findById(conn.id)?.share_with_agents).toBe(0);
+    });
+
+    it('refuses to share a Connection that was edited while the question was open, and writes no flag', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { status: 'connected' });
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(okClient as never);
+      h.answers.push(1);
+      h.onBox = () => void h.tmp.db.prepare("UPDATE connections SET host = 'elsewhere.example' WHERE id = ?").run(id);
+      const env = await invoke(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true });
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('CONFLICT');
+      expect(h.connRepo.findById(id)?.share_with_agents).toBe(0);
+    });
+
+    it('refuses when the Connection moved to an SSH tunnel, or was deleted, while the question was open', async () => {
+      const tunnelled = randomUUID();
+      h.addConnection(tunnelled, 'tunnelled', { status: 'connected' });
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(okClient as never);
+      h.answers.push(1);
+      h.onBox = () => void h.tmp.db.prepare('UPDATE connections SET ssh_enabled = 1 WHERE id = ?').run(tunnelled);
+      const first = await invoke(IPC_CHANNELS.agentAccessSetShared, { connectionId: tunnelled, shared: true });
+      expect(first.ok).toBe(false);
+      expect(h.connRepo.findById(tunnelled)?.share_with_agents).toBe(0);
+
+      const gone = randomUUID();
+      h.addConnection(gone, 'gone', { status: 'connected' });
+      h.answers.push(1);
+      h.onBox = () => h.connRepo.deleteById(gone);
+      const second = await invoke(IPC_CHANNELS.agentAccessSetShared, { connectionId: gone, shared: true });
+      expect(second.ok).toBe(false);
+      if (!second.ok) expect(second.error.code).toBe('NOT_FOUND');
+    });
+
+    it('still shares when only something a server does not see changed during the question', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { status: 'connected' });
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(okClient as never);
+      h.answers.push(1);
+      h.onBox = () => void h.tmp.db.prepare("UPDATE connections SET color = '#112233', last_used_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+      expect(await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true })).toMatchObject({ shared: true });
+    });
+
+    it('drops the privilege verdict of a Connection whose identity changed', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { status: 'connected' });
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(okClient as never);
+      h.answers.push(1);
+      await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true });
+      expect((await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).privilege[id]).toBeDefined();
+
+      (h.pool as unknown as NodeJS.EventEmitter).emit('connection-identity-changed', id);
+      // Shared again without the dialog, as a stale verdict would be shown for it.
+      h.connRepo.setShared(id, false);
+      h.connRepo.setShared(id, true);
+      expect((await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).privilege[id]).toBeUndefined();
+    });
+  });
+
   describe('the bridge copy', () => {
     it('refuses to remove the bridge while Agent Access is on, and leaves it installed', async () => {
       await turnOn();
