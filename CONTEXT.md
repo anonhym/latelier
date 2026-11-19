@@ -81,6 +81,14 @@ _Avoid_: MCP server (the implementation, not the setting), agent mode
 A persisted flag on one Connection that makes it visible to Agents while it is an Open Connection and Agent Access is on. Agents only ever read through it, whatever the Connection's own Read-Only flag says. Never copied by Duplicate, Connection Export, Import or a Connection Family.
 _Avoid_: exposed, published, agent-enabled
 
+**Agent Token**:
+The secret one named Agent presents to L'Atelier. Stored only as a hash, shown once, revocable and regenerable. It lives in the Agent client's own configuration, never in the renderer.
+_Avoid_: API key, password
+
+**Agent Bridge**:
+The app's own binary started with `--agent-stdio`: the program an Agent client launches, which forwards between the Agent's stdio and the running app's local socket. It never starts the app and holds no credentials.
+_Avoid_: shim, proxy, MCP server
+
 **Agent Read Log**:
 The record of every Agent tool call, refused ones included: who asked, on which Connection, what, and how much came back. Separate from the Audit Log, which records writes only.
 _Avoid_: agent audit log, agent history

@@ -58,7 +58,7 @@ The design was settled in a discussion that started from a study of the official
 - [C13](./C13-connection-export-import.md): Connection Export must not carry the new flag.
 - X23 (Connection Families, on its own branch at the time of writing): Shared with Agents is a property of one Connection and is never shared through a Family or a Family Export.
 - [ADR 0005](../docs/adr/0005-read-only-connection-enforcement.md): read handles and their limits.
-- New dependency: `@modelcontextprotocol/sdk`.
+- New dependency: the MCP TypeScript SDK. Its package name and major version are pinned at implementation, because v2 split the SDK into separate packages.
 
 ## 1. Terms
 
@@ -94,7 +94,7 @@ A Connection that is shared but not open is listed by `list_connections` with `s
 ### 3.2 Shared with Agents
 
 - A new column on `connections` (`share_with_agents INTEGER NOT NULL DEFAULT 0`), added by a new append-only migration. Mapped to `shareWithAgents: boolean` in `shared/types.ts`.
-- Set only by a dedicated channel (`agentAccess:set-shared`), and only after a main-process dialog. The general connection create/update schema (`electron/ipc/schemas/connection.ts`) does **not** accept the field, so the ordinary edit path cannot set it.
+- Set only by a dedicated channel (`agentAccess:set-shared`), and only after a main-process dialog. The general connection create/update schemas (`electron/ipc/schemas/connection.ts`) do **not** declare the field. They are non-strict `z.object`s, so a `shareWithAgents` key in a `conn:create` or `conn:update` payload is stripped and never reaches the repository.
 - **Never copied**: not by Duplicate, not by Connection Export (the field is excluded explicitly in `electron/services/connectionExportFormat.ts`, which today serialises `readOnly`), not by Import (imports arrive unshared), not by a Family or Family Export.
 - Unsharing needs no confirmation and takes effect immediately (§10).
 
@@ -122,7 +122,7 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 ### 4.2 Agent Bridge
 
 - The packaged app ships with the `runAsNode` fuse off (`electron-builder.yml`, asserted by `scripts/verify-fuses.mjs`), so the bridge cannot be a script run under `ELECTRON_RUN_AS_NODE`, and this spec does not turn the fuse on. The bridge is the app's own executable started with `--agent-stdio`.
-- `--agent-stdio` is handled **at the very top of `electron/main.ts`**, before `app.requestSingleInstanceLock()`, before any window, before the database opens. Otherwise the running app would receive a `second-instance` event and focus its window, or the bridge would quit on the lock.
+- `--agent-stdio` is handled before `app.requestSingleInstanceLock()`, before any window, before the database opens. Otherwise the running app would receive a `second-instance` event and focus its window, or the bridge would quit on the lock. A check inside `electron/main.ts` is not early enough: its module-scope imports (the native SQLite module, the logger's file setup) run before any statement in its body. So the main entry becomes a thin dispatcher that loads either the bridge module or the app, and the bridge module imports only `node:net` and what it needs to find the socket.
 - In bridge mode the process opens no window, no database, no vault and no Mongo client. On macOS it hides the Dock icon before anything else. It reads `LATELIER_AGENT_TOKEN` from its environment, connects to the socket (§4.3), sends the handshake (§4.5), then pipes bytes both ways until either side closes, and exits.
 - If the socket is not reachable (the app is not running, or Agent Access is off), the bridge writes one line to stderr, "L'Atelier is not running or Agent Access is off", and exits non-zero. It never starts the app.
 - Whether Electron starts windowless and Dock-less quickly enough to serve as a stdio bridge is open question 1 (§15).
@@ -131,7 +131,7 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 
 - **macOS and Linux**: a Unix domain socket `agent.sock` inside a directory `agent/` under `userData`, created with mode `0700`, the socket itself `0600`. If the full path would exceed the platform limit (about 104 bytes on macOS, 108 on Linux; long E2E temp dirs hit this), it falls back to a short per-user directory (`$TMPDIR/latelier-<uid>/`, also `0700`). A stale socket file is removed at start only when nothing answers on it.
 - **Windows**: a named pipe `\\.\pipe\latelier-agent-<user SID>`. Node's `net` module cannot set a pipe DACL, and the default security descriptor is not owner-only. Until that is resolved (open question 2), the Windows threat model relies on the token alone against other users.
-- The socket path is written nowhere but the app's own state. The bridge derives it the same way main does.
+- The bridge derives the socket path from `userData` the same way main does, so the client configuration never holds it. Settings shows it for troubleshooting.
 
 ### 4.4 Lifecycle
 
@@ -156,7 +156,7 @@ A new table `agent_tokens`: `id` (UUID), `name` (user-chosen, e.g. "Claude Code,
 ### 5.2 Actions
 
 - **Add Agent**: name it. Main generates the token and shows it once, in a main-owned dialog, with a **Copy configuration** button.
-- **Copy configuration** puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the app's executable, the args are `["--agent-stdio"]`, and `env.LATELIER_AGENT_TOKEN` holds the token. The token never crosses IPC to the renderer. Snippets are offered for Claude Code, Claude Desktop and Cursor.
+- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the app's executable, the args are `["--agent-stdio"]`, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
 - **Regenerate**: a new token replaces the hash and the old token stops working at once, live sessions included.
 - **Revoke**: the row is deleted; live sessions using it close.
 - The list shows name, created and last used. It never shows the token.
@@ -179,7 +179,7 @@ A small main-process module in front of the pool, with the same `readDb`/`readCl
 
 - Each shared Open Connection gets a separate `MongoClient`, opened lazily on the first Agent call, from the same URI, credentials and TLS as the pooled client, with `maxPoolSize: 2`. Agent queries never queue behind, or block, the user's own UI, even when the user set `maxPoolSize: 1`. The cost is up to two extra server connections per shared Connection.
 - It is closed when the Connection closes or drops, when its flag is turned off, when Agent Access is turned off, and at quit.
-- SSH-tunnelled Connections: `MongoPool.openControlClient` refuses SSH today. The agent client must go through the Connection's existing tunnel; how is open question 3.
+- SSH-tunnelled Connections: the connection schema refuses SSH tunnels today (`SSH_UNSUPPORTED_MESSAGE` in `electron/ipc/schemas/connection.ts`), and `MongoPool.openControlClient` refuses them too. When tunnels land, the agent client must go through the Connection's existing tunnel; see open question 3.
 
 ### 6.3 No side effects on the user's workspace
 
@@ -315,7 +315,8 @@ One row per tool call, including refused ones: a refusal is the most interesting
 - **No foreign key cascade.** Rows survive the deletion of their Connection or token, because the history is the point, and the copied names keep them readable.
 - **Retention: 90 days**, the same as the Audit Log, pruned by `MaintenanceService`.
 - It is not the Audit Log: [ADR 0002](../docs/adr/0002-audit-log-scope.md) scopes that to writes with undo, and its `op` CHECK constraint is fixed.
-- Writing a row never fails the tool call. A failed insert logs one warn line.
+- **Fail closed.** The row is written before any data is returned to the Agent, and a call whose row cannot be written returns `DB_ERROR` with no data. A read the user cannot see afterwards does not happen.
+- `request_json` is capped at 16 KiB, with a truncation marker, so oversized requests (which are refused and still logged) cannot grow the table.
 
 ### 11.3 Iteration 1 UI
 
@@ -347,7 +348,6 @@ Renderer-facing channels. None takes or returns a token. All go through `shared/
 - `agentAccess:set-shared` `{ connectionId, shared }`: on `true`, main runs §3.3 and its dialog
 - `agentAccess:add-token` `{ name }`, `agentAccess:regenerate-token` `{ id }`: the token is shown and copied in main-owned UI only
 - `agentAccess:revoke-token` `{ id }`
-- `agentAccess:copy-config` `{ id, client }`: only right after creation or regeneration, while main still holds the plaintext
 - `agentAccess:state-event` (push): enabled, read count, session count
 
 No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist is unchanged. The `ipc-channel-auditor` agent confirms this.
@@ -361,7 +361,7 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 - **Streamable HTTP on `127.0.0.1` with a bearer token.**
   - It needs a port, which another local process can squat while the app is closed to collect tokens.
   - It needs Origin/Host checks against DNS rebinding.
-  - Claude Desktop's remote connectors are reached from Anthropic's side and cannot reach a loopback address, so a stdio bridge would be needed anyway.
+  - Claude Desktop's remote connectors are reportedly reached from Anthropic's side and could not reach a loopback address, so a stdio bridge would likely be needed anyway (not verified, and not needed to reject HTTP).
   - The socket plus bridge removes all three problems.
 - **`ELECTRON_RUN_AS_NODE` script as the bridge.** Blocked by the `runAsNode` fuse, which stays off.
 - **The user's pooled client for Agent queries.** Simpler, but at `maxPoolSize: 1` every Agent query would block the user's UI for up to 10 s.
@@ -373,14 +373,14 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 
 1. **Bridge start-up.** Can the Electron binary in `--agent-stdio` mode start without a window, without a Dock icon flash, and quickly enough (target: under 300 ms to the first byte) to serve as a stdio bridge? If not, ship a small separate bridge executable, signed and notarized with the app.
 2. **Windows pipe ACL.** How to make the named pipe owner-only from Node (or a native helper), or accept the token as the only protection there and say so in the UI.
-3. **SSH-tunnelled Connections.** The agent client must reuse the Connection's existing tunnel. If that cannot be done cleanly, either share the pooled client for SSH Connections only, or refuse to share SSH Connections in iteration 1.
+3. **SSH-tunnelled Connections, once the app supports them.** The agent client must reuse the Connection's existing tunnel. If that cannot be done cleanly, either share the pooled client for SSH Connections only, or refuse to share SSH Connections.
 4. **Stage allowlist review.** Confirm that the allowlisted stages are read-only on the oldest server version the app supports, and that `$graphLookup` and `$unionWith` are same-database like `$lookup`.
 
 ## Acceptance criteria
 
 - With Agent Access off, nothing listens and the bridge exits non-zero with its stderr message.
 - Agent Access can only be turned on through main's dialog. Writing its `app_state` key from the renderer is refused.
-- Shared with Agents can only be set through `agentAccess:set-shared` and its dialog. The connection update schema rejects the field. Duplicate, Export, Import and Family Export never carry it.
+- Shared with Agents can only be set through `agentAccess:set-shared` and its dialog. A `shareWithAgents` key sent to `conn:create` or `conn:update` is stripped and leaves the stored flag unchanged. Duplicate, Export, Import and Family Export never carry it.
 - The share dialog shows the privilege result in each of the four §3.3 cases. No authenticated user and a failed check never read as a pass.
 - An Agent reaches a Connection only when all three gates hold. A shared Dormant or closed Connection is listed as `unavailable` and is never connected by an Agent call.
 - Agent calls use the agent client, never the user's pool. They write nothing to `recent_queries` and do not count in `runningWork()`.
@@ -390,7 +390,8 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 - Driver error messages never reach the Agent.
 - Each event in §10 cancels the affected in-flight operations. A result arriving after revocation is discarded.
 - Tokens are stored as hashes only, shown once, and never cross IPC to the renderer. Revoke and Regenerate stop live sessions at their next call.
-- Every tool call, refused ones included, writes one Agent Read Log row. `request_json` is encrypted, and rows survive Connection and token deletion. They are pruned after 90 days.
+- Every tool call, refused ones included, writes one Agent Read Log row before any data is returned, and a call whose row cannot be written returns no data. `request_json` is encrypted and capped at 16 KiB, and rows survive Connection and token deletion. They are pruned after 90 days.
+- The renderer is still denied `clipboard-read`.
 - On macOS and Linux the socket's directory is `0700` and the socket `0600`, with the short-path fallback when needed.
 - Every operation carries `comment: "latelier-agent"`, `maxTimeMS: 10000` and `allowDiskUse: false`. The per-Connection concurrency cap returns `BUSY` beyond the queue.
 - The new pure modules (stage and namespace validation, JS-operator scan, schema inference, byte-budgeted encoding, gate logic) are in `stryker.config.json`'s `mutate` list at 90% or higher.
@@ -433,11 +434,12 @@ No channel carries a secret from the renderer, so the `SECRET_INPUT` allowlist i
 - `agent-privilege-check.spec.ts`: read-only user, readWrite user and auth-off server, each giving its §3.3 result.
 - `agent-read-log.spec.ts`:
   - one row per call, including refusals;
-  - `request_json` is encrypted at rest;
+  - a failing insert makes the call return `DB_ERROR` with no documents;
+  - `request_json` is encrypted at rest and capped at 16 KiB;
   - rows survive Connection deletion;
   - retention prunes at 90 days.
 - `connection-export.spec.ts`, extended: an exported shared Connection carries no share field, and the imported one is unshared.
-- `agent-access-handlers.spec.ts`: each channel's validation, and `conn:update` (and `conn:create`) rejecting `shareWithAgents`.
+- `agent-access-handlers.spec.ts`: each channel's validation, and a `shareWithAgents` key sent to `conn:create` and `conn:update` being stripped, leaving the stored flag unchanged.
 
 **Component** (mocked `window.atelier`)
 
