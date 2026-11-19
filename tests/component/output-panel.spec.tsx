@@ -44,6 +44,7 @@ function panelProps(overrides: Partial<PanelProps> = {}): PanelProps {
     outputStale: false,
     running: false,
     pipelineName: null,
+    outputUnordered: false,
     stage: null,
     onRunToStage: vi.fn(),
     onHeightChange: vi.fn(),
@@ -219,7 +220,7 @@ describe('OutputPanel — rendering and view switching', () => {
   it('renders the document count with tabular numerals', () => {
     renderPanel({ lastRun: { ...runMeta, rows: [{ _id: 1 }], durationMs: 1 } });
     const heading = screen.getByTestId('preview-heading');
-    expect(heading.textContent).toBe('Output · 1 docs · 1 ms');
+    expect(heading.textContent).toBe('Full aggregation · 1 docs · 1 ms');
     expect(heading.style.fontVariantNumeric).toBe('tabular-nums');
   });
 });
@@ -405,7 +406,7 @@ describe('OutputPanel — Export results', () => {
 });
 
 function previewStage(over: Partial<PreviewStage> = {}): PreviewStage {
-  return { id: 4, index: 1, op: '$group', enabled: true, stale: false, loading: false, ...over };
+  return { id: 4, index: 1, op: '$group', enabled: true, stale: false, loading: false, unordered: false, ...over };
 }
 
 describe('OutputPanel — the selected stage', () => {
@@ -415,10 +416,25 @@ describe('OutputPanel — the selected stage', () => {
       lastRun: { ...runMeta, rows: [{ _id: 'final' }], durationMs: 3 },
       stage: previewStage({ sample: [{ _id: 'sample' }], count: 12 }),
     });
-    expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 · $group · 12 docs');
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 output · $group · first 1 of 12 docs');
     const body = screen.getByTestId('output-bar').nextElementSibling as HTMLElement;
     expect(body.textContent).toContain('sample');
     expect(body.textContent).not.toContain('final');
+  });
+
+  it('labels an unordered stage preview that shows every document', () => {
+    renderPanel({ stage: previewStage({ sample: [{ _id: 'a' }, { _id: 'b' }], count: 2, unordered: true }) });
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Stage 2 output · $group · 2 docs · unordered');
+  });
+
+  it('labels the full run as capped when more documents exist, and as unordered', () => {
+    renderPanel({
+      lastRun: { ...runMeta, rows: [{ _id: 1 }], durationMs: 3, hasMore: true },
+      outputUnordered: true,
+    });
+    expect(screen.getByTestId('preview-heading').textContent).toBe(
+      'Full aggregation · first 1 docs, row limit reached · 3 ms · unordered',
+    );
   });
 
   it('offers Run up to this stage for a stage never run, and runs nothing by itself', () => {
@@ -512,7 +528,7 @@ describe('OutputPanel bar', () => {
     renderPanel({ lastRun, onSaveAsView });
     const trigger = screen.getByRole('button', { name: 'Export results' });
     expect(trigger.textContent).toBe('');
-    expect(screen.getByTestId('preview-heading').textContent).toBe('Output');
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Full aggregation');
 
     fireEvent.click(await exportItem('Create view…'));
     expect(onSaveAsView).toHaveBeenCalledOnce();
@@ -522,7 +538,7 @@ describe('OutputPanel bar', () => {
     giveBarWidth(800);
     renderPanel({ lastRun });
     expect(screen.getByRole('button', { name: 'Export results' }).textContent).toBe('Export results');
-    expect(screen.getByTestId('preview-heading').textContent).toBe('Output · 1 docs · 3 ms');
+    expect(screen.getByTestId('preview-heading').textContent).toBe('Full aggregation · 1 docs · 3 ms');
   });
 
   it('holds the heading slot before any run, so a first run moves no control', () => {

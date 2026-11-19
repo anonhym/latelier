@@ -944,7 +944,12 @@ export interface AggregationTabState {
   name?: string;
   savedId?: string;
   stages: Stage[];
+  /** The card the preview shows; also the one expanded card unless `multiOpen`. */
   activeStageId: number | null;
+  /** Several stage cards may be expanded at once. Absent means the single-open accordion. */
+  multiOpen?: boolean;
+  /** The expanded cards while `multiOpen`. */
+  openStageIds?: number[];
   outputHeight: number;
   outputView: ResultViewMode;
   /** Never persisted (rows and stage samples are user documents). */

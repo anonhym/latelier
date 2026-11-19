@@ -1,13 +1,14 @@
 import React from 'react';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
-import { ActionIcon, Button, Modal, Tooltip } from '@mantine/core';
+import { ActionIcon, Autocomplete, Button, Modal, Tooltip } from '@mantine/core';
 import { api, getErrorMessage, isIpcError } from '../../api/atelier';
 import { confirmDestructive } from '../../utils/confirm';
 import { useDialogFocusReturn } from '../../hooks/useDialogFocusReturn';
 import { SubmitButton } from '../../components/SubmitButton';
 import { FieldAutocompleteInput } from '../fieldSuggestions/FieldAutocompleteInput';
 import type { SuggestionContext } from '../fieldSuggestions/types';
+import { useNamespaceSuggestions } from './useNamespaceSuggestions';
 import type {
   ReferenceAutodetectCandidate,
   ReferenceRule,
@@ -510,7 +511,11 @@ function RuleForm({
     fontSize: T.fsSm,
     fontFamily: 'monospace',
   };
+  // A span, not a <label>: Mantine also points the options list at a label, so a label would name two elements.
+  const labelTextStyle: React.CSSProperties = { fontSize: T.fsXs, color: T.textMuted };
+  const hintStyle: React.CSSProperties = { fontSize: T.fsXs, color: T.warn };
   const editing = !!form.id;
+  const namespaces = useNamespaceSuggestions(connectionId, form.targetDb);
 
   // Source-collection context: drives autocomplete on the "Source field" input.
   const sourceCtx = React.useMemo<SuggestionContext>(
@@ -558,23 +563,31 @@ function RuleForm({
             style={{ ...inputStyle, opacity: editing ? 0.6 : 1 }}
           />
         </label>
-        <label style={labelStyle}>
-          Target collection
-          <input
-            value={form.targetCollection}
-            onChange={(e) => onChange({ ...form, targetCollection: e.target.value })}
-            placeholder="contacts"
-            style={inputStyle}
-          />
-        </label>
-        <label style={labelStyle}>
-          Target database
-          <input
+        <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapXs }}>
+          <span style={labelTextStyle}>Target database</span>
+          <Autocomplete
+            aria-label="Target database"
             value={form.targetDb}
-            onChange={(e) => onChange({ ...form, targetDb: e.target.value })}
-            style={inputStyle}
+            onChange={(v) => onChange({ ...form, targetDb: v })}
+            data={namespaces.databases}
+            limit={50}
+            styles={{ input: inputStyle }}
           />
-        </label>
+          {namespaces.databasesFailed && <span style={hintStyle}>Could not list databases; type a name.</span>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: T.gapXs }}>
+          <span style={labelTextStyle}>Target collection</span>
+          <Autocomplete
+            aria-label="Target collection"
+            value={form.targetCollection}
+            onChange={(v) => onChange({ ...form, targetCollection: v })}
+            data={namespaces.collections}
+            limit={50}
+            placeholder="contacts"
+            styles={{ input: inputStyle }}
+          />
+          {namespaces.collectionsFailed && <span style={hintStyle}>Could not list collections; type a name.</span>}
+        </div>
         <label style={labelStyle}>
           Target field
           <FieldAutocompleteInput

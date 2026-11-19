@@ -31,6 +31,8 @@ import {
   isWriteStage,
   runBlockedReason,
 } from './pipeline';
+import { isUnordered } from './resultScope';
+import { closeRemoved, openAdded, openSet, setMultiOpen, toggleOpenStage } from './stageOpen';
 import { StageAccordion } from './StageAccordion';
 import { OutputPanel, type PreviewStage } from './OutputPanel';
 import { ONE_PANEL_BELOW_PX } from '../sidePanels';
@@ -198,6 +200,7 @@ export function AggregationTab({
   // action (clicked seconds later) reads the pipeline as it is then, not as
   // it was at delete time.
   const stagesRef = useLatest(stages);
+  const stateRef = useLatest(state);
   const onPatchRef = useLatest(onPatch);
   const markDirtyRef = useLatest(markDirty);
   // The one outstanding undo toast for this tab, single-level: a second
@@ -215,7 +218,11 @@ export function AggregationTab({
 
   const onAddStage = (op: StageOp | string, afterIndex?: number) => {
     const next = addStage({ stages, activeStageId: state.activeStageId }, op, afterIndex);
-    onPatch({ stages: next.stages, activeStageId: next.activeStageId });
+    onPatch({
+      stages: next.stages,
+      activeStageId: next.activeStageId,
+      ...(next.activeStageId === null ? {} : openAdded(state, next.activeStageId)),
+    });
     markDirty();
   };
 
@@ -223,7 +230,7 @@ export function AggregationTab({
     const index = stages.findIndex((s) => s.id === id);
     const removedStage = stages[index];
     const next = removeStageOp({ stages, activeStageId: state.activeStageId }, id);
-    onPatch({ stages: next.stages, activeStageId: next.activeStageId });
+    onPatch({ stages: next.stages, activeStageId: next.activeStageId, ...closeRemoved(state, id) });
     markDirty();
     if (!removedStage) return;
     undoToastIdRef.current = notify.info(`Removed stage ${index + 1} (${removedStage.op})`, {
@@ -236,7 +243,11 @@ export function AggregationTab({
             removedStage,
             index,
           );
-          onPatchRef.current({ stages: restored.stages, activeStageId: restored.activeStageId });
+          onPatchRef.current({
+            stages: restored.stages,
+            activeStageId: restored.activeStageId,
+            ...(restored.activeStageId === null ? {} : openAdded(stateRef.current, restored.activeStageId)),
+          });
           markDirtyRef.current();
           undoToastIdRef.current = null;
         },
@@ -246,7 +257,11 @@ export function AggregationTab({
 
   const onDuplicateStage = (id: number) => {
     const next = duplicateStage({ stages, activeStageId: state.activeStageId }, id);
-    onPatch({ stages: next.stages, activeStageId: next.activeStageId });
+    onPatch({
+      stages: next.stages,
+      activeStageId: next.activeStageId,
+      ...(next.activeStageId === null ? {} : openAdded(state, next.activeStageId)),
+    });
     markDirty();
   };
 
@@ -290,7 +305,10 @@ export function AggregationTab({
 
   // The selected card is what the preview shows; null is the Output row.
   const onSelectStage = (id: number) => {
-    onPatch({ activeStageId: state.activeStageId === id ? null : id });
+    onPatch(toggleOpenStage(state, id));
+  };
+  const onToggleMultiOpen = () => {
+    onPatch(setMultiOpen(state, state.multiOpen !== true));
   };
   const onSelect = (id: number | null) => {
     if (id !== state.activeStageId) onPatch({ activeStageId: id });
@@ -718,6 +736,7 @@ export function AggregationTab({
         loading: previewLoading.has(activeStage.id),
         sample: stageResults[activeStage.id]?.sample,
         count: stageResults[activeStage.id]?.count,
+        unordered: isUnordered(stages, activeIndex),
       }
     : null;
   const mac = isMacRenderer();
@@ -739,9 +758,18 @@ export function AggregationTab({
       connectionId: connectionId,
       dbName: dbName,
       collection: collection,
-      recentDocs: state.lastRun?.rows,
     };
-  }, [connectionId, dbName, collection, state.lastRun?.rows]);
+  }, [connectionId, dbName, collection]);
+
+  // The samples a stage's editor may read the fields of the stage before it
+  // from: only those that still match the text that produced them.
+  const freshPreviews = React.useMemo(() => {
+    const out: Record<number, unknown[]> = {};
+    for (const [id, r] of Object.entries(stageResults)) {
+      if (r.sample !== undefined && !staleStageIds.has(Number(id))) out[Number(id)] = r.sample;
+    }
+    return out;
+  }, [stageResults, staleStageIds]);
 
   const onViewChange = (v: ResultViewMode) => onPatch({ outputView: v });
   const onHeightChange = (px: number) => {
@@ -922,6 +950,9 @@ export function AggregationTab({
           <StageAccordion
             stages={stages}
             activeId={state.activeStageId}
+            openIds={openSet(state)}
+            multiOpen={state.multiOpen === true}
+            onToggleMultiOpen={onToggleMultiOpen}
             collection={collection}
             sourceCount={sourceCount}
             outputCount={outputCount}
@@ -931,6 +962,7 @@ export function AggregationTab({
             previewLoading={previewLoading}
             darkMode={darkMode}
             suggestionContext={suggestionContext}
+            freshPreviews={freshPreviews}
             onAdd={onAddStage}
             onToggleActive={onSelectStage}
             onSelect={onSelect}
@@ -971,6 +1003,7 @@ export function AggregationTab({
           outputStale={outputStale}
           running={running}
           pipelineName={state.name ?? null}
+          outputUnordered={isUnordered(stages, stages.length - 1)}
           stage={previewStage}
           onRunToStage={(id) => void onRunToStage(id)}
           onHeightChange={onHeightChange}

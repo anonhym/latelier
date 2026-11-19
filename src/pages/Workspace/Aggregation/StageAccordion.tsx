@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActionIcon, Button, Menu, Tooltip, UnstyledButton } from '@mantine/core';
+import { ActionIcon, Button, Menu, Switch, Tooltip, UnstyledButton } from '@mantine/core';
 import { themeVars } from '../../../theme/themeVars';
 import { I } from '../../../icons';
 import type { Stage, StageOp } from '@shared/types';
@@ -19,7 +19,7 @@ import {
 } from './pipeline';
 import type { SuggestionContext } from '../../../features/fieldSuggestions/types';
 import { ScriptEditor } from '../../../components/ScriptEditor';
-import { stageBodyCompletionSource } from '../../../components/scriptEditor/stageBodyCompletions';
+import { stageBodyCompletionSource, type StageShapeInput } from '../../../components/scriptEditor/stageBodyCompletions';
 import {
   brightenBadgeForDark,
   findOperatorDocs,
@@ -33,7 +33,13 @@ import {
 
 interface AccordionProps {
   stages: Stage[];
+  /** The selected card, which the preview shows; null for the Output row. */
   activeId: number | null;
+  /** The expanded cards. With `multiOpen` off this is the selected card alone. */
+  openIds: ReadonlySet<number>;
+  /** Several cards may be expanded at once. */
+  multiOpen: boolean;
+  onToggleMultiOpen: () => void;
   collection: string;
   sourceCount: number | null;
   outputCount: number | null;
@@ -44,6 +50,8 @@ interface AccordionProps {
   previewLoading: ReadonlySet<number>;
   darkMode: boolean;
   suggestionContext: SuggestionContext | null;
+  /** Each stage's up-to-date preview sample; a stage edited since its preview is absent. */
+  freshPreviews?: Readonly<Record<number, unknown[]>>;
   onAdd: (op: StageOp | string, afterIndex?: number) => void;
   /** Clicking a card's header: selects it, or deselects it when it is already selected. */
   onToggleActive: (id: number) => void;
@@ -69,6 +77,8 @@ function opColor(op: string, dark: boolean) {
     dark,
   );
 }
+
+const NO_PREVIEWS: Readonly<Record<number, unknown[]>> = {};
 
 function fmt(n: number): string {
   return n.toLocaleString('en-US');
@@ -438,12 +448,17 @@ interface StageRowProps {
   stage: Stage;
   index: number;
   total: number;
+  /** The selected card, which the preview shows. */
   active: boolean;
+  /** The card's editor is showing. */
+  expanded: boolean;
   darkMode: boolean;
   count: number | undefined;
   stale: boolean;
   previewLoading: boolean;
   suggestionContext: SuggestionContext | null;
+  /** The pipeline around this stage, for the fields that reach it. */
+  shapeInput: StageShapeInput;
   onToggleActive: () => void;
   /** ↑↓ on the summary button move the selection. */
   onSummaryKeyDown: (e: React.KeyboardEvent) => void;
@@ -468,11 +483,13 @@ function StageRow({
   index,
   total,
   active,
+  expanded,
   darkMode,
   count,
   stale,
   previewLoading,
   suggestionContext,
+  shapeInput,
   onToggleActive,
   onSummaryKeyDown,
   onToggleEnabled,
@@ -503,6 +520,10 @@ function StageRow({
   React.useEffect(() => {
     suggestionContextRef.current = suggestionContext;
   }, [suggestionContext]);
+  const shapeInputRef = React.useRef(shapeInput);
+  React.useEffect(() => {
+    shapeInputRef.current = shapeInput;
+  }, [shapeInput]);
   const stageOpRef = React.useRef(stage.op);
   React.useEffect(() => {
     stageOpRef.current = stage.op;
@@ -515,6 +536,7 @@ function StageRow({
     stageBodyCompletionSource({
       getContext: () => suggestionContextRef.current,
       getStageOp: () => stageOpRef.current,
+      getStageShape: () => shapeInputRef.current,
     });
 
   // Sync external updates only when we're not mid-edit (cleared on blur —
@@ -735,7 +757,7 @@ function StageRow({
         <UnstyledButton
           type="button"
           data-stage-summary={stage.id}
-          aria-expanded={active}
+          aria-expanded={expanded}
           onKeyDown={onSummaryKeyDown}
           onClick={(e) => {
             e.stopPropagation();
@@ -755,7 +777,7 @@ function StageRow({
           {bodyErr ? '(invalid)' : summary}
         </UnstyledButton>
         {/* Collapsed, the count sits in the row; expanded, it is the card's footer. */}
-        {typeof count === 'number' && !active && (
+        {typeof count === 'number' && !expanded && (
           <span
             style={{
               fontSize: T.fsXs,
@@ -829,12 +851,12 @@ function StageRow({
             </Menu.Dropdown>
           </Menu>
           <span style={{ display: 'flex', color: T.textGhost }}>
-            {active ? I.chevU : I.chevD}
+            {expanded ? I.chevU : I.chevD}
           </span>
         </div>
       </div>
 
-      {active && (
+      {expanded && (
         // One fixed height in every state (`.stage-body` in index.css), so an
         // error line or a run elsewhere never moves the cards below this one.
         <div className="stage-body" style={{ boxSizing: 'border-box', borderTop: `1px solid ${T.border}` }}>
@@ -904,7 +926,7 @@ function StageRow({
           </div>
         </div>
       )}
-      {active && typeof count === 'number' && (
+      {expanded && typeof count === 'number' && (
         <div
           title={stale ? 'Stale (edited since last run)' : undefined}
           style={{
@@ -929,6 +951,9 @@ export function StageAccordion(props: AccordionProps) {
   const {
     stages,
     activeId,
+    openIds,
+    multiOpen,
+    onToggleMultiOpen,
     collection,
     sourceCount,
     outputCount,
@@ -938,6 +963,7 @@ export function StageAccordion(props: AccordionProps) {
     previewLoading,
     darkMode,
     suggestionContext,
+    freshPreviews = NO_PREVIEWS,
     onAdd,
     onToggleActive,
     onSelect,
@@ -1038,6 +1064,14 @@ export function StageAccordion(props: AccordionProps) {
         {sourceCount !== null && (
           <span style={{ fontSize: T.fsXs, color: T.textMuted }}>{fmt(sourceCount)} documents</span>
         )}
+        <Switch
+          size="xs"
+          label="Several open"
+          aria-label="Allow several stages open"
+          checked={multiOpen}
+          onChange={onToggleMultiOpen}
+          styles={{ root: { marginLeft: 'auto' }, label: { fontSize: T.fsXs, color: T.textMuted } }}
+        />
       </div>
 
       {stages.map((stage, idx) => (
@@ -1048,11 +1082,18 @@ export function StageAccordion(props: AccordionProps) {
             index={idx}
             total={stages.length}
             active={activeId === stage.id}
+            expanded={openIds.has(stage.id)}
             darkMode={darkMode}
             count={stageCounts[stage.id]}
             stale={staleStageIds.has(stage.id)}
             previewLoading={previewLoading.has(stage.id)}
             suggestionContext={suggestionContext}
+            shapeInput={{
+              stages,
+              index: idx,
+              // The previous enabled stage's preview names the fields that reach this one.
+              previewDocs: freshPreviews[stages.slice(0, idx).findLast((s) => s.enabled)?.id ?? -1],
+            }}
             onToggleActive={() => onToggleActive(stage.id)}
             onSummaryKeyDown={(e) => onSelectionKey(e, stage.id)}
             onToggleEnabled={() => onToggleEnabled(stage.id)}
