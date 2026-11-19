@@ -174,6 +174,17 @@ export class ConnectionRepo {
     return this.listStmt.all() as ConnectionRow[];
   }
 
+  /** Each member Connection's Family, keyed by Connection id; Connections with no Family are absent. */
+  familiesByConnection(): Map<string, { familyId: string; familyName: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT c.id AS id, f.id AS family_id, f.name AS family_name
+         FROM connections c JOIN connection_families f ON f.id = c.family_id`,
+      )
+      .all() as Array<{ id: string; family_id: string; family_name: string }>;
+    return new Map(rows.map((r) => [r.id, { familyId: r.family_id, familyName: r.family_name }]));
+  }
+
   touchLastUsed(id: string): void {
     const now = new Date().toISOString();
     this.touchStmt.run(now, now, id);

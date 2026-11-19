@@ -41,8 +41,10 @@ export class ConnectionService {
 
   list(): ConnectionSummary[] {
     const rows = this.repo.list();
+    const families = this.repo.familiesByConnection();
     return rows.map((row) => {
       const runtime = this.pool.status(row.id);
+      const family = families.get(row.id);
       return {
         id: row.id,
         name: row.name,
@@ -57,6 +59,8 @@ export class ConnectionService {
         connectedAt: runtime.connectedAt,
         readOnly: row.read_only === 1,
         lostReason: runtime.lostReason,
+        familyId: family?.familyId ?? null,
+        familyName: family?.familyName ?? null,
       };
     });
   }

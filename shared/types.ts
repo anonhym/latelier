@@ -179,6 +179,13 @@ export interface ConnectionSummary {
   readOnly: boolean;
   /** See `ConnectionRuntime.lostReason`. */
   lostReason?: string;
+  /**
+   * The Connection Family this Connection belongs to. Main always sends both
+   * (`null` for none); they are optional only so a hand-built summary in a
+   * fixture need not name them.
+   */
+  familyId?: string | null;
+  familyName?: string | null;
 }
 
 /**
@@ -1098,7 +1105,8 @@ export interface ScriptRunResultWire {
  */
 export interface ReferenceRule {
   id: string;
-  connectionId: string;
+  /** Who the rule belongs to: one Connection, or a Connection Family it shares across its members. */
+  owner: SettingOwner;
   sourceDb: string;
   sourceCollection: string;
   /** Dotted field path on the source document (e.g. `contact_id`, `items.productId`). */
@@ -1117,7 +1125,7 @@ export interface ReferenceRule {
 }
 
 export interface ReferenceRuleCreateInput {
-  connectionId: string;
+  owner: SettingOwner;
   sourceDb: string;
   sourceCollection: string;
   sourceField: string;
@@ -1141,8 +1149,122 @@ export type ReferenceRuleUpdateInput = Partial<
   >
 >;
 
+// ─── Connection Families (X23) ───────────────────────────────────────────────
+
+export interface ConnectionFamily {
+  id: string;
+  /** Unique (case-insensitive), trimmed, 1-80 characters. */
+  name: string;
+  /** Connection ids, sorted by Connection name via `localeCompare`. */
+  memberIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Who a stored setting belongs to. Exactly one. */
+export type SettingOwner = { connectionId: string } | { familyId: string };
+
+/** How a rule or Row Summary reached the Connection that is reading it. */
+export type SettingOrigin = 'local' | 'shared' | 'override';
+
+/** What a Connection actually uses once its own rules and its Family's are resolved. */
+export interface EffectiveReferenceRule extends ReferenceRule {
+  origin: SettingOrigin;
+  /** On an `override`, the shared rule it replaces. */
+  sharedRuleId?: string;
+}
+
+/** The fields a collapsed Tree row shows, saved per Collection. */
+export interface RowSummary {
+  id: string;
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+  /** Dotted paths, 1-4 entries, no duplicates, never `_id`. */
+  fields: string[];
+  updatedAt: string;
+}
+
+export interface EffectiveRowSummary extends RowSummary {
+  origin: SettingOrigin;
+  /** On an `override`, the shared Row Summary it replaces. */
+  sharedId?: string;
+}
+
+export interface FamilyCreateInput {
+  name: string;
+  memberIds?: string[];
+}
+
+export interface FamilyRenameInput {
+  id: string;
+  name: string;
+}
+
+export interface FamilySetMembershipInput {
+  connectionIds: string[];
+  /** The Family to join, or `null` to leave the current one. */
+  familyId: string | null;
+  /** Copy the shared settings a leaving Connection has no Override for onto it as local ones. */
+  keepAsLocal?: boolean;
+}
+
+export interface FamilyDeleteInput {
+  id: string;
+  /** Copy the shared settings onto every member as local ones before they go. */
+  keepAsLocal: boolean;
+}
+
+/** The members whose own row replaces one shared setting. */
+export interface FamilyRuleOverride {
+  ruleId: string;
+  connectionIds: string[];
+}
+
+export interface FamilyRowSummaryOverride {
+  summaryId: string;
+  connectionIds: string[];
+}
+
+export interface FamilyOverrides {
+  rules: FamilyRuleOverride[];
+  rowSummaries: FamilyRowSummaryOverride[];
+}
+
+export interface RefsOverrideInput {
+  connectionId: string;
+  sharedRuleId: string;
+  /** Applied on top of the shared rule; `{ enabled: false }` switches it off on this Connection only. */
+  patch: ReferenceRuleUpdateInput;
+}
+
+export interface RowSummaryGetInput {
+  connectionId: string;
+  dbName: string;
+  collection: string;
+}
+
+export interface RowSummarySetInput {
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+  fields: string[];
+}
+
+export interface RowSummaryClearInput {
+  owner: SettingOwner;
+  dbName: string;
+  collection: string;
+}
+
 export interface ReferenceResolveInput {
   ruleId: string;
+  /**
+   * The Connection to read the target through. Required for a rule a Family
+   * owns, since the rule alone names no server; for a Connection-owned rule it
+   * may be left out and defaults to the owner.
+   */
+  connectionId?: string;
   /** EJSON canonical string of the field's value (ObjectId, string, etc.). */
   valueEjson: string;
 }
