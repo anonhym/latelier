@@ -31,6 +31,7 @@ import { allExpandablePaths } from './docFieldFlatten';
 import { enterFields } from './enterFields';
 import { useAddToFilter } from './useAddToFilter';
 import { useCopiedFlash } from './useCopiedFlash';
+import { useResultCopyOrigin } from './useResultCopyOrigin';
 import { useDeepPaths } from './useDeepPaths';
 import { summaryPairs } from '../../../features/rowSummary/rowSummaryDraft';
 import { useRowSummary } from '../../../features/rowSummary/useRowSummary';
@@ -500,7 +501,8 @@ export function TreeView({
   // Falls back to local state when rendered standalone (no provider mounted).
   const selection = useResultSelection(documents);
   const { deepPaths, toggleDeepPath, setDeepPathsExpanded } = useDeepPaths(documents);
-  const { copied: copiedPath, flash } = useCopiedFlash<string>();
+  const { copied: copiedPath, flash } = useCopiedFlash<string>(meta);
+  const onResultCopy = useResultCopyOrigin(meta);
   const [contextMenu, setContextMenu] = React.useState<{
     x: number;
     y: number;
@@ -602,7 +604,7 @@ export function TreeView({
       if (copyShortcutOf(e) !== null) {
         if (documents.length === 0) return;
         e.preventDefault();
-        void copyDocument(documents[roving.activeIndex], copyFormat);
+        void copyDocument(documents[roving.activeIndex], copyFormat, meta);
         return;
       }
       if (isContextMenuKey(e)) {
@@ -802,6 +804,7 @@ export function TreeView({
           onFocus={roving.containerProps.onFocus}
           onBlur={roving.containerProps.onBlur}
           onKeyDown={handleTreeKeyDown}
+          onCopy={onResultCopy}
           className="tree-view-no-scroll-anchor"
           rowComponent={DocRowImpl}
           rowCount={documents.length}
@@ -861,6 +864,7 @@ export function TreeView({
               isReadOnly: meta.isReadOnly,
               filterBarValid,
               onAddToFilter: handleAddToFilter,
+              origin: meta,
             }),
           }}
           onClose={closeContextMenu}
@@ -882,6 +886,7 @@ export function TreeView({
               onCollapseAll: handleCollapseAll,
               isReadOnly: meta.isReadOnly,
               isView: meta.isView,
+              origin: meta,
             }),
           }}
           onClose={closeDocMenu}

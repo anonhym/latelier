@@ -25,6 +25,7 @@ import {
 import { AboutUpdatesSection } from '../features/updates/AboutUpdatesSection';
 import { useUpdateState } from '../features/updates/updateStateContext';
 import type { ResultViewMode } from '@shared/types';
+import { CROSS_PASTE_PREF_KEY } from '../state/pasteWarning';
 
 const RESTORE_TABS_KEY = 'ui.workspace.restoreTabs';
 const CONFIRM_DESTRUCTIVE_KEY = CONFIRM_DESTRUCTIVE_PREF_KEY;
@@ -138,6 +139,32 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
     } catch (err) {
       setConfirmDestructive(!next);
       notify.error(getErrorMessage(err, 'Failed to save the destructive script setting.'));
+    }
+  };
+
+  // Unset means warn, so the switch starts on (X25 §5).
+  const [crossPasteWarning, setCrossPasteWarning] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.prefs
+      .get<boolean>(CROSS_PASTE_PREF_KEY)
+      .then((v) => {
+        if (!cancelled) setCrossPasteWarning(v !== false);
+      })
+      .catch((err) => notify.error(getErrorMessage(err, 'Failed to read the paste warning setting.')));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCrossPasteWarning = async (next: boolean) => {
+    setCrossPasteWarning(next);
+    try {
+      await api.prefs.set(CROSS_PASTE_PREF_KEY, next);
+    } catch (err) {
+      setCrossPasteWarning(!next);
+      notify.error(getErrorMessage(err, 'Failed to save the paste warning setting.'));
     }
   };
 
@@ -428,6 +455,25 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
                 aria-describedby="confirm-destructive-description"
                 checked={confirmDestructive}
                 onChange={(e) => void handleConfirmDestructive(e.currentTarget.checked)}
+              />
+            </Group>
+
+            <Group justify="space-between" align="flex-start" wrap="nowrap">
+              <Stack gap="var(--atelier-gap-xs)" style={{ flex: 1 }}>
+                <Text size="sm" fw={600}>
+                  Warn when pasting a value copied from another connection
+                </Text>
+                <Text id="cross-paste-description" size="xs" c="dimmed">
+                  Connections reach separate servers, so an id copied on one finds nothing, or the wrong
+                  document, on another. The warning shows under the query you pasted into; the paste is
+                  never blocked.
+                </Text>
+              </Stack>
+              <Switch
+                aria-label="Warn when pasting a value copied from another connection"
+                aria-describedby="cross-paste-description"
+                checked={crossPasteWarning}
+                onChange={(e) => void handleCrossPasteWarning(e.currentTarget.checked)}
               />
             </Group>
           </Section>

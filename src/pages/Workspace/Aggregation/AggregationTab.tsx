@@ -57,6 +57,7 @@ import { SavePipelineModal } from './SavePipelineModal';
 import { pipelineJsonForCopy } from '../builderToPipeline';
 import { aggregateCode, CODE_LANGS, type CodeLang } from '../../../utils/driverCode';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { settlePasteWarning } from '../../../state/pasteWarning';
 import { consumeTabRequest, subscribeTabRequests, tabRequested } from '../tabRequest';
 
 /** The stages column beside the preview (A01 §9.1): its width at 1440 and its limits. */
@@ -376,6 +377,8 @@ export function AggregationTab({
             pipelineSig: runSigs.pipeline,
           };
           onPatch({ lastRun });
+          // A Cross-Connection Paste warning ends with the Run it was waiting for.
+          if (tabId !== undefined) settlePasteWarning(tabId, result.rows.length);
           previewGenRef.current += 1;
           setPreviews({});
         }
@@ -462,7 +465,7 @@ export function AggregationTab({
         }
       }
     },
-    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, tabKey, tabKeyRef, lastRunRef],
+    [connectionId, dbName, collection, repairStageBodies, validation.ok, onPatch, tabKey, tabKeyRef, lastRunRef, tabId],
   );
 
   // Every way of asking for a run that cannot start — the fake-disabled
@@ -962,6 +965,7 @@ export function AggregationTab({
             previewLoading={previewLoading}
             darkMode={darkMode}
             suggestionContext={suggestionContext}
+            pasteTarget={tabId === undefined ? undefined : { tabId, connectionId }}
             freshPreviews={freshPreviews}
             onAdd={onAddStage}
             onToggleActive={onSelectStage}
@@ -1013,6 +1017,7 @@ export function AggregationTab({
           onSaveAsView={onSaveAsView}
           onRun={onRun}
           runBlockedReason={blockedReason}
+          source={{ connectionId, dbName, collection }}
         />
       </div>
 

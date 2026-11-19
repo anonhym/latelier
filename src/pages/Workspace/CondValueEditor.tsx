@@ -26,6 +26,7 @@ import { pickHelperLine, type HelperCandidate } from './helperLine';
 import { splitPastedList } from './listPaste';
 import { useGrowToLines } from './useGrowToLines';
 import { RegexOptionToggles } from './RegexOptionToggles';
+import { useCrossPaste } from './crossPaste';
 import { regexOptionsText } from './regexOptions';
 import { fieldTypeSplit, type TypeShare } from './fieldTypeSplit';
 import {
@@ -242,11 +243,14 @@ function ValueBox({
   invalid,
   placement,
   onPasteCapture,
+  onPasteSeen,
   children,
 }: {
   invalid: boolean;
   placement: React.CSSProperties;
   onPasteCapture?: React.ClipboardEventHandler<HTMLDivElement>;
+  /** Observes every paste into the box, before `onPasteCapture` can stop it. Never prevents it. */
+  onPasteSeen?: React.ClipboardEventHandler<HTMLDivElement>;
   children: React.ReactNode;
 }) {
   const T = themeVars;
@@ -254,7 +258,10 @@ function ValueBox({
   return (
     <div
       data-value-box=""
-      onPasteCapture={onPasteCapture}
+      onPasteCapture={(e) => {
+        onPasteSeen?.(e);
+        onPasteCapture?.(e);
+      }}
       onFocus={() => setFocused(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
@@ -352,6 +359,7 @@ export function CondValueEditor({
   sampleWarning?: string;
 }) {
   const T = themeVars;
+  const onValuePaste = useCrossPaste('builder');
   const kind = condValueKind(node);
   const split = React.useMemo(() => (sampleEntry ? fieldTypeSplit(sampleEntry) : []), [sampleEntry]);
   const isListOp = ARRAY_VALUE_OPS.has(node.op);
@@ -635,7 +643,7 @@ export function CondValueEditor({
     };
     return (
       <>
-        <ValueBox invalid={!!problem} placement={boxPlacement} onPasteCapture={onPasteChips}>
+        <ValueBox invalid={!!problem} placement={boxPlacement} onPasteCapture={onPasteChips} onPasteSeen={onValuePaste}>
           <TagsInput
             aria-label="Values"
             ref={chipInputRef}
@@ -720,7 +728,7 @@ export function CondValueEditor({
 
   return (
     <>
-      <ValueBox invalid={!!problem} placement={boxPlacement}>
+      <ValueBox invalid={!!problem} placement={boxPlacement} onPasteSeen={onValuePaste}>
         <Textarea
           ref={valueInputRef}
           variant="unstyled"

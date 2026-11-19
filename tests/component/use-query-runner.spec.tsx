@@ -8,6 +8,7 @@ import type { RunnerTarget } from '../../src/pages/Workspace/useQueryRunner';
 import { CANCELLED_NOTICE_MS, _resetRunClocksForTests, useRunClock } from '../../src/pages/Workspace/runClock';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import type { CollectionTabState } from '@shared/types';
+import { getPasteWarning, showPasteWarning } from '../../src/state/pasteWarning';
 
 function makeState(overrides: Partial<CollectionTabState> = {}): CollectionTabState {
   return {
@@ -1667,5 +1668,37 @@ describe('useQueryRunner — the run clock', () => {
     // two ticks of the new count, the running clock is still there.
     act(() => { vi.advanceTimersByTime(CANCELLED_NOTICE_MS - 300); });
     expect(clock.result.current?.kind).toBe('running');
+  });
+});
+
+describe('useQueryRunner: the Cross-Connection Paste warning', () => {
+  const FROM = { connectionId: 'other', dbName: 'shop', collection: 'orders' };
+
+  async function runWith(find: IpcApi['query']['find']) {
+    installAtelierMock({ query: { find, count: async () => ({ count: 0 }) } });
+    showPasteWarning('t1', 'filter', FROM);
+    const { result } = renderHook(() =>
+      useQueryRunner({ active: makeTarget(), patchCollectionState: vi.fn(), loadingDelayMs: 0 }),
+    );
+    await act(async () => {
+      await result.current.run();
+    });
+  }
+
+  it('is cleared by a run that returns documents', async () => {
+    await runWith(async () => ({ documents: [{ _id: 1 }], durationMs: 1, hasMore: false }));
+    expect(getPasteWarning('t1')).toBeUndefined();
+  });
+
+  it('turns emphatic after a run that returns none', async () => {
+    await runWith(async () => ({ documents: [], durationMs: 1, hasMore: false }));
+    expect(getPasteWarning('t1')).toMatchObject({ surface: 'filter', emphasised: true });
+  });
+
+  it('is left alone by a run that fails: an error is not an empty result', async () => {
+    await runWith(async () => {
+      throw Object.assign(new Error('boom'), { code: 'MONGO_OP' });
+    });
+    expect(getPasteWarning('t1')).toMatchObject({ emphasised: false });
   });
 });

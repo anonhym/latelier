@@ -66,6 +66,12 @@ export interface ScriptEditorProps {
    * context.
    */
   completionSource?: () => CompletionSource;
+  /**
+   * Observes text pasted into the editor, as plain text. The paste itself is
+   * never prevented. Absent for the shell and script editors, which are not
+   * query surfaces.
+   */
+  onPaste?: (text: string) => void;
 }
 
 /**
@@ -89,6 +95,7 @@ export function ScriptEditor({
   connectionId,
   dbName,
   completionSource,
+  onPaste,
 }: ScriptEditorProps) {
   const isDark = useIsDark();
   const hostRef = React.useRef<HTMLDivElement | null>(null);
@@ -102,6 +109,7 @@ export function ScriptEditor({
   const onChangeRef = React.useRef(onChange);
   const onRunRef = React.useRef(onRun);
   const onRunAltRef = React.useRef(onRunAlt);
+  const onPasteRef = React.useRef(onPaste);
   const collectionsRef = React.useRef<readonly string[]>(collections ?? []);
   const connectionIdRef = React.useRef<string | undefined>(connectionId);
   const dbNameRef = React.useRef<string | undefined>(dbName);
@@ -114,6 +122,9 @@ export function ScriptEditor({
   React.useEffect(() => {
     onRunAltRef.current = onRunAlt;
   }, [onRunAlt]);
+  React.useEffect(() => {
+    onPasteRef.current = onPaste;
+  }, [onPaste]);
   React.useEffect(() => {
     collectionsRef.current = collections ?? [];
   }, [collections]);
@@ -215,6 +226,13 @@ export function ScriptEditor({
         ),
         updateListener,
         completionMarker,
+        // Returning false leaves the paste to CodeMirror: this only watches.
+        EditorView.domEventHandlers({
+          paste: (event) => {
+            onPasteRef.current?.(event.clipboardData?.getData('text/plain') ?? '');
+            return false;
+          },
+        }),
         EditorView.theme({
           '&': { height: '100%', fontSize: 'var(--atelier-editor-font-size, 13px)' },
           '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },

@@ -7,6 +7,7 @@ import { fieldValueEntriesFromFilter } from '../../features/fieldSuggestions/fie
 import { queryRunKey } from '../../utils/queryRunKey';
 import { repairOnCommit } from '../../utils/shellSyntax';
 import { cancelRunClock, settleRunClock, startRunClock } from './runClock';
+import { settlePasteWarning } from '../../state/pasteWarning';
 import {
   compileFindOptions,
   currentFilterJson,
@@ -343,6 +344,8 @@ export function useQueryRunner({
           lastRunQueryKey: queryKey,
           lastValidQuery: { queryRaw: state.queryRaw, builder: state.builder },
         });
+        // A Cross-Connection Paste warning ends with the Run it was waiting for.
+        settlePasteWarning(target.id, findResult.documents.length);
         // Fire-and-forget, like the count below: the plan badge's data. The
         // result never waits on it, and a failed explain only means no badge.
         if (!keepPlan) {
