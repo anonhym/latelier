@@ -227,6 +227,28 @@ describe('Agent read tools', () => {
     });
   });
 
+  describe('no operation may spill to disk', () => {
+    // Every command an Agent starts that runs an aggregation, whichever tool sent it.
+    const aggregating: Array<[string, (fx: ReadFixture) => Promise<unknown>]> = [
+      ['count with a filter', (fx) => fx.call('count', { ...fx.on('orders'), filter: { group: 0 } })],
+      ['aggregate', (fx) => fx.call('aggregate', { ...fx.on('orders'), pipeline: [{ $match: { group: 0 } }] })],
+      ['collection_schema', (fx) => fx.call('collection_schema', fx.on('orders'))],
+      ['explain_aggregate', (fx) => fx.call('explain_aggregate', { ...fx.on('orders'), pipeline: [{ $match: { group: 0 } }] })],
+    ];
+
+    it.each(aggregating)('%s sends allowDiskUse: false', async (_label, run) => {
+      f.m.commands.length = 0;
+      const reply = (await run(f)) as { isError?: boolean };
+      expect(reply.isError).toBeUndefined();
+      const sent = f.m.commands.filter((c) => c.name === 'aggregate' || c.name === 'explain');
+      expect(sent.length).toBeGreaterThan(0);
+      for (const c of sent) {
+        const body = (c.name === 'explain' ? c.command.explain : c.command) as Record<string, unknown>;
+        expect(body.allowDiskUse).toBe(false);
+      }
+    });
+  });
+
   describe('aggregate', () => {
     it('runs a pipeline and appends a $limit one past the limit', async () => {
       const r = await f.call('aggregate', { ...f.on('orders'), pipeline: [{ $match: { group: 1 } }, { $sort: { n: 1 } }], limit: 5 });

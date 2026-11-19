@@ -133,9 +133,10 @@ export async function runCount(input: CountInput, ctx: ToolContext): Promise<Too
     const options = { ...readOptions, signal: lease.signal };
     // No filter: the collection's own metadata, which costs nothing and says so.
     const estimate = filter === undefined;
+    // `countDocuments` is an aggregation underneath: it takes the same no-spill rule as every other.
     const total = estimate
       ? await collection.estimatedDocumentCount(options)
-      : await collection.countDocuments(filter, options);
+      : await collection.countDocuments(filter, { ...options, allowDiskUse: false });
     lease.assertStill();
     return { text: wrap(JSON.stringify({ count: total, estimate })), count: total, estimate };
   });
