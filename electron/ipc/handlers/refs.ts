@@ -3,7 +3,7 @@ import { IPC_CHANNELS } from '@shared/ipc';
 import type { Router } from '../router.ts';
 import { NonEmpty, SettingOwnerSchema, zodValidator } from '../validators.ts';
 import type { ReferenceRulesService } from '../../services/ReferenceRulesService.ts';
-import { MAX_NAME, MAX_PATHS, MAX_TEMPLATE } from '../../services/familyExportFormat.ts';
+import { MAX_NAME, MAX_PATHS, MAX_TEMPLATE, TargetField } from '../../services/familyExportFormat.ts';
 
 // What a rule may hold is what a Family Export file can carry back in.
 const Name = NonEmpty.max(MAX_NAME);
@@ -31,7 +31,7 @@ const CreateInputSchema = z.object({
   sourceField: Name,
   targetDb: Name,
   targetCollection: Name,
-  targetField: Name.optional(),
+  targetField: TargetField.optional(),
   projection: Projection.optional(),
   displayTemplate: Template.optional(),
   enabled: z.boolean().optional(),
@@ -40,7 +40,7 @@ const CreateInputSchema = z.object({
 const PatchSchema = z.object({
   targetDb: Name.optional(),
   targetCollection: Name.optional(),
-  targetField: Name.optional(),
+  targetField: TargetField.optional(),
   projection: Projection.optional(),
   displayTemplate: Template.optional(),
   enabled: z.boolean().optional(),

@@ -13,6 +13,7 @@ import type {
 } from '@shared/types';
 import { NotFoundError, ValidationError } from '../errors.ts';
 import { effectiveRules } from './effectiveRules.ts';
+import { targetFieldProblem } from './familyExportFormat.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { ejsonEncode, parseEjsonField } from '../mongo/ejson.ts';
 import type { MongoPool } from '../mongo/MongoPool.ts';
@@ -253,6 +254,9 @@ export class ReferenceRulesService {
     if (!rule) {
       throw new ValidationError(`reference rule ${stored.id} does not apply to connection ${connectionId}`);
     }
+    // A row saved before the handlers refused such a field is still never run as an operator query.
+    const fieldProblem = targetFieldProblem(rule.targetField);
+    if (fieldProblem !== null) throw new ValidationError(`reference rule ${stored.id}: ${fieldProblem}`);
     const value = parseEjsonField<unknown>(input.valueEjson, 'valueEjson');
     const db = await this.pool.readDb(connectionId, rule.targetDb);
     const coll = db.collection(rule.targetCollection);

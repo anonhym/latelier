@@ -271,4 +271,14 @@ describe('familyFileName', () => {
     expect(file.referenceRules[0]!.projection).toEqual(['a', 'b']);
     expect(file.referenceRules[0]!.displayTemplate).toBeUndefined();
   });
+
+  it.each(['$where', '$expr', 'a.$where', '.a', 'a.', 'a..b'])(
+    'refuses a rule whose target field %j cannot be a filter key',
+    (field) => {
+      const raw = valid();
+      const rules = raw.referenceRules as Record<string, unknown>[];
+      rules[0] = { ...rules[0], targetField: field };
+      expect(refusal(JSON.stringify(raw))).toMatch(/target field/);
+    },
+  );
 });

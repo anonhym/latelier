@@ -755,4 +755,17 @@ describe('ReferenceRulesService', () => {
     expect(byField.contact_id?.targetCollection).toBe('contacts');
     expect(byField.productId?.targetCollection).toBe('products');
   });
+
+  it('never runs a stored rule whose target field is an operator as a query', async () => {
+    const rule = svc.create({
+      owner: { connectionId: CONN_ID },
+      sourceDb: DB_NAME,
+      sourceCollection: 'orders',
+      sourceField: 'item_code',
+      targetDb: DB_NAME,
+      targetCollection: 'items',
+      targetField: '$where',
+    });
+    await expect(svc.resolve({ ruleId: rule.id, valueEjson: '"return true"' })).rejects.toThrow(/target field/);
+  });
 });

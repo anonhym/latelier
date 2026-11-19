@@ -50,6 +50,25 @@ export const MAX_TEMPLATE = 2000;
 export const MAX_PATHS = 200;
 
 const Name = z.string().min(1).max(MAX_NAME);
+
+/**
+ * Why a rule's target field cannot be used as a filter key, or null when it can.
+ * The field becomes the key of a Mongo filter, so a `$`-led segment would turn
+ * a chip click into an operator query (`$where` runs server-side script) built
+ * from document data, and an empty segment is a path Mongo rejects.
+ */
+export function targetFieldProblem(field: string): string | null {
+  for (const segment of field.split('.')) {
+    if (segment === '') return 'target field has an empty path segment';
+    if (segment.startsWith('$')) return 'target field cannot start a path segment with "$"';
+  }
+  return null;
+}
+
+export const TargetField = Name.superRefine((field, ctx) => {
+  const problem = targetFieldProblem(field);
+  if (problem !== null) ctx.addIssue({ code: 'custom', message: problem });
+});
 const Paths = z.array(z.string().max(MAX_NAME)).max(MAX_PATHS);
 // A rule's projection is cleaned as the rule service cleans its own input (trimmed, no blanks, no repeats, order kept), so a hand-edited file cannot store a path Mongo rejects.
 const Projection = Paths.transform((paths) => Array.from(new Set(paths.map((p) => p.trim()).filter((p) => p.length > 0))));
@@ -60,7 +79,7 @@ const RuleSchema = z.strictObject({
   sourceField: Name,
   targetDb: Name,
   targetCollection: Name,
-  targetField: Name,
+  targetField: TargetField,
   projection: Projection,
   // A blank template is no template, as the rule service stores it.
   displayTemplate: z

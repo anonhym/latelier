@@ -130,6 +130,21 @@ describe('refs:* channels via router', () => {
       expect(env.error.code).toBe('VALIDATION');
     });
 
+    it.each(['$where', '$expr', 'a.$where', '.a', 'a.', 'a..b'])(
+      'refuses a target field of %j with VALIDATION, on create and on update',
+      async (field) => {
+        const created = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ targetField: field }));
+        expect(created.ok).toBe(false);
+        if (created.ok) return;
+        expect(created.error.code).toBe('VALIDATION');
+        const rule = await createRule();
+        const updated = await shim.invoke(IPC_CHANNELS.refsUpdate, { id: rule.id, patch: { targetField: field } });
+        expect(updated.ok).toBe(false);
+        if (updated.ok) return;
+        expect(updated.error.code).toBe('VALIDATION');
+      },
+    );
+
     it('answers NOT_FOUND for a family that does not exist', async () => {
       const env = await shim.invoke(IPC_CHANNELS.refsCreate, ruleInput({ owner: { familyId: 'no-such-family' } }));
       expect(env.ok).toBe(false);
