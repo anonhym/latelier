@@ -128,6 +128,9 @@ export class MetaService {
   }
 
   async listCollections(input: ListCollectionsInput): Promise<CollectionInfo[]> {
+    // Taken before the first await: a repoint that lands while this listing is
+    // in flight must not have the old server's figures stored afterwards.
+    const generation = this.counts.generation(input.connectionId);
     const client = await this.pool.readClient(input.connectionId);
     const db = client.db(input.dbName);
     const listCursor = db.listCollections({}, { nameOnly: false });
@@ -139,7 +142,9 @@ export class MetaService {
     }
     const includeStats = input.includeStats !== false;
     if (includeStats) {
-      this.counts.deleteMissing(input.connectionId, input.dbName, new Set(specs.map((s) => s.name)));
+      if (generation === this.counts.generation(input.connectionId)) {
+        this.counts.deleteMissing(input.connectionId, input.dbName, new Set(specs.map((s) => s.name)));
+      }
     }
     return mapWithConcurrency(specs, LIST_COLLECTIONS_CONCURRENCY, async (s): Promise<CollectionInfo> => {
       const info: CollectionInfo = {
@@ -165,7 +170,7 @@ export class MetaService {
           ...(info.sizeBytes !== undefined ? { sizeBytes: info.sizeBytes } : {}),
           ...(info.indexCount !== undefined ? { indexCount: info.indexCount } : {}),
           ...(info.lastModified ? { lastModified: info.lastModified } : {}),
-        });
+        }, generation);
       } catch (err) {
         // One collection's stats must not sink the whole list the navigator
         // blocks on. Its figures stay absent, which the UI shows as a dash:

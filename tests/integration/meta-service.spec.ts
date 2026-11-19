@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Collection, Db, MongoClient } from 'mongodb';
+import { AggregationCursor, Collection, Db, MongoClient } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { MetaService } from '../../electron/mongo/MetaService';
 import { CollectionAdminService } from '../../electron/mongo/CollectionAdminService';
@@ -192,6 +192,34 @@ describe('MetaService', () => {
       await setup();
       await svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
       await connSvc.update(connId, { host: '127.0.0.1' === hp.host ? 'localhost' : '127.0.0.1' });
+      const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
+      const products = cols.find((c) => c.name === 'products')!;
+      expect(products.documentCount).toBeUndefined();
+      expect(products.countsCached).toBeUndefined();
+    });
+
+    it('does not store figures from a full listing that settles after the connection was repointed', async () => {
+      await setup();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const original = AggregationCursor.prototype.toArray;
+      const delayed = vi.spyOn(AggregationCursor.prototype, 'toArray').mockImplementation(async function (this: AggregationCursor) {
+        await gate;
+        return original.call(this);
+      });
+      try {
+        const inFlight = svc.listCollections({ connectionId: connId, dbName: 'shopdb' });
+        // Let the listing reach its first stats read, then repoint the connection.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        pool.emit('connection-identity-changed', connId);
+        release();
+        await inFlight;
+      } finally {
+        release();
+        delayed.mockRestore();
+      }
       const cols = await svc.listCollections({ connectionId: connId, dbName: 'shopdb', includeStats: false });
       const products = cols.find((c) => c.name === 'products')!;
       expect(products.documentCount).toBeUndefined();

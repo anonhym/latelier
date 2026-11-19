@@ -14,6 +14,7 @@ export interface CachedCollectionStats {
  */
 export class CollectionCountCache {
   private byConnection = new Map<string, Map<string, CachedCollectionStats>>();
+  private generations = new Map<string, number>();
 
   private static key(dbName: string, collection: string): string {
     return `${dbName}\u0000${collection}`;
@@ -23,7 +24,23 @@ export class CollectionCountCache {
     return this.byConnection.get(connectionId)?.get(CollectionCountCache.key(dbName, collection));
   }
 
-  set(connectionId: string, dbName: string, collection: string, stats: CachedCollectionStats): void {
+  /**
+   * Bumped every time the connection is cleared. A reader that started before
+   * a clear passes the value it saw back to `set`, so figures read from the
+   * old server cannot be stored under the repointed connection.
+   */
+  generation(connectionId: string): number {
+    return this.generations.get(connectionId) ?? 0;
+  }
+
+  set(
+    connectionId: string,
+    dbName: string,
+    collection: string,
+    stats: CachedCollectionStats,
+    readAtGeneration?: number,
+  ): void {
+    if (readAtGeneration !== undefined && readAtGeneration !== this.generation(connectionId)) return;
     let perConnection = this.byConnection.get(connectionId);
     if (!perConnection) {
       perConnection = new Map();
@@ -45,5 +62,6 @@ export class CollectionCountCache {
   /** The connection was deleted or now points somewhere else: nothing cached is its. */
   clearConnection(connectionId: string): void {
     this.byConnection.delete(connectionId);
+    this.generations.set(connectionId, this.generation(connectionId) + 1);
   }
 }

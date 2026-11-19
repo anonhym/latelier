@@ -30,4 +30,14 @@ describe('CollectionCountCache', () => {
     expect(cache.get('c1', 'shop', 'gone')).toBeUndefined();
     expect(cache.get('c1', 'shop2', 'gone')).toEqual({ documentCount: 3 });
   });
+
+  it('ignores a write from a reader that started before the connection was cleared', () => {
+    const cache = new CollectionCountCache();
+    const before = cache.generation('c1');
+    cache.clearConnection('c1');
+    cache.set('c1', 'shop', 'orders', { documentCount: 9 }, before);
+    expect(cache.get('c1', 'shop', 'orders')).toBeUndefined();
+    cache.set('c1', 'shop', 'orders', { documentCount: 3 }, cache.generation('c1'));
+    expect(cache.get('c1', 'shop', 'orders')).toEqual({ documentCount: 3 });
+  });
 });
