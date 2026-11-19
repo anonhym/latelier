@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor } from '../helpers/render';
-import type { ReferenceRule } from '@shared/types';
+import type { EffectiveReferenceRule } from '@shared/types';
 import { ReferenceRulesEditor } from '../../src/features/references/ReferenceRulesEditor';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 
@@ -10,7 +10,8 @@ function withTheme(ui: React.ReactElement) {
   return ui;
 }
 
-const RULE: ReferenceRule = {
+const RULE: EffectiveReferenceRule = {
+  origin: 'local',
   id: 'rule-1',
   owner: { connectionId: 'conn-1' },
   sourceDb: 'shop',

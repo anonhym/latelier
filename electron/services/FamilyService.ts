@@ -5,6 +5,7 @@ import type {
   FamilyDeleteInput,
   FamilyOverrides,
   FamilyRenameInput,
+  FamilySettings,
   FamilySetMembershipInput,
   ReferenceRule,
 } from '@shared/types';
@@ -109,6 +110,15 @@ export class FamilyService {
       }
       this.families.deleteById(family.id);
     });
+  }
+
+  /** The shared Reference Rules and Row Summaries a Family owns. */
+  settings(id: string): FamilySettings {
+    this.families.findByIdOrThrow(id);
+    return {
+      rules: this.rules.listByOwner({ familyId: id }),
+      rowSummaries: this.summaries.listByOwner({ familyId: id }),
+    };
   }
 
   /** For each shared setting of a Family, the members whose own row replaces it. Settings nobody overrides are left out. */

@@ -88,6 +88,8 @@ export function ReferenceDrawer({
       try {
         const result = await api.refs.resolve({
           ruleId: topFrame.rule.id,
+          // A shared rule names no server, so it is read through the Connection the frame belongs to.
+          connectionId: frameConnectionId(topFrame.rule, connectionId),
           valueEjson: JSON.stringify(topFrame.value),
         });
         if (cancelled) return;

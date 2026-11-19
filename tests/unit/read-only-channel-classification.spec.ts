@@ -145,6 +145,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.refsCreate,
   IPC_CHANNELS.refsUpdate,
   IPC_CHANNELS.refsDelete,
+  // Connection Families and Row Summaries live in SQLite only; no MongoDB call.
   IPC_CHANNELS.refsOverride,
   IPC_CHANNELS.refsResetToShared,
   IPC_CHANNELS.familiesList,
@@ -153,6 +154,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.familiesSetMembership,
   IPC_CHANNELS.familiesDelete,
   IPC_CHANNELS.familiesOverrides,
+  IPC_CHANNELS.familiesSettings,
   IPC_CHANNELS.rowSummaryGet,
   IPC_CHANNELS.rowSummarySet,
   IPC_CHANNELS.rowSummaryClear,

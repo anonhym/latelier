@@ -18,6 +18,28 @@ export interface ConnectionRowActions {
   onEdit: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDelete: (id: string) => void;
+  /**
+   * Family membership (X23). Only the Connections table offers these: the
+   * Switcher leaves them out, so its menu carries no family actions.
+   */
+  onAddToFamily?: (id: string) => void;
+  onLeaveFamily?: (id: string) => void;
+}
+
+function familyItems(conn: ConnectionSummary, actions: ConnectionRowActions): ContextMenuItem[] {
+  const { onAddToFamily, onLeaveFamily } = actions;
+  const items: ContextMenuItem[] = [];
+  if (onAddToFamily) items.push({ kind: 'item', label: 'Add to family…', onClick: () => onAddToFamily(conn.id) });
+  if (onLeaveFamily) {
+    items.push({
+      kind: 'item',
+      label: 'Leave family',
+      onClick: () => onLeaveFamily(conn.id),
+      disabled: !conn.familyId,
+      disabledTitle: 'Not in a family',
+    });
+  }
+  return items;
 }
 
 /**
@@ -39,6 +61,7 @@ export function connectionRowMenu(conn: ConnectionSummary, actions: ConnectionRo
       disabledTitle: 'Not connected',
     },
     { kind: 'item', label: 'Copy connection string', onClick: () => copyConnectionString(conn.id) },
+    ...familyItems(conn, actions),
     { kind: 'sep' },
     { kind: 'item', label: 'Delete…', destructive: true, onClick: () => actions.onDelete(conn.id) },
   ];

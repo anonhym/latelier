@@ -199,6 +199,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       setMembership: unused('families.setMembership') as IpcApi['families']['setMembership'],
       delete: unused('families.delete') as IpcApi['families']['delete'],
       overrides: async () => ({ rules: [], rowSummaries: [] }),
+      settings: async () => ({ rules: [], rowSummaries: [] }),
     },
     rowSummary: {
       get: async () => null,
@@ -558,6 +559,7 @@ function makePermissiveStub(): IpcApi {
       setMembership: async () => [],
       delete: async () => undefined,
       overrides: async () => ({ rules: [], rowSummaries: [] }),
+      settings: async () => ({ rules: [], rowSummaries: [] }),
     },
     rowSummary: {
       get: async () => null,

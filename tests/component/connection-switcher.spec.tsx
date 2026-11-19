@@ -1804,6 +1804,8 @@ describe('ConnectionSwitcher — expanded table', () => {
       'Edit…',
       'Disconnect',
       'Copy connection string',
+      'Add to family…',
+      'Leave family',
       'Delete…',
     ]);
     await userEvent.keyboard('{Escape}');
