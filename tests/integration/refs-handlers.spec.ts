@@ -327,6 +327,25 @@ describe('refs:* channels via router', () => {
       });
     });
 
+    it('accepts the rule owner as connectionId and rejects an empty one at the schema', async () => {
+      const rule = await createRule();
+      const ok = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
+        ruleId: rule.id,
+        valueEjson: oidEjson(ACME),
+        connectionId: CONN,
+      });
+      expect(ok.ok).toBe(true);
+      if (ok.ok) expect(ok.data).toMatchObject({ ruleId: rule.id, found: true });
+
+      const empty = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
+        ruleId: rule.id,
+        valueEjson: oidEjson(ACME),
+        connectionId: '',
+      });
+      expect(empty.ok).toBe(false);
+      if (!empty.ok) expect(empty.error.code).toBe('VALIDATION');
+    });
+
     it('reports found: false for a value no document has', async () => {
       const rule = await createRule();
       const env = await shim.invoke<ReferenceResolveResult>(IPC_CHANNELS.refsResolve, {
