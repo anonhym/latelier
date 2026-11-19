@@ -43,13 +43,28 @@ const VITEST_BIN = join(dirname(vitestManifest), createRequire(vitestManifest)('
 // wall-clock back down.
 const TIMEOUT_MS = 30 * 60 * 1000;
 
-// Extra arguments go to every project (`npm test -- --coverage` in CI). Each
-// project is its own vitest run and would wipe the previous one's report, so a
-// coverage run writes one per project for SonarCloud to merge.
-const extra = process.argv.slice(2);
+// `--only=a,b` picks which projects to run, so CI can run the component project
+// as its own sharded job (`--only=component --shard=2/4`) and the rest in another.
+// It is this script's own flag and is not forwarded to vitest.
+const ONLY_PREFIX = '--only=';
+const onlyArg = process.argv.slice(2).find((a) => a.startsWith(ONLY_PREFIX));
+const selected = onlyArg ? onlyArg.slice(ONLY_PREFIX.length).split(',') : PROJECTS;
+const unknown = selected.filter((p) => !PROJECTS.includes(p));
+if (unknown.length > 0 || selected.length === 0) {
+  console.error(
+    `[run-tests] unknown project(s) in ${onlyArg}: ${unknown.join(', ') || '(none given)'} — expected a comma list of ${PROJECTS.join(', ')}.`,
+  );
+  process.exit(2);
+}
+
+// Extra arguments go to every selected project (`npm test -- --coverage` in CI).
+// Each project is its own vitest run and would wipe the previous one's report, so
+// a coverage run writes one per project for SonarCloud to merge.
+const extra = process.argv.slice(2).filter((a) => a !== onlyArg);
 const coverage = extra.includes('--coverage');
 
-for (const project of PROJECTS) {
+// Always in PROJECTS order, whatever order `--only` listed them in.
+for (const project of PROJECTS.filter((p) => selected.includes(p))) {
   const args = [VITEST_BIN, 'run', '--project', project, ...extra];
   if (coverage) args.push(`--coverage.reportsDirectory=coverage/${project}`);
   const result = spawnSync(process.execPath, args, {

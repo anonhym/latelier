@@ -43,7 +43,7 @@ concurrency:
 jobs:
   # Cheap, runs on every push and every PR.
   test:
-    name: Lint + audit + unit / integration / component
+    name: Lint + audit + unit / integration
     # A manual dispatch is for e2e; these are cheap to run locally and would
     # otherwise add ~7 minutes to every hand-triggered Playwright run.
     if: github.event_name != 'workflow_dispatch'
@@ -51,9 +51,9 @@ jobs:
     # Must stay above `run-tests.mjs`'s per-project watchdog (30m), or GitHub
     # cancels the job first and the watchdog's hang diagnostic can never print
     # here — which is the only place it matters.
-    # The job today is ~17m: install + Electron + lint + typecheck + audit +
-    # ~15m of tests, of which the component project is ~12-15m. 45 leaves the
-    # watchdog room to fire and still bounds a hang.
+    # The job today is ~7m: install + Electron + lint + typecheck + audit +
+    # ~3m of unit + integration tests. The component project is its own sharded
+    # job below. 45 leaves the watchdog room to fire and still bounds a hang.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,14 +118,89 @@ jobs:
       - name: Download mongod
         run: node node_modules/mongodb-memory-server/postinstall.js
 
-      - name: Unit + integration + component tests
-        run: npm test -- --coverage
+      - name: Unit + integration tests
+        run: npm test -- --coverage --only=unit,integration
 
-      # Sends the coverage above, with the code analysis, to SonarCloud. A fork's
-      # PR gets no secrets, so it is skipped there rather than failed.
-      - name: SonarCloud scan
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
+      # SonarCloud runs once, in `sonar` below, over every job's coverage.
+      - name: Upload unit + integration coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-base
+          path: |
+            coverage/unit
+            coverage/integration
+          if-no-files-found: error
+          retention-days: 1
+
+  # The component project alone took 11-15 minutes on this 2-core runner under
+  # --coverage (638s-867s measured; one run passed 900s and was killed by the
+  # watchdog with every finished test green). Split across runners, as e2e is:
+  # nothing in a component test touches Electron, mongod or another test's
+  # state, so a shard only needs the install. Vitest slices the spec files, never
+  # a file's tests, so a file's tests still run in order in one process.
+  component:
+    name: Component tests (${{ matrix.shard }}/4)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Above `run-tests.mjs`'s 30m watchdog, same reasoning as `test`.
+    timeout-minutes: 45
+    strategy:
+      # A red shard must not cancel the others — one more failing is the
+      # difference between a flake and a break.
+      fail-fast: false
+      matrix:
+        # Changing the count means changing `--shard=…/4` below and the
+        # `coverage-component-N` list in `sonar-project.properties`.
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # See the `test` job for why this is `npm ci --ignore-scripts`.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Component tests (shard ${{ matrix.shard }}/4)
+        run: npm test -- --coverage --only=component --shard=${{ matrix.shard }}/4
+
+      - name: Upload component coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # Unique per shard — upload-artifact v4 refuses a name that already
+          # exists, so a shared one would fail every shard after the first.
+          name: coverage-component-${{ matrix.shard }}
+          path: coverage/component
+          if-no-files-found: error
+          retention-days: 1
+
+  # One scan over every job's coverage: SonarCloud merges the reports listed in
+  # `sonar-project.properties`, and a scan per job would each overwrite the
+  # analysis of the other. A fork's PR gets no secrets, so it is skipped there
+  # rather than failed.
+  sonar:
+    name: SonarCloud scan
+    needs: [test, component]
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so SonarCloud can tell new code from old by blame.
+          fetch-depth: 0
+
+      # Each artifact lands in `coverage/<artifact name>/`, which is the layout
+      # `sonar.javascript.lcov.reportPaths` lists.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage
+
+      - uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
