@@ -54,7 +54,8 @@ describe('migration 019 — connection families', () => {
     insert.run('r3', 'c2', 'customer_id', 1);
     const before = db.prepare('SELECT * FROM reference_rules ORDER BY id').all() as Array<Record<string, unknown>>;
 
-    runMigrations(db, all);
+    // Up to 19 only: this checks what 019 does, and a later migration moves the version on.
+    runMigrations(db, all.filter((m) => m.version <= 19));
 
     const after = db.prepare('SELECT * FROM reference_rules ORDER BY id').all() as Array<Record<string, unknown>>;
     expect(after).toHaveLength(3);

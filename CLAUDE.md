@@ -20,7 +20,7 @@ Two environments, and they differ enough that guessing wastes a session. Check o
 | `npm run test:e2e` | works | needs `xvfb-run` |
 | `gh` CLI | works once authenticated | unauthenticated unless the environment supplies a valid token |
 
-`scripts/cloud-setup.sh` is not read from the repo: it is pasted into the cloud environment's "Setup script" setting, and it is what installs `gh`, `xvfb` and Node 24 there. A cloud environment without it lacks all of those.
+`scripts/cloud-setup.sh` is not read from the repo: it is pasted into the cloud environment's "Setup script" setting, and it is what installs `gh`, `xvfb`, Node 24 and the pinned Rust toolchain there. A cloud environment without it lacks all of those.
 
 **GitNexus MCP is not reachable in cloud.** `.mcp.json` is never read there — the harness supplies its own MCP config and a tool allow-list with no `mcp__gitnexus__*` in it. No amount of repo config changes this. The CLI reads the same graph; run impact analysis this way instead:
 
@@ -56,7 +56,10 @@ npm test                # unit + integration + component
 npm run test:e2e        # Playwright + Electron; builds first
 npm run test:mutation   # Stryker; local only, not in CI
 npm run audit:ipc
+node scripts/build-bridge.mjs   # the Agent Bridge (bridge/, Rust); `npm run build` runs it
 ```
+
+The Agent Bridge needs `cargo`: `bridge/rust-toolchain.toml` pins one release, and from inside `bridge/` `rustup toolchain install` (no arguments) installs it. Without cargo a local build only warns and the app runs without a bridge; with `CI` set the build fails.
 
 `better-sqlite3`, the only native module, ships N-API prebuilds, so one install serves Node and Electron alike. **A `NODE_MODULE_VERSION` error means a compile-from-source path came back** (a non-N-API native dep, a `--build-from-source` flag) — fix that; never add a rebuild script. To check the binary, open a database rather than `require()` it: the binary loads inside the `Database` constructor, so a bare `require` passes against a broken one.
 

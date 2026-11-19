@@ -1,0 +1,9 @@
+# One exact stable release, so a CI run and a contributor build the same
+# bytes. rustup honours this file when cargo runs from inside bridge/ (scripts/
+# build-bridge.mjs does that). The macOS targets are not listed here: the
+# release workflow adds x86_64-apple-darwin itself, and listing it would make
+# every `cargo` run on a machine without it try to fetch it.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["clippy"]

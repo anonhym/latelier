@@ -47,6 +47,7 @@ const { registerFamiliesChannels } = await import('../../electron/ipc/handlers/f
 const { registerFamilyExportChannels } = await import('../../electron/ipc/handlers/familyExport');
 const { registerRowSummaryChannels } = await import('../../electron/ipc/handlers/rowSummary');
 const { registerUpdatesChannels } = await import('../../electron/ipc/handlers/updates');
+const { registerAgentAccessChannels } = await import('../../electron/ipc/handlers/agentAccess');
 import { invokeEvent, testSenderCheck } from '../helpers/ipcSender';
 import { createPickedCredentialPaths } from '../../electron/security/credentialPaths';
 
@@ -106,6 +107,7 @@ const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.appMenuCommandEvent,
   IPC_CHANNELS.appFlushRequestEvent,
   IPC_CHANNELS.updatesStateEvent,
+  IPC_CHANNELS.agentAccessStateEvent,
 ]);
 
 describe('IPC channel registration — full router coverage', () => {
@@ -171,6 +173,7 @@ describe('IPC channel registration — full router coverage', () => {
     registerFamilyExportChannels(router, stubSvc<Parameters<typeof registerFamilyExportChannels>[1]>());
     registerRowSummaryChannels(router, stubSvc<Parameters<typeof registerRowSummaryChannels>[1]>());
     registerUpdatesChannels(router, stubSvc<Parameters<typeof registerUpdatesChannels>[1]>());
+    registerAgentAccessChannels(router, stubSvc<Parameters<typeof registerAgentAccessChannels>[1]>());
   });
 
   it('registers every non-event IPC_CHANNELS value on the router', () => {

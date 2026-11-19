@@ -900,6 +900,7 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
       'Edit…',
       'Disconnect',
       'Copy connection string',
+      'Share with Agents…',
       'Delete…',
     ]);
     const deleteItem = within(menu).getByRole('menuitem', { name: 'Delete…' });
@@ -1806,6 +1807,7 @@ describe('ConnectionSwitcher — expanded table', () => {
       'Copy connection string',
       'Add to family…',
       'Leave family',
+      'Share with Agents…',
       'Delete…',
     ]);
     await userEvent.keyboard('{Escape}');

@@ -164,6 +164,23 @@
     "electron/services/import/compassReader.ts",
     "electron/services/import/detect.ts",
     "electron/services/import/review.ts",
-    "electron/services/import/latelierSource.ts"
+    "electron/services/import/latelierSource.ts",
+    "electron/agent/token.ts",
+    "electron/agent/gate.ts",
+    "electron/agent/envelope.ts",
+    "electron/agent/errorMap.ts",
+    "electron/agent/endpoint.ts",
+    "electron/agent/ownedDir.ts",
+    "electron/agent/concurrency.ts",
+    "electron/agent/findOptions.ts",
+    "electron/agent/pipelineGuard.ts",
+    "electron/agent/namespaceGuard.ts",
+    "electron/agent/resultBudget.ts",
+    "electron/agent/schemaInfer.ts",
+    "electron/agent/explainRedact.ts",
+    "electron/agent/privilegeVerdict.ts",
+    "electron/agent/snippets.ts",
+    "electron/agent/bridgePaths.ts",
+    "electron/agent/safeText.ts"
   ]
 }

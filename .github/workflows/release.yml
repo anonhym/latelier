@@ -83,6 +83,16 @@ jobs:
       - name: Download mongod
         run: node node_modules/mongodb-memory-server/postinstall.js
 
+      # The integration tests run the Agent Bridge binary and fail, rather than
+      # skip, when it is absent on CI. See ci.yml for why the toolchain is
+      # installed by hand.
+      - name: Install the pinned Rust toolchain
+        working-directory: bridge
+        run: rustup toolchain install
+
+      - name: Build the Agent Bridge (cargo test + clippy included)
+        run: node scripts/build-bridge.mjs
+
       - name: Unit + integration + component tests
         run: npm test
 
@@ -129,8 +139,33 @@ jobs:
       # addon whose prebuilt binary serves every Node/Electron ABI.
       # electron-builder still prepares native dependencies while packaging,
       # but does not compile better-sqlite3 from source.
+      # `npm run build` builds the Agent Bridge for the runner's own platform
+      # first (scripts/build-bridge.mjs), and fails on CI when cargo cannot run,
+      # so the pinned toolchain is installed before it. macOS also needs the
+      # other architecture's target: the one `electron-builder --x64 --arm64`
+      # run packages both, and each package bundles its own bridge. Run from
+      # bridge/, so the target lands on the pinned toolchain.
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        working-directory: bridge
+        run: |
+          rustup toolchain install
+          if [ "$RUNNER_OS" = "macOS" ]; then rustup target add x86_64-apple-darwin aarch64-apple-darwin; fi
+
       - name: Build renderer + main
         run: npm run build
+
+      # Both macOS slices (x64 cross-compiles with the Xcode SDK on the arm64
+      # runner) and the Windows build, so each package finds its own bridge in
+      # build/bridge/<os>-<arch>/. The host build above already ran the cargo
+      # tests and clippy.
+      - name: Build the Agent Bridge (macOS, both architectures)
+        if: runner.os == 'macOS'
+        run: node scripts/build-bridge.mjs --targets mac-x64,mac-arm64 --skip-checks
+
+      - name: Build the Agent Bridge (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/build-bridge.mjs --targets win-x64 --skip-checks
 
       # Fails the job when any signing/notarization secret is missing. Without
       # APPLE_API_* electron-builder skips notarization silently and would ship
@@ -251,6 +286,51 @@ jobs:
             fi
             xcrun stapler validate "$app"
           done
+
+      # The Agent Bridge sits in Resources/bin as a loose Mach-O. electron-builder
+      # signs it only because electron-builder.yml lists it under mac.binaries;
+      # this proves it did: a valid strict signature, the hardened runtime, a
+      # Developer ID identity (so the app's notarization covers it), and the
+      # slice of the app it ships in (an x64 app with an arm64 bridge would
+      # break every Intel user's Agent client).
+      - name: Verify the Agent Bridge signature (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apps=(release/mac/*.app release/mac-arm64/*.app)
+          for app in "${apps[@]}"; do
+            bridge="$app/Contents/Resources/bin/latelier-agent-bridge"
+            echo "== $bridge"
+            test -f "$bridge" || { echo "::error::$bridge is missing"; exit 1; }
+            codesign --verify --strict --verbose=2 "$bridge"
+            info="$(codesign -dvv "$bridge" 2>&1)"
+            echo "$info"
+            grep -q 'flags=0x10000(runtime)' <<<"$info" \
+              || { echo "::error::$bridge is not signed with the hardened runtime"; exit 1; }
+            grep -q 'Authority=Developer ID Application' <<<"$info" \
+              || { echo "::error::$bridge is not signed by a Developer ID Application identity"; exit 1; }
+            case "$app" in
+              release/mac-arm64/*) want=arm64 ;;
+              *) want=x86_64 ;;
+            esac
+            archs="$(lipo -archs "$bridge")"
+            if [ "$archs" != "$want" ]; then
+              echo "::error::$bridge has architectures '$archs', the app slice is '$want'"
+              exit 1
+            fi
+          done
+
+      # Windows stays unsigned (see the Package step), so the bridge does too:
+      # it must be present, non-empty and a PE file.
+      - name: Verify the Agent Bridge is packaged (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          bridge="release/win-unpacked/resources/bin/latelier-agent-bridge.exe"
+          test -s "$bridge" || { echo "::error::$bridge is missing or empty"; exit 1; }
+          test "$(head -c 2 "$bridge")" = "MZ" || { echo "::error::$bridge is not a Windows executable"; exit 1; }
+          ls -l "$bridge"
 
       # Hands the release files to the publish job on a tag, and keeps them as
       # workflow outputs on a workflow_dispatch dry run. Only the release files,

@@ -180,6 +180,54 @@ describe('ConnectionService', () => {
     expect(order[2]).toBe('C');
   });
 
+  it('list carries the share flag, off for a new connection and on once shared', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    await svc.create(validInput({ name: 'B' }));
+    repo.setShared(a.id, true);
+    const byName = new Map(svc.list().map((s) => [s.name, s]));
+    expect(byName.get('A')!.shareWithAgents).toBe(true);
+    expect(byName.get('B')!.shareWithAgents).toBe(false);
+    expect(svc.get(a.id).shareWithAgents).toBe(true);
+  });
+
+  it('create and update leave the share flag as it was, whatever the payload carries', async () => {
+    const created = await svc.create({ ...validInput({ name: 'A' }), shareWithAgents: true } as never);
+    expect(svc.get(created.id).shareWithAgents).toBe(false);
+    repo.setShared(created.id, true);
+    await svc.update(created.id, { ...validInput({ name: 'A2' }), shareWithAgents: false } as never);
+    expect(svc.get(created.id).shareWithAgents).toBe(true);
+  });
+
+  it.each<[string, Partial<ConnectionInput>]>([
+    ['the host', { host: 'elsewhere.example' }],
+    ['the port', { port: 27018 }],
+    ['the credentials', { authMech: 'scram256', authUsername: 'mallory', password: 'x' }],
+    ['the TLS settings', { tls: { enabled: true, verify: true } }],
+  ])('an edit to %s ends the share, and the user shares again through the dialog', async (_label, change) => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    repo.setShared(a.id, true);
+    // The flag a listener sees when the pool is told.
+    const flagWhenTold: Array<number | undefined> = [];
+    pool.on('connection-identity-changed', (id: string) => flagWhenTold.push(repo.findById(id)?.share_with_agents));
+    await svc.update(a.id, change);
+    expect(svc.get(a.id).shareWithAgents).toBe(false);
+    expect(repo.listShared()).toEqual([]);
+    expect(flagWhenTold).toEqual([0]);
+  });
+
+  it('an edit that changes nothing a server sees keeps the share', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    repo.setShared(a.id, true);
+    await svc.update(a.id, { name: 'Renamed', color: '#112233', readOnly: true });
+    expect(svc.get(a.id).shareWithAgents).toBe(true);
+  });
+
+  it('an identity edit leaves a Connection that was never shared unshared', async () => {
+    const a = await svc.create(validInput({ name: 'A' }));
+    await svc.update(a.id, { host: 'elsewhere.example' });
+    expect(svc.get(a.id).shareWithAgents).toBe(false);
+  });
+
   it("list carries each connection's default database, undefined when unset", async () => {
     await svc.create(validInput({ name: 'With', defaultDb: 'smoke' }));
     await svc.create(validInput({ name: 'Without' }));

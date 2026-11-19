@@ -1,28 +1,33 @@
 import type { RecentQueryRepo } from '../db/repositories/RecentQueryRepo.ts';
 import type { RecentFieldValueRepo } from '../db/repositories/RecentFieldValueRepo.ts';
 import type { AuditRepo } from '../db/repositories/AuditRepo.ts';
+import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
 import type { AppStateService } from './AppStateService.ts';
 
 const MAINTENANCE_KEY = 'maintenance.lastRunAt';
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RECENT_RETENTION_DAYS = 30;
 const AUDIT_RETENTION_DAYS = 90;
+const AGENT_READ_LOG_RETENTION_DAYS = 90;
 
 export class MaintenanceService {
   private recentRepo: RecentQueryRepo;
   private recentFieldValueRepo: RecentFieldValueRepo;
   private auditRepo: AuditRepo;
+  private agentReadLogRepo: AgentReadLogRepo;
   private checkpoint: () => void;
   constructor(deps: {
     recentRepo: RecentQueryRepo;
     recentFieldValueRepo: RecentFieldValueRepo;
     auditRepo: AuditRepo;
+    agentReadLogRepo: AgentReadLogRepo;
     /** Flushes purged pages out of the WAL; owns reporting a blocked checkpoint. */
     checkpoint: () => void;
   }) {
     this.recentRepo = deps.recentRepo;
     this.recentFieldValueRepo = deps.recentFieldValueRepo;
     this.auditRepo = deps.auditRepo;
+    this.agentReadLogRepo = deps.agentReadLogRepo;
     this.checkpoint = deps.checkpoint;
   }
 
@@ -44,5 +49,6 @@ export class MaintenanceService {
     this.recentRepo.deleteOlderThan(RECENT_RETENTION_DAYS);
     this.recentFieldValueRepo.deleteOlderThan(RECENT_RETENTION_DAYS);
     this.auditRepo.deleteOlderThan(AUDIT_RETENTION_DAYS);
+    this.agentReadLogRepo.deleteOlderThan(AGENT_READ_LOG_RETENTION_DAYS);
   }
 }

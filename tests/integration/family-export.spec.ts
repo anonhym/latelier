@@ -142,6 +142,19 @@ describe('Family Export', () => {
       expect(fs.readdirSync(path.dirname(savePath))).toEqual(['out.json']);
     });
 
+    it('carries no Connection flag: a member shared with Agents leaves no trace in the file', async () => {
+      const f = source();
+      addConnection(tmp.db, 'c-s', 'Shared Member');
+      families.setMembership({ connectionIds: ['c-s'], familyId: f.id });
+      tmp.db.prepare('UPDATE connections SET share_with_agents = 1 WHERE id = ?').run('c-s');
+      savePath = path.join(files, 'shared.json');
+
+      await svc.export({ familyId: f.id });
+
+      const text = fs.readFileSync(savePath, 'utf8');
+      expect(text).not.toMatch(/shareWithAgents|share_with_agents|Shared Member|c-s/);
+    });
+
     it('writes nothing when the dialog is cancelled', async () => {
       const f = source();
       savePath = null;

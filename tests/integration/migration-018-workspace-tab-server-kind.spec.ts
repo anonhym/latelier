@@ -68,7 +68,7 @@ describe('migration 018 — workspace_tabs accepts the server kind', () => {
 
     expect(before).toHaveLength(2);
     expect(d.prepare('SELECT * FROM workspace_tabs ORDER BY id').all()).toEqual(before);
-    expect((d.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(19);
+    expect((d.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(20);
   });
 
   it("accepts a 'server' row, refuses an unknown kind, and keeps idx_tabs_position", () => {

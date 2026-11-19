@@ -1,0 +1,16 @@
+[package]
+name = "latelier-agent-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "stdio to local-socket bridge between an AI Agent client and L'Atelier (X27)"
+publish = false
+
+# Standard library only, on purpose: the binary is signed and shipped with the
+# app, so there is no dependency tree to audit or to keep patched.
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

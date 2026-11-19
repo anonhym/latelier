@@ -43,6 +43,12 @@ export interface ConnectionRow {
   direct_connection: number;
   app_name: string | null;
   read_only: number;
+  /**
+   * Written only by `setShared`. Absent on a row built by `inputToRow`, and
+   * never named by the insert or update statements, so an edit cannot unshare
+   * and an insert relies on the column default.
+   */
+  share_with_agents?: number;
   created_at: string;
   updated_at: string;
   last_used_at: string | null;
@@ -57,6 +63,8 @@ export class ConnectionRepo {
   private findByNameStmt: Statement<[string]>;
   private listStmt: Statement;
   private touchStmt: Statement<[string, string, string]>;
+  private setSharedStmt: Statement<[number, string, string]>;
+  private listSharedStmt: Statement;
 
   constructor(db: Database) {
     this.db = db;
@@ -120,6 +128,13 @@ export class ConnectionRepo {
     );
     this.touchStmt = db.prepare(
       'UPDATE connections SET last_used_at = ?, updated_at = ? WHERE id = ?',
+    );
+    // The only statement that writes the share flag (see `ConnectionRow.share_with_agents`).
+    this.setSharedStmt = db.prepare(
+      'UPDATE connections SET share_with_agents = ?, updated_at = ? WHERE id = ?',
+    );
+    this.listSharedStmt = db.prepare(
+      'SELECT * FROM connections WHERE share_with_agents = 1 ORDER BY name ASC',
     );
   }
 
@@ -185,6 +200,16 @@ export class ConnectionRepo {
     return new Map(rows.map((r) => [r.id, { familyId: r.family_id, familyName: r.family_name }]));
   }
 
+  /** Returns whether a row matched. */
+  setShared(id: string, shared: boolean): boolean {
+    return this.setSharedStmt.run(shared ? 1 : 0, new Date().toISOString(), id).changes > 0;
+  }
+
+  /** Connections whose share flag is on, by name. */
+  listShared(): ConnectionRow[] {
+    return this.listSharedStmt.all() as ConnectionRow[];
+  }
+
   touchLastUsed(id: string): void {
     const now = new Date().toISOString();
     this.touchStmt.run(now, now, id);
@@ -235,6 +260,7 @@ export function rowToConnection(
     hasSshPasswordStored: flags.hasSshPasswordStored,
     hasSshPassphraseStored: flags.hasSshPassphraseStored,
     readOnly: row.read_only === 1,
+    shareWithAgents: row.share_with_agents === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastUsedAt: row.last_used_at ?? undefined,
@@ -275,6 +301,34 @@ export function inputToRow(id: string, input: ConnectionInput, now: string): Con
     updated_at: now,
     last_used_at: null,
   };
+}
+
+/**
+ * What a Connection is, to a server: the fields `mongoRelevantFieldsChanged`
+ * compares, as one string. A share granted to Agents is a grant to this
+ * identity, so a caller that holds a grant across an `await` compares this
+ * before and after. Passwords live in the vault and are not part of it.
+ */
+export function connectionIdentityFingerprint(row: ConnectionRow): string {
+  return JSON.stringify([
+    row.connection_type,
+    row.host,
+    row.port,
+    row.default_db,
+    row.auth_mech,
+    row.auth_username,
+    row.auth_database,
+    row.tls_enabled,
+    row.tls_verify,
+    row.tls_ca_path,
+    row.tls_client_cert_path,
+    row.connect_timeout_ms,
+    row.socket_timeout_ms,
+    row.server_selection_timeout_ms,
+    row.max_pool_size,
+    row.read_preference,
+    row.direct_connection,
+  ]);
 }
 
 /**

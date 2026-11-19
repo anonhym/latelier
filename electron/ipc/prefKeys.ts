@@ -14,6 +14,13 @@ import { z } from 'zod';
 /** The plaintext-password fallback switch; main reads it, only a confirmed channel writes it. */
 export const PLAINTEXT_FALLBACK_KEY = 'secrets.allowPlaintextFallback';
 
+/**
+ * The Agent Access switch (X27). Main-only: absent from `SET_SCHEMAS` and from
+ * `isPrefGetKey`, so the renderer can neither write it nor read it. Only a
+ * confirmed main-process dialog sets it.
+ */
+export const AGENT_ACCESS_KEY = 'agentAccess.enabled';
+
 const finite = z.number().finite();
 
 const SET_SCHEMAS = new Map<string, z.ZodType>([

@@ -178,6 +178,22 @@ const api: IpcApi = {
     },
   },
 
+  agentAccess: {
+    getState: () => call(IPC_CHANNELS.agentAccessGetState, {}),
+    requestEnable: () => call(IPC_CHANNELS.agentAccessRequestEnable, {}),
+    disable: () => call(IPC_CHANNELS.agentAccessDisable, {}),
+    setShared: (input) => call(IPC_CHANNELS.agentAccessSetShared, input),
+    addToken: (input) => call(IPC_CHANNELS.agentAccessAddToken, input),
+    regenerateToken: (input) => call(IPC_CHANNELS.agentAccessRegenerateToken, input),
+    revokeToken: (input) => call(IPC_CHANNELS.agentAccessRevokeToken, input),
+    removeBridge: () => call(IPC_CHANNELS.agentAccessRemoveBridge, {}),
+    onState: (cb) => {
+      const listener = (_evt: unknown, state: unknown) => cb(state as Parameters<typeof cb>[0]);
+      ipcRenderer.on(IPC_CHANNELS.agentAccessStateEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.agentAccessStateEvent, listener);
+    },
+  },
+
   secrets: {
     setPlaintextFallback: (enabled) =>
       call(IPC_CHANNELS.secretsSetPlaintextFallback, { enabled }),

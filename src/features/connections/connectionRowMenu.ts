@@ -3,6 +3,7 @@ import { notify } from '../../theme/notifications';
 import { copyToClipboard } from '../../utils/clipboard';
 import type { ContextMenuItem } from '../../components/ContextMenu';
 import type { ConnectionSummary } from '@shared/types';
+import { AGENT_ACCESS_COPY } from '../agentAccess/agentAccessCopy';
 import { STATUS_PRESENTATION } from './connectionStatus';
 
 /** Main builds the URI without the saved password, so none reaches the clipboard. */
@@ -24,6 +25,17 @@ export interface ConnectionRowActions {
    */
   onAddToFamily?: (id: string) => void;
   onLeaveFamily?: (id: string) => void;
+  /** Agent Access (X27 §12.3). Offered where the caller passes them: "Share" when not shared, "Stop sharing" when shared. */
+  onShareWithAgents?: (id: string) => void;
+  onStopSharing?: (id: string) => void;
+}
+
+function agentItems(conn: ConnectionSummary, actions: ConnectionRowActions): ContextMenuItem[] {
+  const { onShareWithAgents, onStopSharing } = actions;
+  if (conn.shareWithAgents) {
+    return onStopSharing ? [{ kind: 'item', label: AGENT_ACCESS_COPY.stopShareAction, onClick: () => onStopSharing(conn.id) }] : [];
+  }
+  return onShareWithAgents ? [{ kind: 'item', label: AGENT_ACCESS_COPY.shareAction, onClick: () => onShareWithAgents(conn.id) }] : [];
 }
 
 function familyItems(conn: ConnectionSummary, actions: ConnectionRowActions): ContextMenuItem[] {
@@ -62,6 +74,7 @@ export function connectionRowMenu(conn: ConnectionSummary, actions: ConnectionRo
     },
     { kind: 'item', label: 'Copy connection string', onClick: () => copyConnectionString(conn.id) },
     ...familyItems(conn, actions),
+    ...agentItems(conn, actions),
     { kind: 'sep' },
     { kind: 'item', label: 'Delete…', destructive: true, onClick: () => actions.onDelete(conn.id) },
   ];

@@ -9,6 +9,17 @@ files:
   - dist/**
   - dist-electron/**
   - package.json
+# The Agent Bridge (X27): a standalone executable built by
+# scripts/build-bridge.mjs into build/bridge/<os>-<arch>/. It sits outside the
+# asar, as a loose file in Resources/bin, so an Agent client can run it and the
+# app can copy it to its fixed per-user path. `${os}` and `${arch}` are
+# electron-builder's own macros (mac|win|linux, x64|arm64), so each package
+# takes its own slice.
+extraResources:
+  - from: build/bridge/${os}-${arch}
+    to: bin
+    filter:
+      - latelier-agent-bridge*
 # Fuses are flipped on the packaged copy of the Electron binary just before
 # signing; the dev Electron in node_modules (used by the e2e suite) keeps its
 # defaults. scripts/verify-fuses.mjs asserts this block against the real output.
@@ -36,6 +47,11 @@ publish:
   owner: anonhym
   repo: latelier
 mac:
+  # A Mach-O in Resources/ is signed only when it is listed here: it gets the
+  # Developer ID identity and the hardened runtime, so the app's notarization
+  # covers it. The release workflow checks the result.
+  binaries:
+    - Contents/Resources/bin/latelier-agent-bridge
   # The zip is what Squirrel.Mac installs from; the dmg stays the human download.
   target: [dmg, zip]
   # GitHub rewrites the apostrophe in "L'Atelier" on upload, and the feed would

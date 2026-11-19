@@ -1,6 +1,9 @@
 // IPC contract shared by main and renderer. Runtime-free.
 
 import type {
+  AgentAccessState,
+  AgentTokenInfo,
+  PrivilegeResult,
   AggExplainInput,
   AggInput,
   AggResult,
@@ -336,6 +339,32 @@ export interface IpcApi {
     restart: () => Promise<{ restarting: boolean }>;
     /** Main pushes every state change; returns the unsubscribe. */
     onState: (cb: (state: UpdateState) => void) => () => void;
+  };
+
+  /**
+   * Agent Access (X27). The renderer only asks: every state change is made by
+   * a main-process dialog, and no method here takes or returns a token. The
+   * token is shown, and copied to the clipboard, by main's own message box.
+   */
+  agentAccess: {
+    getState: () => Promise<AgentAccessState>;
+    /** Main asks first; `enabled` is the value now in force, so a cancelled dialog comes back `false`. */
+    requestEnable: () => Promise<{ enabled: boolean }>;
+    disable: () => Promise<{ enabled: false }>;
+    /**
+     * Sharing runs main's privilege check and its dialog. `shared` is the
+     * value now in force (a cancelled dialog, or a Connection that is not
+     * open, leaves it `false`); `privilege` is what the check concluded.
+     */
+    setShared: (input: { connectionId: string; shared: boolean }) => Promise<{ shared: boolean; privilege?: PrivilegeResult }>;
+    /** The row exists once this resolves; main's dialog shows the token once and ends with Done. */
+    addToken: (input: { name: string }) => Promise<AgentTokenInfo>;
+    regenerateToken: (input: { id: string }) => Promise<AgentTokenInfo>;
+    revokeToken: (input: { id: string }) => Promise<{ ok: true }>;
+    /** Deletes the per-user copy of the Agent Bridge. Refused while Agent Access is on. */
+    removeBridge: () => Promise<{ removed: boolean }>;
+    /** Main pushes the state on every change; returns the unsubscribe. */
+    onState: (cb: (state: AgentAccessState) => void) => () => void;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -692,6 +721,17 @@ export const IPC_CHANNELS = {
   updatesRestart:    'updates:restart',
   updatesStateEvent: 'updates:state-event',
 
+  // Agent Access (X27, main-confirmed) --------------------------
+  agentAccessGetState:        'agentAccess:get-state',
+  agentAccessRequestEnable:   'agentAccess:request-enable',
+  agentAccessDisable:         'agentAccess:disable',
+  agentAccessSetShared:       'agentAccess:set-shared',
+  agentAccessAddToken:        'agentAccess:add-token',
+  agentAccessRegenerateToken: 'agentAccess:regenerate-token',
+  agentAccessRevokeToken:     'agentAccess:revoke-token',
+  agentAccessRemoveBridge:    'agentAccess:remove-bridge',
+  agentAccessStateEvent:      'agentAccess:state-event',
+
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',
 
@@ -926,6 +966,15 @@ interface AdaptedSig {
     in: { enabled: ApiArg<'secrets', 'setPlaintextFallback'> };
     out: ApiOut<'secrets', 'setPlaintextFallback'>;
   };
+  // Kebab-case channel names, as the spec names them, over camelCase methods.
+  'agentAccess:get-state':        { in: EmptyObject; out: ApiOut<'agentAccess', 'getState'> };
+  'agentAccess:request-enable':   { in: EmptyObject; out: ApiOut<'agentAccess', 'requestEnable'> };
+  'agentAccess:disable':          { in: EmptyObject; out: ApiOut<'agentAccess', 'disable'> };
+  'agentAccess:set-shared':       { in: ApiArg<'agentAccess', 'setShared'>; out: ApiOut<'agentAccess', 'setShared'> };
+  'agentAccess:add-token':        { in: ApiArg<'agentAccess', 'addToken'>; out: ApiOut<'agentAccess', 'addToken'> };
+  'agentAccess:regenerate-token': { in: ApiArg<'agentAccess', 'regenerateToken'>; out: ApiOut<'agentAccess', 'regenerateToken'> };
+  'agentAccess:revoke-token':     { in: ApiArg<'agentAccess', 'revokeToken'>; out: ApiOut<'agentAccess', 'revokeToken'> };
+  'agentAccess:remove-bridge':    { in: EmptyObject; out: ApiOut<'agentAccess', 'removeBridge'> };
   'query:find':     { in: ApiArg<'query', 'find'>; out: FindResultWire };
   'agg:run':        { in: ApiArg<'agg', 'run'>; out: AggResultWire };
   'agg:runAndSave': { in: ApiArg<'agg', 'runAndSave'>; out: AggResultWire & AggSaveCounts };

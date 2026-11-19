@@ -77,6 +77,16 @@ describe('ColumnCipher', () => {
     expect(cipher.open('other', 'value', ID, 'v')).toBe('v');
   });
 
+  it('refuses a TEXT cell in agent_read_log.request_json, which was born sealed', () => {
+    expectDecryptFailed(
+      () => cipher.open('agent_read_log', 'request_json', ID, '{"planted":true}'),
+      'plaintext cell in a sealed-only column',
+    );
+    // Its other columns are plaintext by design and never pass through the cipher; a sealed cell round-trips.
+    const cell = cipher.seal('agent_read_log', 'request_json', ID, '{"filter":{}}');
+    expect(cipher.open('agent_read_log', 'request_json', ID, cell)).toBe('{"filter":{}}');
+  });
+
   it('rejects a cell opened under another table, column or id', () => {
     const cell = cipher.seal('saved_queries', 'payload_json', ID, 'x');
     expectDecryptFailed(() => cipher.open('recent_queries', 'payload_json', ID, cell), 'authentication failed');

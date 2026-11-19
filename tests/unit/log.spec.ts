@@ -563,6 +563,14 @@ describe('redactSecrets: connection-string query secrets', () => {
   });
 });
 
+describe('redactSecrets: the Agent handshake token', () => {
+  it('redacts agentToken under any casing and depth', () => {
+    const out = redactSecrets({ agentToken: 'plain-secret', nested: { AgentToken: 'plain-secret', list: [{ AGENTTOKEN: 'plain-secret' }] }, keep: 'visible' });
+    expect(JSON.stringify(out)).not.toContain('plain-secret');
+    expect(JSON.stringify(out)).toContain('visible');
+  });
+});
+
 describe('compareLogFiles', () => {
   it('orders by date, then part number counted as a number, then the legacy prefix first', () => {
     const names = [

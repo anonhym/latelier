@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { RecentFieldValueRepo } from '../../electron/db/repositories/RecentFieldValueRepo';
 import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
+import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
 import { MaintenanceService } from '../../electron/services/MaintenanceService';
 import { createTempDb, type TempDb, createTempCipher } from '../helpers/db';
 
@@ -89,7 +90,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
       },
     };
 
-    const svc = new MaintenanceService({ recentRepo: repo, recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), checkpoint: () => {} });
+    const svc = new MaintenanceService({ recentRepo: repo, recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()), checkpoint: () => {} });
 
     // First run — old row gone, lastRunAt set.
     svc.runIfNeeded(appState);
@@ -105,6 +106,28 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
     expect(calls).toHaveLength(0);
     // still-old should remain because the purge did not re-run.
     expect(repo.findById('still-old')).not.toBeNull();
+  });
+
+  it('the sweep deletes Agent Read Log rows past 90 days and keeps newer ones', () => {
+    const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const insertRead = (id: string, ts: string) =>
+      tmp.db.prepare("INSERT INTO agent_read_log (id, ts, tool, duration_ms, outcome) VALUES (?, ?, 'find', 1, 'ok')").run(id, ts);
+    insertRead('read-91d', daysAgo(91));
+    insertRead('read-89d', daysAgo(89));
+    insertRead('read-now', daysAgo(0));
+    const store = new Map<string, unknown>();
+    new MaintenanceService({
+      recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()),
+      recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()),
+      auditRepo: new AuditRepo(tmp.db, createTempCipher()),
+      agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
+      checkpoint: () => {},
+    }).runIfNeeded({
+      get: <T>(key: string) => (store.get(key) ?? null) as T | null,
+      set: <T>(key: string, value: T) => void store.set(key, value),
+    });
+    const ids = (tmp.db.prepare('SELECT id FROM agent_read_log ORDER BY id').all() as { id: string }[]).map((r) => r.id);
+    expect(ids).toEqual(['read-89d', 'read-now']);
   });
 
   it('the sweep deletes audit rows past 90 days and keeps newer ones', () => {
@@ -123,7 +146,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
       set: <T>(key: string, value: T) => void store.set(key, value),
     };
 
-    new MaintenanceService({ recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()), recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
+    new MaintenanceService({ recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()), recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
 
     const ids = (tmp.db.prepare('SELECT id FROM audit_log ORDER BY id').all() as { id: string }[]).map((r) => r.id);
     expect(ids).toEqual(['audit-89d', 'audit-now']);
@@ -163,7 +186,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
         },
       };
 
-      new MaintenanceService({ recentRepo: queryRepo, recentFieldValueRepo: fieldValueRepo, auditRepo: new AuditRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
+      new MaintenanceService({ recentRepo: queryRepo, recentFieldValueRepo: fieldValueRepo, auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
 
       const remaining = fieldValueRepo.list({ connectionId: CONNECTION_ID, dbName: 'mydb', collection: 'items', field: 'status' });
       expect(remaining.map((r) => r.id)).toEqual(['field-fresh']);

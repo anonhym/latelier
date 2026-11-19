@@ -35,13 +35,13 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/build-bridge.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "preview": "vite preview",
     "electron:dev": "vite",
-    "electron:build-win": "tsc -b && vite build && electron-builder --win --x64",
-    "electron:build-mac": "tsc -b && vite build && electron-builder",
+    "electron:build-win": "npm run build && electron-builder --win --x64",
+    "electron:build-mac": "npm run build && electron-builder",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:component": "vitest run --project component",
@@ -54,6 +54,7 @@
     "fonts:fetch": "node scripts/fetch-fonts.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "better-sqlite3": "^13.0.3",
     "bson": "^7.3.1",
     "electron-updater": "6.8.9",
@@ -78,6 +79,7 @@
     "@mantine/modals": "^9.8.0",
     "@mantine/notifications": "^9.8.0",
     "@mantine/spotlight": "^9.8.0",
+    "@modelcontextprotocol/client": "2.4.0",
     "@playwright/test": "^1.63.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",

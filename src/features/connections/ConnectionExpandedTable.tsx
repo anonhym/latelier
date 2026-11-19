@@ -3,6 +3,7 @@ import { IconDots, IconPin, IconPinFilled } from '@tabler/icons-react';
 import { Button, Checkbox, Group, Modal, Table, Text, TextInput, VisuallyHidden } from '@mantine/core';
 import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
 import { connectionRowMenu } from './connectionRowMenu';
+import { shareWithAgents, stopSharingWithAgents } from '../agentAccess/useShareWithAgents';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { api, getErrorMessage } from '../../api/atelier';
@@ -601,6 +602,8 @@ export function ConnectionExpandedTable({
                         onDelete,
                         onAddToFamily: (id) => setStacked({ addToFamily: [id] }),
                         onLeaveFamily: (id) => setStacked({ leaveFamily: [id] }),
+                        onShareWithAgents: (id) => void shareWithAgents(id),
+                        onStopSharing: (id) => void stopSharingWithAgents(id),
                       }),
                       returnFocusTo: e.currentTarget,
                     });

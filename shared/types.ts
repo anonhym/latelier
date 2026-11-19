@@ -57,6 +57,13 @@ export interface Connection {
    * in the main process (not just hidden in the UI) — see ADR 0005.
    */
   readOnly: boolean;
+  /**
+   * Whether Agents (X27) may reach this Connection while it is open. Only the
+   * dedicated `agentAccess:set-shared` channel writes it; create and update
+   * never carry it. Main always sets it; optional only so a hand-built
+   * Connection in a fixture need not name it (absent reads as not shared).
+   */
+  shareWithAgents?: boolean;
   createdAt: string;
   updatedAt: string;
   lastUsedAt?: string;
@@ -73,6 +80,8 @@ export interface ConnectionInput
     | 'hasPasswordStored'
     | 'hasSshPasswordStored'
     | 'hasSshPassphraseStored'
+    // Main-only: the general create/update path never carries the share flag.
+    | 'shareWithAgents'
     | 'createdAt'
     | 'updatedAt'
     | 'lastUsedAt'
@@ -177,6 +186,11 @@ export interface ConnectionSummary {
   /** When the live client connected; absent while not connected. */
   connectedAt?: string;
   readOnly: boolean;
+  /**
+   * See `Connection.shareWithAgents`. Main always sends it; optional only so a
+   * hand-built summary in a fixture need not name it.
+   */
+  shareWithAgents?: boolean;
   /** See `ConnectionRuntime.lostReason`. */
   lostReason?: string;
   /**
@@ -1762,3 +1776,39 @@ export type UpdateState =
       downloadedAt: string;
     }
   | { status: 'failed'; message: string; lastCheckedAt: string | null };
+
+// ─── Agent Access (X27) ──────────────────────────────────────────────────────
+
+/** A named Agent Token as the renderer sees it: never the token or its hash. */
+export interface AgentTokenInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+/**
+ * What a share-time `connectionStatus` check concluded about the database
+ * user. `no-auth` and `failed` never read as a pass.
+ */
+export interface PrivilegeResult {
+  kind: 'read-only' | 'beyond-read' | 'no-auth' | 'failed';
+  roles: string[];
+  errorCode?: string;
+}
+
+export interface AgentAccessState {
+  enabled: boolean;
+  /** The socket or pipe path, for troubleshooting; empty while the server is not listening. */
+  socketPath: string;
+  /** Tool calls logged since the app started, refusals included. */
+  sessionReadCount: number;
+  /** Live Agent sessions. */
+  sessionCount: number;
+  tokens: AgentTokenInfo[];
+  bridgeInstalled: boolean;
+  bridgePath: string;
+  platformCaveat: 'windows-pipe' | null;
+  /** Last privilege result per Connection id, this app run only; display only, never consulted before sharing. */
+  privilege: Record<string, PrivilegeResult>;
+}

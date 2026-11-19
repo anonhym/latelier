@@ -4,6 +4,7 @@ import { Button, Group, Kbd, Popover, Text, TextInput, VisuallyHidden } from '@m
 import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
 import { isContextMenuKey } from '../../utils/contextMenuKey';
 import { connectionRowMenu } from './connectionRowMenu';
+import { shareWithAgents, stopSharingWithAgents } from '../agentAccess/useShareWithAgents';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { STATUS_PRESENTATION, matchesConnectionQuery } from './connectionStatus';
@@ -477,6 +478,14 @@ export function ConnectionSwitcher({
           onDisconnect(id);
         },
         onDelete: handleDelete,
+        onShareWithAgents: (id) => {
+          close();
+          void shareWithAgents(id);
+        },
+        onStopSharing: (id) => {
+          close();
+          void stopSharingWithAgents(id);
+        },
       }),
       // Escape hands the keyboard back to the search field, where ↑↓ and ↵ live.
       returnFocusTo: searchRef.current,

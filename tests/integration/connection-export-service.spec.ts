@@ -156,6 +156,19 @@ describe('ConnectionExportService', () => {
       if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     });
 
+    it('writes a shared Connection with no share field, and no trace of Agent Access', async () => {
+      const a = install();
+      const prod = await a.conns.create(input());
+      a.repo.setShared(prod.id, true);
+      expect(a.conns.get(prod.id).shareWithAgents).toBe(true);
+
+      await a.service.export({ ids: [prod.id], includeSecrets: false });
+
+      const text = fs.readFileSync(file, 'utf8');
+      expect(text).not.toMatch(/share|agent/i);
+      expect(Object.keys(JSON.parse(text).connections[0]).filter((k) => /share|agent/i.test(k))).toEqual([]);
+    });
+
     it.skipIf(process.platform === 'win32')('tightens an existing, wider file to 0600', async () => {
       const a = install();
       const c = await a.conns.create(input());

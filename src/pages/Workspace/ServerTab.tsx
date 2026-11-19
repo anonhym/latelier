@@ -1,5 +1,6 @@
 import type { ConnectionSummary, ServerSection, ServerTab as ServerTabType } from '@shared/types';
 import { DetailPanel } from '../DetailPanel';
+import { shareWithAgents, stopSharingWithAgents } from '../../features/agentAccess/useShareWithAgents';
 
 /**
  * A Connection's server screen as a workspace tab (C05 §11): Overview,
@@ -22,6 +23,8 @@ export function ServerTab({ tab, connection, onSection, onDelete, onDisconnect, 
       loading={false}
       onDelete={onDelete}
       onDisconnect={onDisconnect}
+      onShareWithAgents={(id) => void shareWithAgents(id)}
+      onStopSharing={(id) => void stopSharingWithAgents(id)}
       section={tab.state.section}
       onSectionChange={(section) => onSection(tab.id, section)}
       onCloseTab={() => onClose(tab.id)}

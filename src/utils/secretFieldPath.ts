@@ -7,7 +7,7 @@
 export const SECRET_FIELD_KEYS: ReadonlySet<string> = new Set([
   'password', 'pwd', 'sshpassword', 'sshpassphrase',
   'passphrase', 'secret', 'token', 'apikey', 'authorization',
-  'ssh_password', 'ssh_passphrase',
+  'ssh_password', 'ssh_passphrase', 'agenttoken',
 ]);
 
 /** True when any segment of a dotted field path is a secret key name, in any casing. */

@@ -393,6 +393,35 @@ describe('ImportWizardService', () => {
       expect(result.repick).toEqual([{ name: 'RW', files: ['tlsClientCert'] }]);
     });
 
+    it('imports a Connection that was shared with Agents as not shared', async () => {
+      const a = install();
+      const prod = await a.conns.create(input({ name: 'Shared' }));
+      a.repo.setShared(prod.id, true);
+      await a.exporter.export({ ids: [prod.id], includeSecrets: false });
+
+      const b = install();
+      const { token } = await openReview(b.wizard, path.join(dir, 'export.json'));
+      const result = await b.wizard.importCommit({ token, indices: [0], readOnly: false, credentials: [], directConnection: [] });
+
+      const imported = b.conns.get(result.created[0]!.id);
+      expect(imported.shareWithAgents).toBe(false);
+      expect(b.repo.findById(imported.id)?.share_with_agents).toBe(0);
+    });
+
+    it('refuses an export file crafted to carry the share flag', async () => {
+      const a = install();
+      const prod = await a.conns.create(input({ name: 'Shared' }));
+      await a.exporter.export({ ids: [prod.id], includeSecrets: false });
+      const file = path.join(dir, 'export.json');
+      const crafted = JSON.parse(fs.readFileSync(file, 'utf8'));
+      crafted.connections[0].shareWithAgents = true;
+      fs.writeFileSync(file, JSON.stringify(crafted));
+
+      const b = install();
+      expect(await codeOf(open(b.wizard, file))).toBe('VALIDATION');
+      expect(b.conns.list()).toEqual([]);
+    });
+
     it("applies a Direct connection the user turned on over the export's own value", async () => {
       const a = install();
       const c = await a.conns.create(input({ name: 'One', password: 'pw' }));
