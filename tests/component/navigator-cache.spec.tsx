@@ -182,6 +182,112 @@ describe('DbCollectionNavigator — cached re-expand + background refresh', () =
     await waitFor(() => expect(listCollections).toHaveBeenCalledTimes(2));
   });
 
+  it('expands a database immediately after a pointer click', async () => {
+    const listCollections = vi.fn(async () => makeColls('orders'));
+    mountConnected(listCollections);
+
+    await screen.findByTestId(`nav-db-${DB_NAME}`);
+    const databaseRow = screen.getByTestId(`nav-db-${DB_NAME}`);
+
+    await act(async () => {
+      fireEvent.click(databaseRow);
+    });
+    await screen.findByTestId(`nav-coll-${DB_NAME}-orders`);
+
+    await act(async () => {
+      fireEvent.click(databaseRow);
+    });
+    expect(screen.queryByTestId(`nav-coll-${DB_NAME}-orders`)).toBeNull();
+
+    // A database click must not hold a stale row snapshot or delay expansion.
+    await act(async () => {
+      fireEvent.pointerDown(databaseRow);
+      fireEvent.pointerUp(databaseRow);
+      fireEvent.click(databaseRow, { detail: 1 });
+    });
+
+    expect(screen.getByTestId(`nav-coll-${DB_NAME}-orders`)).toBeTruthy();
+  });
+
+  it('keeps a pressed collection row stable until its click is dispatched during refresh', async () => {
+    const deferred = makeDeferred<CollectionInfo[]>();
+    let call = 0;
+    const listCollections = vi.fn(async () => {
+      call += 1;
+      if (call === 1) return makeColls('alpha', 'charlie');
+      return deferred.promise;
+    });
+    const onOpenCollection = vi.fn();
+    installAtelierMock({
+      mongo: { status: async (id: string) => ({ id, status: 'connected' as const }) },
+      meta: {
+        listDatabases: async () => DB_ROWS,
+        listCollections: listCollections as never,
+      },
+    });
+    render(
+      <DbCollectionNavigator
+        connectionsWithTabs={new Set()}
+        connections={[connectionFixture({ id: 'c1', name: 'Test' })]}
+        focusedConnectionId="c1"
+        activeDbName={null}
+        activeCollection={null}
+        onOpenCollection={onOpenCollection}
+        onOpenAggregation={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId(`nav-db-${DB_NAME}`);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`nav-db-${DB_NAME}`));
+    });
+    await screen.findByTestId(`nav-coll-${DB_NAME}-charlie`);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`nav-db-${DB_NAME}`));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`nav-db-${DB_NAME}`));
+    });
+    await waitFor(() => expect(listCollections).toHaveBeenCalledTimes(2));
+    const charlieRow = await screen.findByTestId(`nav-coll-${DB_NAME}-charlie`);
+
+    fireEvent.pointerDown(charlieRow);
+    await act(async () => {
+      deferred.resolve(makeColls('alpha', 'bravo', 'charlie'));
+    });
+
+    expect(screen.queryByTestId(`nav-coll-${DB_NAME}-bravo`)).toBeNull();
+    expect(screen.getByTestId(`nav-coll-${DB_NAME}-charlie`)).toBe(charlieRow);
+
+    fireEvent.pointerUp(charlieRow);
+    fireEvent.click(charlieRow, { detail: 1 });
+
+    // A refresh that lands between the first and second click must not move
+    // the row during the native double-click interval.
+    expect(screen.queryByTestId(`nav-coll-${DB_NAME}-bravo`)).toBeNull();
+    expect(screen.getByTestId(`nav-coll-${DB_NAME}-charlie`)).toBe(charlieRow);
+
+    expect(onOpenCollection).toHaveBeenNthCalledWith(
+      1,
+      { connectionId: 'c1', dbName: DB_NAME, collection: 'charlie' },
+      { reuseExisting: true, preview: true },
+    );
+
+    // The second press must retain the original snapshot even though the live
+    // rows now contain bravo before charlie.
+    fireEvent.pointerDown(charlieRow);
+    fireEvent.pointerUp(charlieRow);
+    fireEvent.click(charlieRow, { detail: 2 });
+
+    expect(onOpenCollection).toHaveBeenNthCalledWith(
+      2,
+      { connectionId: 'c1', dbName: DB_NAME, collection: 'charlie' },
+      { reuseExisting: true, preview: false },
+    );
+    expect(await screen.findByTestId(`nav-coll-${DB_NAME}-bravo`)).toBeTruthy();
+  });
+
   it('AC#2 changed list: after background refresh resolves the updated list replaces the old one', async () => {
     let call = 0;
     const listCollections = vi.fn(async () => {

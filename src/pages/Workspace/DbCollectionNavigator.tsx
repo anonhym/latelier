@@ -59,6 +59,7 @@ const countText = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'
 
 /** Past the 10 ms Mantine waits before it returns focus to a closed dialog's opener. */
 const TREE_FOCUS_DELAY_MS = 60;
+const POINTER_CLICK_GRACE_MS = 500;
 
 /** A row to reveal: a collection, a database on its own, or a Connection's root (no `dbName`). */
 export interface NavigatorRevealInput {
@@ -310,6 +311,42 @@ export function DbCollectionNavigator({
   const { caches, connectErrors, expandedConnId, expanded } = tree;
   const [filter, setFilter] = React.useState('');
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
+  const [pointerRows, setPointerRows] = React.useState<TreeRow[] | null>(null);
+  const pointerReleaseTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => () => {
+    if (pointerReleaseTimerRef.current !== null) {
+      window.clearTimeout(pointerReleaseTimerRef.current);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!pointerRows) return;
+    const releaseAfterClick = () => {
+      if (pointerReleaseTimerRef.current !== null) {
+        window.clearTimeout(pointerReleaseTimerRef.current);
+      }
+      pointerReleaseTimerRef.current = window.setTimeout(() => {
+        pointerReleaseTimerRef.current = null;
+        setPointerRows(null);
+      }, POINTER_CLICK_GRACE_MS);
+    };
+    const releaseImmediately = () => {
+      if (pointerReleaseTimerRef.current !== null) {
+        window.clearTimeout(pointerReleaseTimerRef.current);
+        pointerReleaseTimerRef.current = null;
+      }
+      setPointerRows(null);
+    };
+    window.addEventListener('pointerup', releaseAfterClick);
+    window.addEventListener('pointercancel', releaseImmediately);
+    window.addEventListener('blur', releaseImmediately);
+    return () => {
+      window.removeEventListener('pointerup', releaseAfterClick);
+      window.removeEventListener('pointercancel', releaseImmediately);
+      window.removeEventListener('blur', releaseImmediately);
+    };
+  }, [pointerRows]);
   // The focus ring is drawn only while the tree holds the keyboard: a ring
   // left on a row after focus moved to a tab read as a third selection style.
   const [treeFocused, setTreeFocused] = React.useState(false);
@@ -796,8 +833,30 @@ export function DbCollectionNavigator({
 
   const listRef = useListRef(null);
 
+  // Keep the rendered row order stable until a pointer-initiated click has
+  // been dispatched; a background refresh can otherwise move the row under it.
+  const displayedRows = pointerRows ?? rows;
+  const handleTreePointerDown = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!(e.target instanceof Element) || !e.target.closest('[role="treeitem"][data-testid^="nav-coll-"]')) return;
+    if (pointerReleaseTimerRef.current !== null) {
+      window.clearTimeout(pointerReleaseTimerRef.current);
+      pointerReleaseTimerRef.current = null;
+    }
+    setPointerRows((prev) => prev ?? [...rows]);
+  }, [rows]);
+  const releasePointerRows = React.useCallback(() => {
+    if (pointerReleaseTimerRef.current !== null) {
+      window.clearTimeout(pointerReleaseTimerRef.current);
+      pointerReleaseTimerRef.current = null;
+    }
+    setPointerRows(null);
+  }, []);
+  const handleTreeClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.detail >= 2) releasePointerRows();
+  }, [releasePointerRows]);
+
   // The requested row may not exist yet (its database still loading, or the
-  // navigator only just mounted), so the request waits for the rows that hold
+  // navigator only just mounted), so the request waits for the displayed rows that contain
   // it. Focusing it lets the focusedId effect below scroll it into view.
   // A name filter that hides the row would hold it back forever, so a reveal
   // clears it. It also re-lists the database's collections (sharing a load
@@ -849,7 +908,7 @@ export function DbCollectionNavigator({
         : req.collection === undefined
         ? `db:${req.connectionId}:${dbName}`
         : `coll:${req.connectionId}:${dbName}:${req.collection}`;
-    const idx = rows.findIndex((r) => r.id === id);
+    const idx = displayedRows.findIndex((r) => r.id === id);
     if (idx >= 0) {
       pendingRevealRef.current = null;
       // Scrolled here, not left to the focus change: revealing the row that
@@ -871,7 +930,7 @@ export function DbCollectionNavigator({
     if (req.collection !== undefined && ownGet(c?.colls ?? {}, dbName)?.some((x) => x.name === req.collection)) return;
     pendingRevealRef.current = null;
     queueMicrotask(() => onRevealHandled?.());
-  }, [rows, revealListed, onRevealHandled, caches, listRef, focusTreeSoon]);
+  }, [displayedRows, revealListed, onRevealHandled, caches, listRef, focusTreeSoon]);
   const rowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT });
 
   React.useEffect(() => {
@@ -880,24 +939,24 @@ export function DbCollectionNavigator({
         ? `coll:${focusedConnectionId}:${activeDbName}:${activeCollection}`
         : null;
     const focusedStillVisible = focusedId
-      ? rows.some((r) => r.id === focusedId)
+      ? displayedRows.some((r) => r.id === focusedId)
       : false;
     if (focusedId && focusedStillVisible) return;
     if (!focusedId && !activeId) return;
     queueMicrotask(() => {
       setFocusedId((prev) => {
-        if (prev && rows.some((r) => r.id === prev)) return prev;
-        return activeId ?? rows[0]?.id ?? null;
+        if (prev && displayedRows.some((r) => r.id === prev)) return prev;
+        return activeId ?? displayedRows[0]?.id ?? null;
       });
     });
-  }, [rows, focusedId, focusedConnectionId, activeDbName, activeCollection]);
+  }, [displayedRows, focusedId, focusedConnectionId, activeDbName, activeCollection]);
 
   const activeRowId =
     focusedConnectionId && activeDbName && activeCollection
       ? `coll:${focusedConnectionId}:${activeDbName}:${activeCollection}`
       : null;
-  useScrollToTarget(listRef, rows, activeRowId);
-  useScrollToTarget(listRef, rows, focusedId);
+  useScrollToTarget(listRef, displayedRows, activeRowId);
+  useScrollToTarget(listRef, displayedRows, focusedId);
 
   const openFromRow = React.useCallback(
     (
@@ -942,9 +1001,9 @@ export function DbCollectionNavigator({
     // Enter-activates-click default action before it fires — mirrors
     // `useRovingFocus`'s identical guard and TableView/TreeView's copy of it.
     if (e.target !== e.currentTarget) return;
-    if (rows.length === 0) return;
-    const idx = focusedId ? rows.findIndex((r) => r.id === focusedId) : -1;
-    const row = idx >= 0 ? rows[idx] : null;
+    if (displayedRows.length === 0) return;
+    const idx = focusedId ? displayedRows.findIndex((r) => r.id === focusedId) : -1;
+    const row = idx >= 0 ? displayedRows[idx] : null;
 
     // #55 — Shift+F10 / ContextMenu key: open the menu for the focused row,
     // anchored to its bounding rect, not a stale cursor position. #133 — the
@@ -971,15 +1030,15 @@ export function DbCollectionNavigator({
         // ticket's call sites) still recovers to the nearest navigable row
         // below it, rather than skipping one past it.
         const from = idx < 0 ? 0 : row && isNavigableRow(row) ? idx + 1 : idx;
-        const next = nearestNavigableIndex(rows, from, 1);
-        if (next >= 0) setFocusedId(rows[next].id);
+        const next = nearestNavigableIndex(displayedRows, from, 1);
+        if (next >= 0) setFocusedId(displayedRows[next].id);
         return;
       }
       case 'ArrowUp': {
         e.preventDefault();
         const from = idx < 0 ? 0 : row && isNavigableRow(row) ? idx - 1 : idx;
-        const next = nearestNavigableIndex(rows, from, -1);
-        if (next >= 0) setFocusedId(rows[next].id);
+        const next = nearestNavigableIndex(displayedRows, from, -1);
+        if (next >= 0) setFocusedId(displayedRows[next].id);
         return;
       }
       case 'ArrowRight': {
@@ -989,15 +1048,15 @@ export function DbCollectionNavigator({
           if (!row.isExpanded) {
             toggleConnection(row.conn.id);
           } else {
-            const next = firstNavigableInSubtree(rows, idx, ['connection']);
-            if (next >= 0) setFocusedId(rows[next].id);
+            const next = firstNavigableInSubtree(displayedRows, idx, ['connection']);
+            if (next >= 0) setFocusedId(displayedRows[next].id);
           }
         } else if (row.kind === 'db') {
           if (!row.isExpanded) {
             toggleDb(row.db.name);
           } else {
-            const next = firstNavigableInSubtree(rows, idx, ['db', 'connection']);
-            if (next >= 0) setFocusedId(rows[next].id);
+            const next = firstNavigableInSubtree(displayedRows, idx, ['db', 'connection']);
+            if (next >= 0) setFocusedId(displayedRows[next].id);
           }
         }
         return;
@@ -1023,14 +1082,14 @@ export function DbCollectionNavigator({
       }
       case 'Home': {
         e.preventDefault();
-        const next = nearestNavigableIndex(rows, 0, 1);
-        if (next >= 0) setFocusedId(rows[next].id);
+        const next = nearestNavigableIndex(displayedRows, 0, 1);
+        if (next >= 0) setFocusedId(displayedRows[next].id);
         return;
       }
       case 'End': {
         e.preventDefault();
-        const next = nearestNavigableIndex(rows, rows.length - 1, -1);
-        if (next >= 0) setFocusedId(rows[next].id);
+        const next = nearestNavigableIndex(displayedRows, displayedRows.length - 1, -1);
+        if (next >= 0) setFocusedId(displayedRows[next].id);
         return;
       }
       case 'Enter': {
@@ -1055,7 +1114,7 @@ export function DbCollectionNavigator({
   // active row is only named via `aria-activedescendant`, and only when it's
   // `isNavigableRow` — `focusedId` can no longer land on a placeholder (see
   // the onKeyDown audit above), but this stays defensive rather than assuming.
-  const focusedRow = focusedId ? rows.find((r) => r.id === focusedId) : undefined;
+  const focusedRow = focusedId ? displayedRows.find((r) => r.id === focusedId) : undefined;
   const activeDescendantId =
     focusedRow && isNavigableRow(focusedRow) ? navigatorRowDomId(focusedRow.id) : undefined;
 
@@ -1294,7 +1353,7 @@ export function DbCollectionNavigator({
   // row (TableView's and TreeView's rowProps are memoized the same way).
   const rowProps = React.useMemo<NavRowProps>(
     () => ({
-      rows,
+      rows: displayedRows,
       focusedId: treeFocused ? focusedId : null,
       focusedConnectionId,
       activeDbName,
@@ -1317,7 +1376,7 @@ export function DbCollectionNavigator({
       onRowContextMenu,
     }),
     [
-      rows,
+      displayedRows,
       focusedId,
       treeFocused,
       focusedConnectionId,
@@ -1432,6 +1491,9 @@ export function DbCollectionNavigator({
         aria-label="Databases and collections"
         aria-activedescendant={activeDescendantId}
         onKeyDown={onKeyDown}
+        onPointerDownCapture={handleTreePointerDown}
+        onPointerCancel={releasePointerRows}
+        onClick={handleTreeClick}
         onFocus={() => setTreeFocused(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setTreeFocused(false);
@@ -1448,11 +1510,11 @@ export function DbCollectionNavigator({
         {/* Both failure surfaces — a failed connect and a failed db list —
             are `conn-error` rows inside the list now, so each sits on
             the root it belongs to rather than above all of them. */}
-        {rows.length > 0 && (
+        {displayedRows.length > 0 && (
           <List<NavRowProps>
             listRef={listRef}
             rowComponent={NavRow as typeof NavRowImpl}
-            rowCount={rows.length}
+            rowCount={displayedRows.length}
             rowHeight={rowHeight}
             overscanCount={8}
             rowProps={rowProps}
