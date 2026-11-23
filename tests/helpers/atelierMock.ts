@@ -26,6 +26,7 @@ export const AGENT_ACCESS_OFF: AgentAccessState = {
   tokens: [],
   bridgeInstalled: false,
   bridgePath: '',
+  claudeCodeCommand: '',
   platformCaveat: null,
   privilege: {},
 };

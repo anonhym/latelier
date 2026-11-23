@@ -1431,7 +1431,8 @@ export type FeatureHintId =
   | 'monitor.live'
   | 'monitor.profiler'
   | 'indexes.usage'
-  | 'find.options';
+  | 'find.options'
+  | 'agents.share';
 
 export interface FeatureHintDismissalState {
   dismissedIds: FeatureHintId[];
@@ -1808,6 +1809,8 @@ export interface AgentAccessState {
   tokens: AgentTokenInfo[];
   bridgeInstalled: boolean;
   bridgePath: string;
+  /** The `claude mcp add` command for this bridge, with a placeholder where the token goes. Never holds a token. */
+  claudeCodeCommand: string;
   platformCaveat: 'windows-pipe' | null;
   /** Last privilege result per Connection id, this app run only; display only, never consulted before sharing. */
   privilege: Record<string, PrivilegeResult>;

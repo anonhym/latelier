@@ -5,12 +5,16 @@ import { notify } from '../../theme/notifications';
 import { relativeTime } from '../../utils/relativeTime';
 import { AGENT_ACCESS_COPY as COPY, readCountText } from './agentAccessCopy';
 import { useAgentAccessState } from './useAgentAccessState';
+import { stopSharingWithAgents } from './useShareWithAgents';
+import { useConnections } from '../../state/connections';
+import type { ConnectionSummary } from '@shared/types';
 
 const NAME_MAX = 64;
 
 /** Settings → Agent Access (X27 §12.1). Every change is asked of main, which owns the dialogs and the tokens. */
 export function AgentAccessSection() {
   const state = useAgentAccessState();
+  const { connections } = useConnections();
   const [busy, setBusy] = React.useState(false);
   const [adding, setAdding] = React.useState(false);
   const [name, setName] = React.useState('');
@@ -41,6 +45,7 @@ export function AgentAccessSection() {
     }, 'Could not add the Agent.');
 
   const tokens = [...state.tokens].sort((a, b) => a.name.localeCompare(b.name));
+  const shared = connections.filter((c) => c.shareWithAgents).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <>
@@ -73,6 +78,14 @@ export function AgentAccessSection() {
           )}
           <Text size="xs" c="dimmed">{readCountText(state.sessionReadCount)}</Text>
         </Stack>
+      )}
+
+      <SharedConnections shared={shared} enabled={state.enabled} />
+
+      <ClaudeCodeSetup command={state.claudeCodeCommand} />
+
+      {state.enabled && shared.length > 0 && tokens.length === 0 && (
+        <Text size="xs" fw={600} data-testid="agent-next-step">{COPY.nextStepAddAgent}</Text>
       )}
 
       <Stack gap="xs">
@@ -191,5 +204,75 @@ export function AgentAccessSection() {
         </Group>
       )}
     </>
+  );
+}
+
+/** Every Connection an Agent could reach, in one place, so what is exposed is never a hunt through menus (X27 §12.1). */
+function SharedConnections({ shared, enabled }: { shared: ConnectionSummary[]; enabled: boolean }) {
+  return (
+    <Stack gap="xs" data-testid="agent-shared-connections">
+      <Text size="sm" fw={600}>{COPY.sharedTitle}</Text>
+      {shared.length === 0 ? (
+        <Text size="xs" c="dimmed">{COPY.noneShared}</Text>
+      ) : (
+        <>
+          {!enabled && <Text size="xs" c="dimmed">{COPY.sharedWhileOff}</Text>}
+          <Table withRowBorders={false} aria-label={COPY.sharedTitle}>
+            <Table.Tbody>
+              {shared.map((c) => (
+                <Table.Tr key={c.id}>
+                  <Table.Td>{c.name}</Table.Td>
+                  <Table.Td>
+                    <Text size="xs" c="dimmed">{c.status === 'connected' ? COPY.open : COPY.notOpen}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Group justify="flex-end" wrap="nowrap">
+                      <Button
+                        variant="default"
+                        size="compact-xs"
+                        aria-label={`${COPY.stopShort}: ${c.name}`}
+                        onClick={() => void stopSharingWithAgents(c.id)}
+                      >
+                        {COPY.stopShort}
+                      </Button>
+                    </Group>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+/** The Claude Code CLI path, step by step (X27 §12.1). The command shown holds a placeholder; the real one, with the token, is copied from main's token window only. */
+function ClaudeCodeSetup({ command }: { command: string }) {
+  const [turnOn, addAgent, paste, check, ask] = COPY.claudeCodeSteps;
+  const code = { userSelect: 'text', wordBreak: 'break-all', whiteSpace: 'pre-wrap' } as const;
+  return (
+    <Stack gap="xs" data-testid="agent-claude-code-setup">
+      <Text size="sm" fw={600}>{COPY.claudeCodeTitle}</Text>
+      <List type="ordered" size="xs" spacing={6}>
+        <List.Item>{turnOn}</List.Item>
+        <List.Item>{addAgent}</List.Item>
+        <List.Item>
+          <Stack gap="var(--atelier-gap-xs)">
+            <Text size="xs">{paste}</Text>
+            {command && <Code block style={code} data-testid="agent-claude-code-command">{command}</Code>}
+            <Text size="xs" c="dimmed">{COPY.claudeCodeScope}</Text>
+          </Stack>
+        </List.Item>
+        <List.Item>
+          <Stack gap="var(--atelier-gap-xs)">
+            <Code block style={code}>{COPY.claudeCodeCheck}</Code>
+            <Text size="xs">{check}</Text>
+          </Stack>
+        </List.Item>
+        <List.Item>{ask}</List.Item>
+      </List>
+      <Text size="xs" c="dimmed">{COPY.claudeCodeRemove}</Text>
+    </Stack>
   );
 }

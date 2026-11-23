@@ -19,9 +19,10 @@ import { createIpcShim } from '../helpers/ipcShim';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 
 const TURN_ON = 1;
-const COPY_CLAUDE_CODE = 1;
-const COPY_CLAUDE_DESKTOP = 2;
-const COPY_CURSOR = 3;
+const COPY_CLAUDE_CODE_COMMAND = 1;
+const COPY_CLAUDE_CODE = 2;
+const COPY_CLAUDE_DESKTOP = 3;
+const COPY_CURSOR = 4;
 
 /** The token in a token dialog is the last paragraph of its detail. */
 function tokenIn(detail: string): string {
@@ -303,7 +304,7 @@ describe('agentAccess:* channels', () => {
       expect(rowsWhileOpen).toBe(1);
       expect(info).toEqual({ id: expect.any(String), name: 'Claude Code', createdAt: expect.any(String) });
       expect(h.boxes).toHaveLength(1);
-      expect(h.boxes[0]!.buttons).toEqual(['Done', 'Copy for Claude Code', 'Copy for Claude Desktop', 'Copy for Cursor']);
+      expect(h.boxes[0]!.buttons).toEqual(['Done', 'Copy Claude Code command', 'Copy for Claude Code (JSON)', 'Copy for Claude Desktop', 'Copy for Cursor']);
       expect([h.boxes[0]!.defaultId, h.boxes[0]!.cancelId]).toEqual([0, 0]);
       expect(h.clipboard).toEqual([]);
     });
@@ -328,7 +329,7 @@ describe('agentAccess:* channels', () => {
       const token = tokenIn(h.boxes[0]!.detail);
       expect(h.boxes.map((b) => tokenIn(b.detail))).toEqual([token, token, token, token]);
       expect(h.boxes[0]!.detail).not.toContain('Configuration copied');
-      expect(h.boxes[1]!.detail).toContain('Configuration copied for Claude Code.');
+      expect(h.boxes[1]!.detail).toContain('Configuration copied for Claude Code (JSON).');
       expect(h.boxes[2]!.detail).toContain('Configuration copied for Cursor.');
       expect(h.boxes[3]!.detail).toContain('Configuration copied for Claude Desktop.');
 
@@ -347,10 +348,35 @@ describe('agentAccess:* channels', () => {
 
       expect(info.name).toBe('Claude Code');
       expect(h.boxes).toHaveLength(2);
-      expect(h.boxes[1]!.detail).toContain('Could not copy the configuration for Cursor.');
+      expect(h.boxes[1]!.detail).toContain('Could not copy it (Copy for Cursor). Copy the token by hand, or regenerate it.');
       expect(tokenIn(h.boxes[1]!.detail)).toBe(tokenIn(h.boxes[0]!.detail));
       expect(h.boxes[1]!.detail).not.toContain('Configuration copied');
       expect(vi.mocked(h.log.warn)).toHaveBeenCalledWith('agent', 'could not copy the Agent configuration', { errName: 'Error' });
+    });
+
+    it('copies the claude mcp add command, names it in the note, and tells Claude Code users how in the box', async () => {
+      h.answers.push(COPY_CLAUDE_CODE_COMMAND, 0);
+
+      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
+
+      const token = tokenIn(h.boxes[0]!.detail);
+      expect(h.boxes[0]!.detail).toContain('Claude Code: copy the command, paste it into a terminal and run it.');
+      expect(h.clipboard).toEqual([
+        // The harness path is plain characters, so it stays a bare word; quoting is unit-tested against a real shell.
+        `claude mcp add latelier --scope user -e LATELIER_AGENT_TOKEN=${token} -- ${h.bridge.installedPath}`,
+      ]);
+      expect(h.boxes[1]!.detail).toContain('Claude Code command copied. Paste it into a terminal and run it, then check with: claude mcp list');
+      expect(tokenIn(h.boxes[1]!.detail)).toBe(token);
+    });
+
+    it('states the Claude Code command with a placeholder, never a token', async () => {
+      h.answers.push(0);
+      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
+      const token = tokenIn(h.boxes[0]!.detail);
+      const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
+      expect(state.claudeCodeCommand).toContain('LATELIER_AGENT_TOKEN=YOUR_TOKEN');
+      expect(state.claudeCodeCommand).toContain(h.bridge.installedPath);
+      expect(JSON.stringify(state)).not.toContain(token);
     });
 
     it('ends the loop when the box is dismissed with Escape', async () => {
@@ -470,6 +496,35 @@ describe('agentAccess:* channels', () => {
       expect(out.shared).toBe(true);
       expect(out.privilege?.kind).toBe('no-auth');
       expect(h.connRepo.findById(id)?.share_with_agents).toBe(1);
+    });
+
+    it('while off, one "Turn on and share" dialog turns Agent Access on and shares, and the server listens', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { status: 'connected' });
+      const client = { db: () => ({ command: async () => ({ authInfo: { authenticatedUsers: [], authenticatedUserRoles: [], authenticatedUserPrivileges: [] } }) }) };
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(client as never);
+      h.answers.push(1);
+
+      const out = await ok<{ shared: boolean }>(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true });
+
+      expect(out.shared).toBe(true);
+      expect(h.boxes.map((b) => b.buttons)).toEqual([['Cancel', 'Turn on and share']]);
+      const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
+      expect(state.enabled).toBe(true);
+      expect(state.socketPath).not.toBe('');
+      const sock = await openSocket(state.socketPath);
+      sock.destroy();
+    });
+
+    it('while off, cancelling the combined dialog leaves the switch off and the Connection unshared', async () => {
+      const id = randomUUID();
+      h.addConnection(id, 'prod', { status: 'connected' });
+      const client = { db: () => ({ command: async () => ({ authInfo: { authenticatedUsers: [], authenticatedUserRoles: [], authenticatedUserPrivileges: [] } }) }) };
+      vi.spyOn(h.pool, 'readClient').mockResolvedValue(client as never);
+
+      expect((await ok<{ shared: boolean }>(IPC_CHANNELS.agentAccessSetShared, { connectionId: id, shared: true })).shared).toBe(false);
+      expect((await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).enabled).toBe(false);
+      expect(h.connRepo.findById(id)?.share_with_agents).toBe(0);
     });
 
     it('unshares through the channel at once, with no dialog', async () => {

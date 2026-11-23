@@ -15,6 +15,8 @@ import { logFailure } from '../../utils/rendererLog';
 import { copyToClipboard } from '../../utils/clipboard';
 import { disconnectConnection } from '../../features/connections/disconnectConnection';
 import { ShareMarker } from '../../features/agentAccess/ShareMarker';
+import { AGENT_ACCESS_COPY } from '../../features/agentAccess/agentAccessCopy';
+import { shareWithAgents, stopSharingWithAgents } from '../../features/agentAccess/useShareWithAgents';
 import { copyConnectionString } from '../../features/connections/connectionRowMenu';
 import { isKnownNotConnected } from '../../state/connections';
 import { I } from '../../icons';
@@ -1198,6 +1200,17 @@ export function DbCollectionNavigator({
         icon: I.copy,
         onClick: () => copyConnectionString(id),
       },
+      // Agent Access (X27 §12.3): main asks, checks privileges, and turns Agent Access on with the share when it is off.
+      row.conn.shareWithAgents
+        ? { kind: 'item', label: AGENT_ACCESS_COPY.stopShareAction, icon: I.plugOff, onClick: () => void stopSharingWithAgents(id) }
+        : {
+            kind: 'item',
+            label: AGENT_ACCESS_COPY.shareAction,
+            icon: I.link,
+            onClick: () => void shareWithAgents(id),
+            disabled: !row.isConnected,
+            disabledTitle: AGENT_ACCESS_COPY.openFirst,
+          },
       { kind: 'sep' },
     ];
     if (row.isConnected) {

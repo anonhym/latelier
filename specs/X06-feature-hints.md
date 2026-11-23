@@ -8,7 +8,7 @@ Make non-obvious features discoverable at the moment a user would want them. The
 
 ## Scope
 
-- **In**: hint registry, `<FeatureHint>` popover component, `useFeatureHint(id, when)` hook, dismissal persistence in `app_state`, a catalog of hints (Run, configure references, pin a tab, save a query, palette, suggestion keys, and the behaviour-triggered startup restore, Monitor, Indexes and find-options hints; see §4), and a "Reset hints" action in Settings.
+- **In**: hint registry, `<FeatureHint>` popover component, `useFeatureHint(id, when)` hook, dismissal persistence in `app_state`, a catalog of hints (Run, configure references, pin a tab, save a query, palette, suggestion keys, and the behaviour-triggered startup restore, Monitor, Indexes, find-options and Agent Access hints; see §4), and a "Reset hints" action in Settings.
 - **Out** (deferred):
   - Full command palette / Cmd-K — specified in [X07](./X07-command-palette.md); since shipped.
   - Multi-step tours (next / back / skip).
@@ -143,8 +143,9 @@ Add a single row to the existing Settings UI: **Hints** — `[Reset hints]` butt
 | `monitor.profiler` | Profiling stays on until you turn it off | The level is a server-side setting for this database, so it keeps running until you set it back to Off. Profiling can add write load. | The profiler's Apply succeeded with Slow or All; a failed Apply, an Apply to Off, or picking another database does not qualify. | The Profiler section | none (close-only) |
 | `indexes.usage` | What the Use column counts | Use counts how often queries used an index since the date in its tooltip (server restart or index creation). Near zero over a long window: a drop candidate. | The Indexes list holds at least one index with usage data (`$indexStats`). The UI has no hide/unhide control, so the copy does not suggest one. | The "Use" column header | none (close-only) |
 | `find.options` | Collation and hint apply to the whole query | They apply to Run, the count, export and Copy code. Delete by filter and bulk update refuse while one is set: clear it first. | The query bar's options row is open and the collation or the hint is non-blank. | The collation/hint row of the query bar | none (close-only) |
+| `agents.share` | Let an AI Agent read this data | Agents such as Claude Code can query the Connections you share, read-only, over MCP. Open Agents here to share this one, or set it up step by step in Settings. | The active tab is a collection tab, its Connection is open, Agent Access is off and no Connection is Shared with Agents (X27). | The status bar's Agents control (X27 §12.2), drawn **above** it: `<FeatureHint placement="above">` pins the popover from the viewport's bottom edge, since an anchor at the bottom would push a below-placed one off-screen | "Set up" → opens Settings → Agent Access |
 
-Priority order (lowest wins): `run.execute` 0, `refs.configure` 10, `tabs.pin` 20, `saved.create` 30, `palette.discover` 40, `suggestions.keyboard` 50 (inline, so never competes), `startup.restore` 60, `monitor.live` 70, `monitor.profiler` 80, `indexes.usage` 90, `find.options` 100. The behaviour hints rank below every original one, so they never pre-empt the primary path. The primary path, Run, always beats a secondary hint.
+Priority order (lowest wins): `run.execute` 0, `refs.configure` 10, `tabs.pin` 20, `saved.create` 30, `palette.discover` 40, `suggestions.keyboard` 50 (inline, so never competes), `startup.restore` 60, `monitor.live` 70, `monitor.profiler` 80, `indexes.usage` 90, `find.options` 100, `agents.share` 110. The behaviour hints rank below every original one, so they never pre-empt the primary path. The primary path, Run, always beats a secondary hint.
 
 `queryHash` is a stable hash over `(filter, projection, sort, limit, skip)` — already computed for the recents feature; reuse.
 

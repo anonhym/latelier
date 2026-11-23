@@ -67,6 +67,7 @@ import { usePaletteApi } from '../commands/CommandPalette';
 import { HINTS_SUPPRESSED, useFeatureHint } from '../hints/useFeatureHint';
 import { useHints } from '../hints/HintsContext';
 import { FeatureHint } from '../hints/FeatureHint';
+import { useAgentAccessState } from '../features/agentAccess/useAgentAccessState';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -332,6 +333,18 @@ function WorkspaceInner() {
       cancelled = true;
     };
   }, []);
+  // Agent Access (X27 §12.2, X06 §4): offered once a collection is open on a live
+  // Connection, while Agent Access is off and nothing is shared yet, pointing at
+  // the status bar control that shares it.
+  const agentAccess = useAgentAccessState();
+  const agentsShareHint = useFeatureHint(
+    'agents.share',
+    activeCollection !== null &&
+      focusedConnection?.status === 'connected' &&
+      agentAccess !== null &&
+      !agentAccess.enabled &&
+      !connections.some((c) => c.shareWithAgents),
+  );
   const startupRestoreHint = useFeatureHint(
     'startup.restore',
     restoredAtLaunch && tabs.tabs.length > 0,
@@ -1909,6 +1922,14 @@ function WorkspaceInner() {
           <StatusBar connection={focusedConnection} />
         </AppShell.Footer>
       )}
+
+      <FeatureHint
+        id="agents.share"
+        placement="above"
+        visible={agentsShareHint.visible}
+        onDismiss={agentsShareHint.dismiss}
+        onCta={() => settings.open('agents')}
+      />
 
       <FeatureHint
         id="startup.restore"

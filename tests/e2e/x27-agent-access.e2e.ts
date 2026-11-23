@@ -105,7 +105,7 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
         if (box.title === 'Turn on Agent Access?') response = pick('Turn on');
         else if (box.title === 'Share with Agents?') response = pick('Share');
         else if (box.title === 'Agent added') {
-          response = box.detail.includes('Configuration copied') ? pick('Done') : pick('Copy for Claude Code');
+          response = box.detail.includes('Configuration copied') ? pick('Done') : pick('Copy for Claude Code (JSON)');
         }
         return { response, checkboxChecked: false };
       }) as typeof dialog.showMessageBox;
@@ -136,7 +136,7 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
     expect(fs.existsSync(on.bridgePath)).toBe(true);
     expect(on.socketPath).not.toBe('');
 
-    // An Agent token: main's dialog shows it once, and "Copy for Claude Code" puts the configuration on the clipboard.
+    // An Agent token: main's dialog shows it once, and "Copy for Claude Code (JSON)" puts the configuration on the clipboard.
     await win.evaluate(() =>
       (window as unknown as { atelier: { agentAccess: { addToken: (i: { name: string }) => Promise<unknown> } } }).atelier.agentAccess.addToken({ name: 'E2E Agent' }),
     );

@@ -86,4 +86,11 @@ export const HINT_REGISTRY: Record<FeatureHintId, FeatureHintCopy> = {
     body: 'They apply to Run, the count, export and Copy code. Delete by filter and bulk update refuse while one is set: clear it first.',
     priority: 100,
   },
+  'agents.share': {
+    id: 'agents.share',
+    title: 'Let an AI Agent read this data',
+    body: 'Agents such as Claude Code can query the Connections you share, read-only, over MCP. Open Agents here to share this one, or set it up step by step in Settings.',
+    ctaLabel: 'Set up',
+    priority: 110,
+  },
 };

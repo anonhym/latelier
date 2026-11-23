@@ -5,10 +5,10 @@ import { AGENT_ACCESS_KEY } from '../ipc/prefKeys.ts';
 import type { Logger } from '../log.ts';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
-import { enableBox, notOpenBox, shareBox, tokenBox, TOKEN_DONE, type AgentMessageBox } from '../agent/dialogCopy.ts';
+import { enableAndShareBox, enableBox, notOpenBox, shareBox, tokenBox, TOKEN_DONE, type AgentMessageBox } from '../agent/dialogCopy.ts';
 import type { BridgeHandle } from '../agent/bridgeInstall.ts';
 import { failedVerdict, privilegeVerdict } from '../agent/privilegeVerdict.ts';
-import { configSnippet, SNIPPET_CLIENTS } from '../agent/snippets.ts';
+import { claudeCodeCommandTemplate, configSnippet, SNIPPET_CLIENTS } from '../agent/snippets.ts';
 import { AgentGate, type AgentPool } from '../agent/AgentGate.ts';
 import { AgentServer } from '../agent/AgentServer.ts';
 import { AgentToolRunner } from '../agent/AgentToolRunner.ts';
@@ -246,6 +246,7 @@ export class AgentAccessService {
       tokens: this.listTokens(),
       bridgeInstalled: this.deps.bridge.isInstalled(),
       bridgePath: this.deps.bridge.installedPath,
+      claudeCodeCommand: claudeCodeCommandTemplate(this.deps.bridge.installedPath, this.deps.platform),
       platformCaveat: this.deps.platform === 'win32' ? 'windows-pipe' : null,
       privilege,
     };
@@ -268,9 +269,14 @@ export class AgentAccessService {
   private async askToEnable(): Promise<{ enabled: boolean }> {
     const answer = await this.deps.dialogs.showMessageBox(enableBox(this.deps.platform));
     if (answer.response !== 1) return { enabled: false };
+    await this.turnOn();
+    return { enabled: this.isEnabled() };
+  }
+
+  /** Only ever called after a confirmed main-process dialog. Resolves once the server has started. */
+  private async turnOn(): Promise<void> {
     this.deps.appState.set(AGENT_ACCESS_KEY, true);
     await this.chain;
-    return { enabled: this.isEnabled() };
   }
 
   /** Needs no confirmation. Resolves once the listener and every session are down. */
@@ -314,7 +320,12 @@ export class AgentAccessService {
     const fingerprint = connectionIdentityFingerprint(row);
     const result = await this.checkPrivileges(connectionId, row.name);
     if (result === 'not-open') return { shared: false };
-    const answer = await this.deps.dialogs.showMessageBox(shareBox(row.name, result, this.deps.platform));
+    // Off: one dialog asks to turn it on and to share (§3.2), so the share is never silent.
+    const alsoEnable = !this.isEnabled();
+    const box = alsoEnable
+      ? enableAndShareBox(row.name, result, this.deps.platform)
+      : shareBox(row.name, result, this.deps.platform);
+    const answer = await this.deps.dialogs.showMessageBox(box);
     if (answer.response !== 1) {
       return { shared: this.deps.connRepo.findById(connectionId)?.share_with_agents === 1, privilege: result };
     }
@@ -324,6 +335,8 @@ export class AgentAccessService {
     if (current.ssh_enabled === 1 || connectionIdentityFingerprint(current) !== fingerprint) {
       throw new ConflictError('The Connection changed while the question was open, so it was not shared. Share it again to review it.');
     }
+    // Checked after the re-check, so a refused share never leaves Agent Access turned on behind it.
+    if (alsoEnable) await this.turnOn();
     this.setShared(connectionId, true);
     this.privilegeByConnection.set(connectionId, result);
     this.emitState();
@@ -396,12 +409,12 @@ export class AgentAccessService {
       const choice = SNIPPET_CLIENTS[response - 1];
       if (response === TOKEN_DONE || !choice) return;
       try {
-        await this.deps.dialogs.writeClipboard(configSnippet(choice.client, this.deps.bridge.installedPath, token));
-        note = `Configuration copied for ${choice.label}.`;
+        await this.deps.dialogs.writeClipboard(configSnippet(choice.client, this.deps.bridge.installedPath, token, this.deps.platform));
+        note = choice.copied;
       } catch (err) {
         // Say so in the box, which is still open to the token: the user can copy it by hand or regenerate.
         this.deps.log.warn('agent', 'could not copy the Agent configuration', { errName: err instanceof Error ? err.name : typeof err });
-        note = `Could not copy the configuration for ${choice.label}.`;
+        note = `Could not copy it (${choice.button}). Copy the token by hand, or regenerate it.`;
       }
     }
   }

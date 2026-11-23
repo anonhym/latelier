@@ -23,7 +23,12 @@ interface FeatureHintProps {
   onCta?: () => void;
   /** Override the default `[data-hint-anchor="<id>"]` lookup. */
   anchorSelector?: string;
+  /** Below the anchor by default; `above` for an anchor at the bottom edge, such as the status bar. */
+  placement?: 'below' | 'above';
 }
+
+/** `top` below an anchor, `bottom` (from the viewport's bottom edge) above one. */
+type HintPos = { left: number } & ({ top: number } | { bottom: number });
 
 // A hint appears while the user is typing, so it never takes focus on its own:
 // it is announced through a polite live region instead. F6 is the deliberate
@@ -41,10 +46,11 @@ export function FeatureHint({
   onDismiss,
   onCta,
   anchorSelector,
+  placement = 'below',
 }: FeatureHintProps) {
   const copy = HINT_REGISTRY[id];
   const selector = anchorSelector ?? `[data-hint-anchor="${id}"]`;
-  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = React.useState<HintPos | null>(null);
 
   React.useEffect(() => {
     if (!visible) return;
@@ -52,7 +58,6 @@ export function FeatureHint({
       const el = document.querySelector(selector) as HTMLElement | null;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const top = r.bottom + 8;
       const left = Math.max(
         8,
         Math.min(
@@ -60,7 +65,7 @@ export function FeatureHint({
           r.left + r.width / 2 - POPOVER_WIDTH / 2,
         ),
       );
-      setPos({ top, left });
+      setPos(placement === 'above' ? { bottom: window.innerHeight - r.top + 8, left } : { top: r.bottom + 8, left });
     };
     const raf = requestAnimationFrame(update);
     window.addEventListener('resize', update);
@@ -72,7 +77,7 @@ export function FeatureHint({
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [visible, selector]);
+  }, [visible, selector, placement]);
 
   const shown = visible && pos !== null;
 
@@ -101,7 +106,7 @@ function HintPopover({
   onCta,
 }: {
   id: FeatureHintId;
-  pos: { top: number; left: number };
+  pos: HintPos;
   onDismiss: () => void;
   onCta?: () => void;
 }) {
@@ -161,8 +166,7 @@ function HintPopover({
         radius="md"
         style={{
           position: 'fixed',
-          top: pos.top,
-          left: pos.left,
+          ...pos,
           width: POPOVER_WIDTH,
           zIndex: 1200,
           padding: '12px 14px',

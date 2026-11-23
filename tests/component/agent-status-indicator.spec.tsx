@@ -25,7 +25,7 @@ function mountBar(state: AgentAccessState, agentAccess: Record<string, unknown> 
 }
 
 describe('AgentStatusIndicator', () => {
-  it('shows nothing while Agent Access is off', async () => {
+  it('shows nothing while Agent Access is off and no Connection is focused', async () => {
     mountBar(AGENT_ACCESS_OFF);
     await screen.findByTestId('status-bar');
     await act(async () => {});

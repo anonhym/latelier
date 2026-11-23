@@ -23,7 +23,39 @@ export const AGENT_ACCESS_COPY = {
   shareAction: 'Share with Agents…',
   stopShareAction: 'Stop sharing with Agents',
   sharedBadge: 'Shared with Agents',
+  notShared: 'Not shared with Agents',
+  openFirst: 'Open this Connection first',
+  settingsAction: 'Agent Access settings…',
+  offText: 'Agents off',
+  offLabel: 'Agent Access is off',
+  sharedTitle: 'Shared Connections',
+  noneShared: 'No Connection is shared. Share one from its menu in the navigator, or from Agents in the status bar.',
+  sharedWhileOff: 'Agent Access is off, so no Agent can reach these.',
+  notOpen: 'Not open: Agents see it as unavailable',
+  open: 'Open',
+  stopShort: 'Stop sharing',
+  nextStepAddAgent: 'Next: add an Agent to get the configuration to paste into it.',
+  claudeCodeTitle: 'Set up Claude Code',
+  claudeCodeSteps: [
+    'Turn on Agent Access above.',
+    'Add an Agent. In the window that shows its token, choose "Copy Claude Code command". The token is shown only there.',
+    'Paste the command into a terminal and run it. It has this shape, with your token in place of YOUR_TOKEN:',
+    'Check it: this lists latelier as connected while Agent Access is on. In Claude Code, /mcp shows its tools.',
+    'Share a Connection and keep it open, then ask Claude, for example: "Which L\'Atelier connections can you see?"',
+  ],
+  claudeCodeScope: '--scope user makes it available in every project. Leave it out to add it to the current project only.',
+  claudeCodeCheck: 'claude mcp list',
+  claudeCodeRemove: 'To remove it: claude mcp remove latelier',
 } as const;
+
+/** Names the Connection, so from a collection view it never reads as sharing that collection (X27 §12.2). */
+export function shareNamedAction(name: string): string {
+  return `Share "${name}" with Agents…`;
+}
+
+export function stopShareNamedAction(name: string): string {
+  return `Stop sharing "${name}" with Agents`;
+}
 
 export function readCountText(n: number): string {
   return `${n} Agent ${n === 1 ? 'read' : 'reads'} this session`;

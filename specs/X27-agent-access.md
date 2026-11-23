@@ -36,7 +36,7 @@ The design was settled in a discussion that started from a study of the official
 - Ten read-only tools (§8), a stage allowlist for pipelines, and a namespace denylist.
 - Revocation that cancels in-flight work.
 - An **Agent Read Log** table, encrypted per X21, with retention, and a read count in the UI.
-- A Settings section, a status-bar indicator and a marker on shared Connections.
+- A Settings section, a status-bar Agents control that shares the focused Connection, share actions on the navigator root, and a marker on shared Connections.
 
 ### Out — deliberately
 
@@ -98,6 +98,7 @@ A Connection that is shared but not open is listed by `list_connections` with `s
 - Set only by a dedicated channel (`agentAccess:set-shared`), and only after a main-process dialog. The general connection create/update schemas (`electron/ipc/schemas/connection.ts`) do **not** declare the field. They are non-strict `z.object`s, so a `shareWithAgents` key in a `conn:create` or `conn:update` payload is stripped and never reaches the repository.
 - **Never copied**: not by Duplicate, not by Connection Export (the field is excluded explicitly in `electron/services/connectionExportFormat.ts`, which today serialises `readOnly`), not by Import (imports arrive unshared), not by a Family or Family Export.
 - Unsharing needs no confirmation and takes effect immediately (§10).
+- **Sharing while Agent Access is off** asks both questions in one main-process dialog: it carries §3.1's explanation and §3.3's privilege result, and its confirm button is **Turn on and share**. Confirming turns Agent Access on and then writes the flag; cancelling changes neither. Without this, a share made while Agent Access is off would succeed and leave nothing visible, since the marker (§12.3) shows only while Agent Access is on.
 
 ### 3.3 Privilege check
 
@@ -157,7 +158,7 @@ A new table `agent_tokens`: `id` (UUID), `name` (user-chosen, e.g. "Claude Code,
 ### 5.2 Actions
 
 - **Add Agent**: name it. Main generates the token and shows it once, in a main-owned dialog, with a **Copy configuration** button.
-- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the absolute path of the fixed per-user copy of the bridge executable (§15 question 5), there are no args, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
+- **Copy configuration** is a button of that main-owned dialog, so no IPC channel can trigger it. It puts a ready-to-paste client snippet on the clipboard through main's `clipboard.writeText`. The command is the absolute path of the fixed per-user copy of the bridge executable (§15 question 5), there are no args, and `env.LATELIER_AGENT_TOKEN` holds the token. Snippets are offered for Claude Code, Claude Desktop and Cursor. For Claude Code the dialog offers two: **Copy Claude Code command**, first, puts `claude mcp add latelier --scope user -e LATELIER_AGENT_TOKEN=<token> -- <bridge path>` on the clipboard, and **Copy for Claude Code (JSON)** puts the `.mcp.json` form. The server name comes before `-e`, which takes several values. The bridge path is one shell word: bare when it holds only `A-Z a-z 0-9 _ . / -`, otherwise double-quoted with `\ " $ \`` escaped on macOS and Linux (the macOS path holds a space and an apostrophe), and double-quoted as it is on Windows. After a copy, the dialog's note says what to do next (for the command: run it in a terminal, then `claude mcp list`). The token never crosses IPC to the renderer, and the renderer cannot read it back off the clipboard: `electron/security/permissions.ts` denies it `clipboard-read`, and that denial stays a requirement of this spec.
 - **Regenerate**: a new token replaces the hash and the old token stops working at once, live sessions included.
 - **Revoke**: the row is deleted; live sessions using it close.
 - The list shows name, created and last used. It never shows the token.
@@ -331,15 +332,25 @@ A count: "N Agent reads this session" in the status-bar indicator and in Setting
 
 - The switch, with the confirmation in §3.1.
 - When on: "Agents can connect", the socket path, the read count, and the token list with **Add Agent**, **Regenerate**, **Revoke**.
+- **Shared Connections**: every Connection that is Shared with Agents, whether it is open, and a **Stop sharing** button on each. While Agent Access is off the list says that no Agent can reach them. With none shared, it says where to share one from.
+- **Next step**: when Agent Access is on and a Connection is shared but there is no Agent Token yet, a line says to add an Agent to get its configuration.
+- **Set up Claude Code**: numbered steps for the CLI path: turn Agent Access on, add an Agent and choose **Copy Claude Code command** in the token window, run it in a terminal, check with `claude mcp list` (and `/mcp` inside Claude Code), then share a Connection and ask. It shows the command's shape, built by main with the placeholder `YOUR_TOKEN` in place of the token (`AgentAccessState.claudeCodeCommand`, never a token), says what `--scope user` does, and how to remove it (`claude mcp remove latelier`).
+- **Hint**: the `agents.share` feature hint (X06 §4) points new users at the status-bar control.
 - Short copy on what Agents can do (read shared, open Connections) and cannot do (write, see credentials, open Connections). It recommends a read-only database user.
 
 ### 12.2 Status bar
 
-While Agent Access is on, the status bar shows an "Agents" indicator with the session read count. Clicking it opens Settings → Agent Access. Nothing is shown while it is off.
+The status bar carries an **Agents** control whenever a Connection is focused or Agent Access is on. Its visible text is "Agents · N" (the session read count) while Agent Access is on and "Agents off" while it is off. It opens a menu that:
+
+- names the focused Connection and says whether it is Shared with Agents, with the last privilege-check result when it is;
+- offers **Share "‹name›" with Agents…** or **Stop sharing "‹name›" with Agents**, naming the Connection so it never reads as sharing the collection on screen. Share is disabled with "Open this Connection first" while the Connection is not open;
+- offers **Agent Access settings…**, which opens §12.1.
+
+This is the entry point from a collection or data view: the user never has to leave the workspace to share what they are looking at.
 
 ### 12.3 Connections
 
-- **Share with Agents** and **Stop sharing with Agents** actions on a Connection (connection menu and Server Tab), the first through §3.2's dialog.
+- **Share with Agents** and **Stop sharing with Agents** actions on a Connection: the connection menu (Switcher and Connections table), the navigator root's context menu, the Server Tab and the status bar (§12.2). Share goes through §3.2's dialog. In the navigator, Share is disabled with "Open this Connection first" while the Connection is not open.
 - A shared Connection carries a small marker on its navigator root and Tab Group header while Agent Access is on. Its tooltip gives the last privilege-check result.
 
 ## 13. IPC (5-file contract)
@@ -459,7 +470,11 @@ None block implementation. Each was decided before it started:
 
 - `settings-agent-access.spec.tsx`: off and on states, token list, and that no token ever appears in rendered output.
 - `share-with-agents.spec.tsx`: the marker shows only while Agent Access is on, and its tooltip shows the last privilege result.
-- `agent-status-indicator.spec.tsx`: hidden when off; shows the count; click opens Settings.
+- `agent-status-indicator.spec.tsx`: with no focused Connection, hidden when off; shows the count; click opens Settings.
+- `agents-share-hint.spec.tsx`: the hint shows on a collection tab of an open Connection while Agent Access is off and nothing is shared, sits above the status-bar control, opens Settings from Set up, and stays hidden otherwise.
+- `agent-snippets.spec.ts`: the Claude Code command's exact text, and that a real `/bin/sh` reads the quoted bridge path back as one word for paths with spaces, apostrophes and shell metacharacters.
+- `agent-share-entry-points.spec.tsx`: the Claude Code setup steps, and the status-bar control shows "Agents off" for a focused Connection, shares or stops sharing it by name, disables Share while it is not open, and opens Settings; the navigator root menu offers Share (disabled while not open) and Stop sharing; Settings lists the shared Connections with their open state and a Stop sharing button, and shows the next step only while something is shared and no Agent exists.
+- `agent-privilege-check.spec.ts` (sharing while off): one "Turn on and share" dialog does both on confirm and neither on cancel; a closed Connection is asked to be opened first; a Connection changed while the dialog was open is neither shared nor leaves Agent Access on.
 
 **E2E**
 

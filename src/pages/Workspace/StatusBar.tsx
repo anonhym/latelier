@@ -30,7 +30,7 @@ export function StatusBar({ connection }: { connection: ConnectionSummary | null
       }}
     >
       {connection && <ConnectionStatus connection={connection} />}
-      <AgentStatusIndicator />
+      <AgentStatusIndicator connection={connection} />
       <UpdateStatusPill />
     </div>
   );
