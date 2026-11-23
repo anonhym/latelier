@@ -330,17 +330,30 @@ export class AgentAccessService {
       return { shared: this.deps.connRepo.findById(connectionId)?.share_with_agents === 1, privilege: result };
     }
     // The verdict on the box described the Connection as it was when the question opened. Edited, deleted or moved to a tunnel meanwhile, it no longer describes what "Share" would grant.
+    this.assertUnchanged(connectionId, fingerprint);
+    if (alsoEnable) {
+      await this.turnOn();
+      // Starting the server awaits, and an edit can land in that gap: check again right before the write. A refused share never leaves Agent Access on behind it.
+      try {
+        this.assertUnchanged(connectionId, fingerprint);
+      } catch (err) {
+        await this.disable();
+        throw err;
+      }
+    }
+    this.setShared(connectionId, true);
+    this.privilegeByConnection.set(connectionId, result);
+    this.emitState();
+    return { shared: true, privilege: result };
+  }
+
+  /** Throws unless the Connection still exists, has no tunnel, and has the identity the share dialog described. */
+  private assertUnchanged(connectionId: string, fingerprint: string): void {
     const current = this.deps.connRepo.findById(connectionId);
     if (!current) throw new NotFoundError(`connection ${connectionId} not found`);
     if (current.ssh_enabled === 1 || connectionIdentityFingerprint(current) !== fingerprint) {
       throw new ConflictError('The Connection changed while the question was open, so it was not shared. Share it again to review it.');
     }
-    // Checked after the re-check, so a refused share never leaves Agent Access turned on behind it.
-    if (alsoEnable) await this.turnOn();
-    this.setShared(connectionId, true);
-    this.privilegeByConnection.set(connectionId, result);
-    this.emitState();
-    return { shared: true, privilege: result };
   }
 
   /**

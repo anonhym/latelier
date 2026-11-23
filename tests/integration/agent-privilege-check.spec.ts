@@ -5,6 +5,7 @@ import { MongoClient } from 'mongodb';
 import type { MongoMemoryServer } from 'mongodb-memory-server';
 import type { AgentAccessPool } from '../../electron/services/AgentAccessService';
 import { NotFoundError, ValidationError } from '../../electron/errors';
+import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
 import { createAgentHarness, type AgentHarness, type PoolStatus } from '../helpers/agentHarness';
 import { getSharedMongoUri } from '../helpers/mongo';
 import { startMongoMemoryServer } from '../helpers/startMongoMemoryServer';
@@ -302,6 +303,21 @@ describe('the share-time privilege check against real servers', () => {
       await expect(h.svc.requestSetShared(id, true)).rejects.toThrow(/changed while the question was open/);
       expect(isShared(h, id)).toBe(false);
       expect(h.svc.getState().enabled).toBe(false);
+    });
+
+    it('checks again after Agent Access starts, and turns it back off when the Connection changed during startup', async () => {
+      const { h, pool, id } = setup();
+      pool.clients.set(id, await asUser('ro'));
+      h.answers.push(SHARE);
+      // The edit lands while the server is starting: after the first check, before the write.
+      h.appState.subscribe<boolean>(AGENT_ACCESS_KEY, (on) => {
+        if (on) h.tmp.db.prepare("UPDATE connections SET host = 'elsewhere' WHERE id = ?").run(id);
+      });
+
+      await expect(h.svc.requestSetShared(id, true)).rejects.toThrow(/changed while the question was open/);
+      expect(isShared(h, id)).toBe(false);
+      expect(h.svc.getState().enabled).toBe(false);
+      expect(h.svc.getState().socketPath).toBe('');
     });
 
     it('shows only the share question once Agent Access is on', async () => {
