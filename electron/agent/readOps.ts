@@ -60,7 +60,10 @@ export async function withLease<T>(
 ): Promise<T> {
   const lease = await ctx.gate.acquire(input.connectionId, ctx.session, ctx.signal);
   try {
-    return await fn(lease);
+    const result = await fn(lease);
+    // `fn` may await cleanup (closing a cursor) after its own last check: a revocation in that window must not let the buffered result out.
+    lease.assertStill();
+    return result;
   } catch (err) {
     if (lease.signal.aborted && !(err instanceof AgentToolError)) {
       throw new AgentToolError('CANCELLED', undefined, undefined, { cause: err });
