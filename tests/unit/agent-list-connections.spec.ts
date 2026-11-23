@@ -14,6 +14,8 @@ interface FakeOptions {
   /** Runs after the databases of every Connection were read, before the call serialises. */
   afterReads?: () => void;
   tokenOk?: () => boolean;
+  /** Ids that are no longer open by the time the call serialises. */
+  closedAfterReads?: string[];
 }
 
 /** A gate whose `listShared` is read once at the start and once at the end, as the tool does. */
@@ -23,7 +25,7 @@ function context(options: FakeOptions): ToolContext {
     listShared: () => {
       listed += 1;
       if (listed === 2) options.afterReads?.();
-      return options.shared.map((c) => ({ ...c, state: 'available' as const }));
+      return options.shared.map((c) => ({ ...c, state: listed >= 2 && options.closedAfterReads?.includes(c.id) ? ('unavailable' as const) : ('available' as const) }));
     },
     checkToken: () => (options.tokenOk?.() === false ? 'ACCESS_OFF' : 'ok'),
     acquire: async (id: string) => ({
@@ -88,6 +90,18 @@ describe('list_connections when the world changes during the call', () => {
     expect(parse(out.text).connections.map((c) => c.id)).toEqual(['a']);
     expect(out.text).not.toContain('LEAK-NAME');
     expect(out.count).toBe(1);
+  });
+
+  it('shows a Connection that closed after its lookup as unavailable, without its database names', async () => {
+    const out = await tool.run(
+      {},
+      context({ shared: [{ id: 'a', name: 'open' }, { id: 'b', name: 'closing' }], databases: (id) => [`LEAK-${id}`], closedAfterReads: ['b'] }),
+    );
+    expect(parse(out.text).connections).toEqual([
+      { id: 'a', name: 'open', state: 'available', databases: ['LEAK-a'] },
+      { id: 'b', name: 'closing', state: 'unavailable' },
+    ]);
+    expect(out.text).not.toContain('LEAK-b');
   });
 
   it('says nothing at all when the token went away meanwhile', async () => {

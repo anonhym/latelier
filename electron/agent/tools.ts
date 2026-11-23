@@ -96,8 +96,14 @@ const listConnections = defineTool({
     );
     // The awaits above are the window in which a Connection can be unshared or the token revoked: neither name nor databases may leave after that.
     if (ctx.gate.checkToken(ctx.session) !== 'ok') throw new AgentToolError('CANCELLED');
-    const stillShared = new Set(ctx.gate.listShared().map((c) => c.id));
-    const rows = built.filter((row) => stillShared.has(row.id));
+    const nowState = new Map(ctx.gate.listShared().map((c) => [c.id, c.state] as const));
+    // A Connection can close after its own lookup finished, with its lease already released, so revocation cannot reach that buffered result: drop its database names against the state as it is now.
+    const rows = built
+      .filter((row) => nowState.has(row.id))
+      .map((row): ConnectionRow => {
+        if (nowState.get(row.id) === 'available') return row;
+        return { id: row.id, name: row.name, state: 'unavailable' };
+      });
     const result = await takeWithinBudget(rows, { limit: Number.POSITIVE_INFINITY });
     const appliedLimits = [...result.appliedLimits];
     if (rows.some((row) => row.databasesTruncated) && !appliedLimits.includes('limit')) appliedLimits.unshift('limit');
