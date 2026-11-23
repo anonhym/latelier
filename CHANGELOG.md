@@ -22,6 +22,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-11-23
+
+### Added
+
+- **Agent Access.** Share a Connection with an AI agent such as Claude Code and
+  it can read it through a read-only MCP server that runs inside L'Atelier. An
+  agent can list databases, collections and indexes, infer a schema, and run
+  find, count, aggregate and explain. It cannot write: pipelines with write or
+  server-side JavaScript stages are refused, every call has a ten-second limit
+  and a 1 MiB result cap, and every call lands in an Agent Read Log. Access is
+  off until you turn it on, per Connection, and a token you can revoke.
+- **Share from where you work.** A status-bar Agents control shares or stops
+  sharing the focused Connection, the navigator root menu has Share / Stop
+  sharing, and sharing while Agent Access is off asks once to turn it on and
+  share. Settings lists the shared Connections and walks through the Claude
+  Code CLI setup, with a copy button for the `claude mcp add` command.
+- **Connection Families.** Named sets of Connections that share Reference Rules
+  and Row Summaries, with per-rule overrides, reset to shared, and a Families
+  view. A family's settings can be exported and applied to another family, with
+  a plan first and no change on a repeat apply.
+- **Copy Origin.** A value copied on one Connection warns when it is pasted into
+  a query on another.
+- **Reference discovery.** A copied value found in another Collection suggests
+  a Reference Rule.
+- **Aggregation.** Field suggestions that follow the previous stage's shape,
+  several stages open at once, namespace autocomplete in the Reference Rules
+  editor, and result labels that say what was run ("first 5 of M docs", "Full
+  aggregation", "unordered").
+- **Query Builder value editors.** Text grows to four lines, ObjectIds show
+  their creation date, `$in` and `$nin` take chips and split pasted lists,
+  changing a value's kind converts it with Undo, and a field with mixed types
+  offers "Match either".
+
+### Changed
+
+- **Condition rows take two lines.** The field and operator on the first, the
+  value on the second, and the operator box shows `=  !=  >  >=  <  <=` while
+  the query still holds `$gte` and the rest. Remove moved into the ⋮ menu.
+- **Schema & indexes pills jump to their section,** even when nothing scrolls,
+  and Filter by this field adds `$exists: true`.
+- **Collection counts are cached** and refreshed when a database is opened.
+
+### Fixed
+
+- **An empty condition value no longer prints as `0` or `""`.** The row is red
+  with "Value is empty", and a filter that holds `{name: ""}` opens as a raw
+  clause that prints back unchanged.
+- **Escape in a field, operator or value box stays with the box** instead of
+  closing the Inspector.
+- **The operator list stays inside the window** at every panel width.
+- **Condition rows wrap at narrow panel widths** without horizontal scrolling.
+
 ## [0.21.0] — 2026-11-17
 
 0.20.0 was merged but never tagged, so this release also carries its changes

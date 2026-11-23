@@ -26,7 +26,7 @@ const group = (r: Release, name: string) => r.groups.find((g) => g.name === name
 describe('parseChangelog against the real CHANGELOG.md', () => {
   it('skips [Unreleased] and everything below 0.15.0, keeping file order newest first', () => {
     const versions = all().map((r) => r.version);
-    expect(versions[0]).toBe('0.21.0');
+    expect(versions[0]).toBe('0.22.0');
     expect(versions.at(-1)).toBe('0.15.0');
     expect(versions).not.toContain('0.14.0');
     expect(versions).not.toContain('Unreleased');
