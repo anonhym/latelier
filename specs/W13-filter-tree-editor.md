@@ -554,8 +554,9 @@ unchanged.
   a fresh `$eq` cond there (`condFromDragged`, retargeted at that group's own
   `insertAt`); a drop on an existing row merges into `$in`/`$nin` or replaces
   the row (`mergeOrReplaceDragged`), per field-name/op rules ADR 0007 §"Decision"
-  spells out. While a field is over a row, a **group-with strip** opens under
-  it ("Drop here to make an OR group with this condition"): a drop there puts
+  spells out. While a field is over a row, a **group-with strip** is laid over
+  the bottom of that row ("Drop here to make an OR group with this condition"),
+  never in flow, so nothing below the row moves mid-drag: a drop there puts
   the row and the new `$eq` cond together in a new group that takes the row's
   place (`groupWithAt`). The group's logic is the opposite of its parent's —
   OR under AND, AND under OR or NOR — since the parent's own logic would read
@@ -779,7 +780,7 @@ Retired test ids and controls, so the churn isn't a surprise:
   bottom meets the drawer's; at 10 conditions the list scrolls by itself while
   the footer stays on screen (§6).
 - While a dragged field is over a row, and only then, a group-with strip shows
-  under that row; a drop on it replaces the row with a new group of the row and
+  over the bottom of that row, without moving anything below it; a drop on it replaces the row with a new group of the row and
   the field, OR under an AND parent and AND under an OR or NOR parent. A raw
   row's clause is kept without a confirm. Nothing shows while the drawer is
   read-only, and the strip goes away when the drag ends (§6).

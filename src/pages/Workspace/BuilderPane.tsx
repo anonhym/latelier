@@ -633,7 +633,10 @@ function useRowDropHandlers(
 }
 
 /**
- * Shown under a row only while a field is dragged over it. Like the groups'
+ * Laid over the bottom of a row only while a field is dragged over it. It is
+ * absolutely positioned rather than in flow: a strip that pushed the rows and
+ * group strips below it down would move them back up the moment the pointer
+ * left, so a drop aimed at one of them could land a row or a group off. Like the groups'
  * "Drop a field here" strips, it is `aria-hidden` and a drop target only:
  * from the keyboard, the row menu's Wrap in group and then the new group's
  * Add condition get to the same tree.
@@ -648,11 +651,20 @@ function GroupWithStrip({ target, rowKey, what }: { target: GroupWithTarget; row
       onDragOver={target.onDragOver}
       onDrop={target.onDrop}
       style={{
-        textAlign: 'center',
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        // Never the whole row: its top half stays the replace/merge target.
+        height: '45%',
+        maxHeight: 28,
+        zIndex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
         fontSize: T.fsXs,
-        lineHeight: '28px',
-        height: 28,
-        marginTop: 4,
         borderRadius: T.rs,
         border: `1px dashed ${T.accent}`,
         background: target.isActive ? T.accentSoft : T.bg,
@@ -1027,6 +1039,7 @@ function CondRow({
       onDrop={rowDrop.onDrop}
       data-row-path={pathKey(path)}
       style={{
+        position: 'relative',
         display: 'flex',
         flexDirection: 'column',
         gap: T.gapXs,
@@ -1269,6 +1282,7 @@ function RawRow({
       onDrop={rowDrop.onDrop}
       data-row-path={pathKey(path)}
       style={{
+        position: 'relative',
         border: `1px solid ${rowDrop.isActive ? T.accent : T.border}`,
         borderRadius: T.rs,
         padding: 6,

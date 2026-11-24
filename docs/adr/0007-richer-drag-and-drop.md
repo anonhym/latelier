@@ -134,9 +134,12 @@ decisions above:
 
 The decision above left one tree unreachable by drag: with a single condition at the
 root, a drop could only add a sibling (AND), merge into the same field's `$in`, or replace
-the row — never make an OR of two different fields. The split drop zone rejected above is
-still rejected; instead a separate target appears **under** a row only while a field is
-dragged over it: "Drop here to make an OR group with this condition". A drop on it wraps
+the row — never make an OR of two different fields. The replace-vs-merge split rejected above is
+still rejected; instead a separate, labelled target is laid over the bottom of a row only
+while a field is dragged over it: "Drop here to make an OR group with this condition". It
+overlays the row instead of opening below it, because an in-flow strip pushed the rows and
+group strips beneath it down and let them spring back as the pointer left, misplacing a drop
+aimed at them. A drop on it wraps
 the row and the new condition in a new group (`groupWithAt`) whose logic is the opposite of
 its parent's (OR under AND, AND under OR or NOR). The row's own drop keeps the field-name
 rule. This is not item 5: it pairs one dropped field with one existing row, and item 5's

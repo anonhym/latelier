@@ -39,10 +39,10 @@ test('a field dropped on the strip under the only condition makes an OR group wi
 });
 
 /**
- * The strip opens under a row while a field is over it. Moving on past it to
- * the group's own "Drop a field here" strip must still land in that group:
- * the strip appearing and disappearing must not move what is below the row,
- * or a release aimed at the group strip lands in the root instead.
+ * The strip shows over a row's bottom while a field is over it. Moving on past
+ * it to the group's own "Drop a field here" strip must still land in that
+ * group: the strip appearing must not move what is below the row, or a release
+ * aimed where the group strip was lands in the root instead.
  */
 test('the strip under a row does not move the group strip below it', async () => {
   await withOpenOrders('Group With Layout', [{ sku: 'apple-001', status: 'paid' }, { sku: 'banana-002', status: 'pending' }], 'banana-002', async (win, ws) => {
@@ -56,14 +56,15 @@ test('the strip under a row does not move the group strip below it', async () =>
     await win.getByTitle(/Drag to add "status/).filter({ hasText: 'pending' }).dragTo(groupStrip);
     await expect(win.locator('[data-row-path="0.0"]')).toBeVisible();
 
+    const before = (await groupStrip.boundingBox())!;
     const sku = win.getByTitle(/Drag to add "sku/).filter({ hasText: 'apple-001' });
     await sku.hover();
     await win.mouse.down();
     const rb = (await win.locator('[data-row-path="0.0"]').boundingBox())!;
     await win.mouse.move(rb.x + rb.width / 2, rb.y + 15, { steps: 8 });
     await expect(win.locator('[data-group-with="0.0"]')).toBeVisible();
-    const gb = (await groupStrip.boundingBox())!;
-    await win.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2, { steps: 8 });
+    expect((await groupStrip.boundingBox())!.y).toBe(before.y);
+    await win.mouse.move(before.x + before.width / 2, before.y + before.height / 2, { steps: 8 });
     await win.mouse.up();
 
     await expect(win.locator('[data-group-path="0"] [data-row-path="0.1"]')).toBeVisible();
