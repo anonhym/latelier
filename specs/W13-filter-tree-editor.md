@@ -554,7 +554,13 @@ unchanged.
   a fresh `$eq` cond there (`condFromDragged`, retargeted at that group's own
   `insertAt`); a drop on an existing row merges into `$in`/`$nin` or replaces
   the row (`mergeOrReplaceDragged`), per field-name/op rules ADR 0007 §"Decision"
-  spells out.
+  spells out. While a field is over a row, a **group-with strip** opens under
+  it ("Drop here to make an OR group with this condition"): a drop there puts
+  the row and the new `$eq` cond together in a new group that takes the row's
+  place (`groupWithAt`). The group's logic is the opposite of its parent's —
+  OR under AND, AND under OR or NOR — since the parent's own logic would read
+  the same as a sibling drop. It is how a single condition at the root becomes
+  an OR, which no other drop target can reach.
 
 ### 6a. Query bar (replaces W05 §1 and §2's sync pill)
 
@@ -772,6 +778,11 @@ Retired test ids and controls, so the churn isn't a surprise:
   0, 1, 3 and 10 conditions and with the match-count line showing; the pane's
   bottom meets the drawer's; at 10 conditions the list scrolls by itself while
   the footer stays on screen (§6).
+- While a dragged field is over a row, and only then, a group-with strip shows
+  under that row; a drop on it replaces the row with a new group of the row and
+  the field, OR under an AND parent and AND under an OR or NOR parent. A raw
+  row's clause is kept without a confirm. Nothing shows while the drawer is
+  read-only, and the strip goes away when the drag ends (§6).
 
 ## 11. Test cases
 
@@ -787,6 +798,7 @@ Retired test ids and controls, so the churn isn't a surprise:
 - Disabled nodes: a disabled cond, raw node or group prints as pending with no problem; a `$nor` whose only child is disabled is omitted; `parseFilter` never sets `disabled`; `toRawNode` / `tryParseRaw` carry it over.
 - `unwrapGroup`: unwraps a one-child nested group; returns `root` for the root, a multi-child group, a cond and a bad path. Negating a top-level cond prints `{"$nor":[…]}` and parses back to the same tree: a NOT group under an `$and` root.
 - `andAtRoot`: appends to an `$and` root; wraps a root `$or` / `$nor` in an `$and` beside the new node.
+- `pairLogic` / `groupWithAt`: the opposite logic of an `$and` / `$or` parent and `$and` under `$nor`; the node at the path and the new one, in that order, in a group that takes its place, nested or switched off; `root` itself for the root and for a path that doesn't resolve.
 - Edit API: `updateAt` / `insertAt` / `removeAt` / `wrapInGroup` purity and path arithmetic; `removeAt` collapsing an emptied nested group; the root group surviving; `toRawNode`'s fallback is a blank pending raw node, never `{}`; `tryParseRaw` on a clause modeling to more than one cond returns an `$and`-wrapped group, and a single-cond clause returns bare.
 
 ### Property — `tests/unit/filterTree.property.spec.ts`, `tests/unit/filterHistory.property.spec.ts`
@@ -807,10 +819,12 @@ Retired test ids and controls, so the churn isn't a surprise:
 - **filter-tree-raw.spec.tsx**: convert-to-raw, edit raw, try-to-parse.
 - **filter-tree-print-failure.spec.tsx**: a bad value leaves `queryRaw` untouched and surfaces the row message.
 - **saved-legacy-payload.spec.tsx**: the §8 shim — legacy payload hydrates to its original filter.
+- **builder-drag-merge-replace.spec.tsx**: the group-with strip — hidden until a field is over a row; a drop on it makes the OR (under AND) or AND (under OR) group; a raw row's clause kept without a confirm; gone on `dragend`; never shown read-only.
 - **drawer-tree-presentation.spec.tsx**: the root's labelled add and its menu, a starter from the menu landing below existing rows, and the status line's row counts.
 
 ### E2E
 - **workspace-filter-tree.e2e.ts**: open a seeded collection → build `(a AND (b OR c))` in the drawer → Run → results → hand-edit the bar to an `$elemMatch` → the drawer shows a raw clause rather than disabling → Run still works. A second test switches a condition off and runs without it, keeps it across a switch to another tab and back, then negates it and runs NOT.
+- **filter-tree-group-with-drop.e2e.ts**: a real held drag over the only root condition and onto its group-with strip makes an `$or` of the two; a drag that passes a nested row's strip on its way to the group's own strip still lands in that group.
 - **workspace-filter-tree.e2e.ts** also holds §6's fixed regions: the add control, the list and the bottom row keep their bounding boxes across 12 added rows, and the list takes the overflow.
 
 ## 12. Spec migration

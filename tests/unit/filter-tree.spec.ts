@@ -9,6 +9,8 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  groupWithAt,
+  pairLogic,
   unwrapGroup,
   andAtRoot,
   isGroupNode,
@@ -1399,6 +1401,47 @@ describe('wrapInGroup — purity', () => {
     expect(root).toEqual(snapshot);
     expect(next.children[0]).toEqual(group('$or', [cond({ field: 'a' })]));
     expect(next.children[1]).toEqual(cond({ field: 'b' }));
+  });
+});
+
+describe('pairLogic', () => {
+  it('is the opposite of an AND or OR parent, and AND under a NOR', () => {
+    expect(pairLogic('$and')).toBe('$or');
+    expect(pairLogic('$or')).toBe('$and');
+    expect(pairLogic('$nor')).toBe('$and');
+  });
+});
+
+describe('groupWithAt', () => {
+  it('replaces the node at path with an OR group of it and the new node under an AND parent', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    const snapshot = structuredClone(root);
+    const next = groupWithAt(root, [0], cond({ field: 'c' }));
+    expect(root).toEqual(snapshot);
+    expect(next).toEqual(
+      group('$and', [group('$or', [cond({ field: 'a' }), cond({ field: 'c' })]), cond({ field: 'b' })]),
+    );
+  });
+
+  it('makes an AND group inside a nested OR group', () => {
+    const root = group('$and', [group('$or', [cond({ field: 'a' }), raw('{"x":1}')])]);
+    expect(groupWithAt(root, [0, 1], cond({ field: 'c' }))).toEqual(
+      group('$and', [group('$or', [cond({ field: 'a' }), group('$and', [raw('{"x":1}'), cond({ field: 'c' })])])]),
+    );
+  });
+
+  it('keeps a switched-off row switched off inside the new group', () => {
+    const off = { ...cond({ field: 'a' }), disabled: true };
+    const next = groupWithAt(group('$and', [off]), [0], cond({ field: 'c' }));
+    expect(next.children[0]).toEqual(group('$or', [off, cond({ field: 'c' })]));
+  });
+
+  it('leaves the tree itself for the root or a path that does not resolve', () => {
+    const root = group('$and', [cond({ field: 'a' }), cond({ field: 'b' })]);
+    expect(groupWithAt(root, [], cond({ field: 'c' }))).toBe(root);
+    expect(groupWithAt(root, [3], cond({ field: 'c' }))).toBe(root);
+    expect(groupWithAt(root, [3, 0], cond({ field: 'c' }))).toBe(root);
+    expect(groupWithAt(root, [0, 0], cond({ field: 'c' }))).toBe(root);
   });
 });
 

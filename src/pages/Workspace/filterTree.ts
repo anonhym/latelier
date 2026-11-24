@@ -1048,6 +1048,31 @@ export function wrapInGroup(root: GroupNode, path: NodePath, logic: GroupNode['l
 }
 
 /**
+ * The logic of a group made from two siblings of a `parent` group: the
+ * opposite of the parent's, since the parent's own logic would read the same
+ * as leaving the two side by side. A `$nor` parent's pair is an AND, so it
+ * excludes the documents that match both.
+ */
+export function pairLogic(parent: GroupNode['logic']): '$and' | '$or' {
+  return parent === '$and' ? '$or' : '$and';
+}
+
+/**
+ * Puts `node` beside the node at `path` in a new group that takes that
+ * node's place (`pairLogic` of its parent), so the two combine with each
+ * other before their siblings. Returns `root` itself for the root or a path
+ * that doesn't resolve.
+ */
+export function groupWithAt(root: GroupNode, path: NodePath, node: FilterNode): GroupNode {
+  const parent = nodeAt(root, path.slice(0, -1));
+  if (parent?.kind !== 'group') return root;
+  // The root's own path is empty: no last index, so no target either.
+  const target = parent.children[path.at(-1) ?? -1];
+  if (!target) return root;
+  return updateAt(root, path, { kind: 'group', logic: pairLogic(parent.logic), children: [target, node] });
+}
+
+/**
  * Replaces a nested group that holds exactly one child with that child — the
  * inverse of `wrapInGroup`, and how a negation (a one-child `$nor`) is
  * removed. Anything else is left alone, returning `root` itself: the root, a

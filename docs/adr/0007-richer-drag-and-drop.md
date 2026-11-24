@@ -129,3 +129,15 @@ decisions above:
   ADR's "no drop should land outside every group's DOM node" invariant true without the pane-level
   fallback `onDragOver`/`onDrop` that `FilterDrawer` needed while the banners were the root's
   siblings.
+
+## Addendum: grouping a row with a dropped field
+
+The decision above left one tree unreachable by drag: with a single condition at the
+root, a drop could only add a sibling (AND), merge into the same field's `$in`, or replace
+the row — never make an OR of two different fields. The split drop zone rejected above is
+still rejected; instead a separate target appears **under** a row only while a field is
+dragged over it: "Drop here to make an OR group with this condition". A drop on it wraps
+the row and the new condition in a new group (`groupWithAt`) whose logic is the opposite of
+its parent's (OR under AND, AND under OR or NOR). The row's own drop keeps the field-name
+rule. This is not item 5: it pairs one dropped field with one existing row, and item 5's
+multi-select drag stays deferred as decided.

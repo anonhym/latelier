@@ -400,3 +400,120 @@ describe(' merge/replace on drop onto an existing row', () => {
     }
   });
 });
+
+/** The "group with this" strip under the row at `path`, or `null` while it is hidden. */
+function groupWithStrip(path: string): HTMLElement | null {
+  return document.querySelector(`[data-group-with="${path}"]`);
+}
+
+describe('group-with strip under a row', () => {
+  it('is hidden until a field is over the row, then names the OR group a drop makes', async () => {
+    mountWith(makeState({ queryRaw: '{"status":{"$eq":"active"}}' }));
+    await screen.findAllByPlaceholderText('field');
+    expect(groupWithStrip('0')).toBeNull();
+
+    fireEvent.dragOver(rowFieldInput('0'), { dataTransfer: dataTransferFor('city', 'Paris') });
+
+    const strip = await waitFor(() => {
+      const el = groupWithStrip('0');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(strip.textContent).toBe('Drop here to make an OR group with this condition');
+  });
+
+  it('a drop on it pairs the row and the field in a new OR group, instead of replacing the row', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"status":{"$eq":"active"}}' }));
+    await screen.findAllByPlaceholderText('field');
+
+    const dataTransfer = dataTransferFor('city', 'Paris');
+    fireEvent.dragOver(rowFieldInput('0'), { dataTransfer });
+    const strip = await waitFor(() => {
+      const el = groupWithStrip('0');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.dragOver(strip, { dataTransfer });
+    fireEvent.drop(strip, { dataTransfer });
+
+    await waitFor(() => {
+      const raw = lastWrittenQueryRaw(updateSpy);
+      expect(raw).toBeDefined();
+      expect(JSON.parse(raw!)).toEqual({ $or: [{ status: { $eq: 'active' } }, { city: { $eq: 'Paris' } }] });
+    });
+    // The new group took the row's place; the strip went with the drag.
+    expect(document.querySelector('[data-group-path="0"]')).not.toBeNull();
+    expect(rowEl('0.0')).toBeDefined();
+    expect(rowEl('0.1')).toBeDefined();
+    expect(groupWithStrip('0')).toBeNull();
+  });
+
+  it('under an OR group it makes an AND group, so the drop narrows one branch', async () => {
+    const { updateSpy } = mountWith(
+      makeState({ queryRaw: '{"$or":[{"status":{"$eq":"active"}},{"status":{"$eq":"archived"}}]}' }),
+    );
+    await screen.findAllByPlaceholderText('field');
+
+    const dataTransfer = dataTransferFor('city', 'Paris');
+    fireEvent.dragOver(rowFieldInput('1'), { dataTransfer });
+    const strip = await waitFor(() => {
+      const el = groupWithStrip('1');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(strip.textContent).toBe('Drop here to make an AND group with this condition');
+    fireEvent.drop(strip, { dataTransfer });
+
+    await waitFor(() => {
+      const raw = lastWrittenQueryRaw(updateSpy);
+      expect(raw).toBeDefined();
+      expect(JSON.parse(raw!)).toEqual({
+        $or: [{ status: { $eq: 'active' } }, { $and: [{ status: { $eq: 'archived' } }, { city: { $eq: 'Paris' } }] }],
+      });
+    });
+  });
+
+  it('a raw row gets one too, and a drop on it keeps the clause without asking', async () => {
+    const { updateSpy } = mountWith(makeState({ queryRaw: '{"tags":{"$elemMatch":{"$eq":"x"}}}' }));
+    await waitFor(() => expect(rowRawTextarea('0')).toBeDefined());
+
+    const dataTransfer = dataTransferFor('city', 'Paris');
+    fireEvent.dragOver(rowRawTextarea('0'), { dataTransfer });
+    const strip = await waitFor(() => {
+      const el = groupWithStrip('0');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(strip.textContent).toBe('Drop here to make an OR group with this clause');
+    fireEvent.drop(strip, { dataTransfer });
+
+    await waitFor(() => {
+      const raw = lastWrittenQueryRaw(updateSpy);
+      expect(raw).toBeDefined();
+      expect(JSON.parse(raw!)).toEqual({ $or: [{ tags: { $elemMatch: { $eq: 'x' } } }, { city: { $eq: 'Paris' } }] });
+    });
+    expect(screen.queryByText('Replace this raw clause?')).toBeNull();
+  });
+
+  it('goes away when the drag ends without a drop', async () => {
+    mountWith(makeState({ queryRaw: '{"status":{"$eq":"active"}}' }));
+    await screen.findAllByPlaceholderText('field');
+
+    fireEvent.dragOver(rowFieldInput('0'), { dataTransfer: dataTransferFor('city', 'Paris') });
+    await waitFor(() => expect(groupWithStrip('0')).not.toBeNull());
+    fireDragEnd();
+    await waitFor(() => expect(groupWithStrip('0')).toBeNull());
+  });
+
+  it('never shows while the drawer is frozen read-only', async () => {
+    mountWith(makeState({ queryRaw: '{"status":{"$eq":"active"}}' }));
+    await screen.findAllByPlaceholderText('field');
+    const bar = (await screen.findByTestId('query-bar-input')) as HTMLTextAreaElement;
+    fireEvent.change(bar, { target: { value: 'not valid json{{{' } });
+    await screen.findByText(/isn't valid JSON/);
+
+    fireEvent.dragOver(rowFieldInput('0'), { dataTransfer: dataTransferFor('city', 'Paris') });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(groupWithStrip('0')).toBeNull();
+  });
+});

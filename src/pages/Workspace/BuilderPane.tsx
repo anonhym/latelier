@@ -30,6 +30,8 @@ import {
   removeAt,
   moveAt,
   wrapInGroup,
+  groupWithAt,
+  pairLogic,
   unwrapGroup,
   toRawNode,
   tryParseRaw,
@@ -479,7 +481,8 @@ interface TreeEditProps {
   readOnly: boolean;
   /**
    * `pathKey` of the single group/row currently highlighted as a drop
-   * target, or `null` — lifted to `FilterDrawer` rather than tracked
+   * target — or `<pathKey>+group` for the group-with strip under a row —
+   * or `null`. Lifted to `FilterDrawer` rather than tracked
    * per-group/row. A per-scope `dragLeave` guard has to correctly
    * special-case handing off to a nested drop-owner vs. a real exit vs. a
    * flicker between plain children — an easy place to get an edge case
@@ -522,6 +525,45 @@ interface RowMoveProps {
  * With one shared value, this row's own `onDragOver` claiming it is what
  * un-highlights the group; nothing else has to know.
  */
+/**
+ * The dropped field, or `null` for a payload no drop target should act on:
+ * one that is missing, not JSON, or not a named field with a value. `null`
+ * and bare scalars parse too; the field check refuses them. A dragged field
+ * can legitimately hold `undefined` (BSON's Undefined type) — `DocFieldTree`'s
+ * drag source guards against starting such a drag at all, but this is
+ * defense in depth for any other payload source, since `condFromDragged`
+ * crashes downstream on one.
+ */
+function readDragged(e: React.DragEvent): DraggedField | null {
+  const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
+  if (!raw) return null;
+  let dragged: DraggedField | null;
+  try {
+    dragged = JSON.parse(raw) as DraggedField;
+  } catch {
+    return null;
+  }
+  if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return null;
+  return dragged;
+}
+
+interface DropTarget {
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  isActive: boolean;
+}
+
+/**
+ * The "group with this" strip under a row: shown while a field is over the
+ * row or the strip itself, so a drop can pair the dragged field with the row
+ * in a new group instead of merging into or replacing it. `logic` is the
+ * group the drop makes (`pairLogic` of the row's parent).
+ */
+interface GroupWithTarget extends DropTarget {
+  visible: boolean;
+  logic: '$and' | '$or';
+}
+
 function useRowDropHandlers(
   node: CondNode | RawNode,
   path: NodePath,
@@ -530,42 +572,44 @@ function useRowDropHandlers(
   readOnly: boolean,
   activeDropPath: string | null,
   setActiveDropPath: (path: string | null) => void,
-): {
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-  isActive: boolean;
-} {
+): DropTarget & { groupWith: GroupWithTarget } {
   const key = pathKey(path);
+  // Its own key, so the row and its strip never light up together.
+  const groupKey = `${key}+group`;
   const canAcceptDrop = (e: React.DragEvent): boolean =>
     !readOnly && e.dataTransfer.types.includes(DRAGGED_FIELD_MIME);
+  const claim = (e: React.DragEvent): boolean => {
+    if (!canAcceptDrop(e)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  };
+  const over = (claimKey: string) => (e: React.DragEvent) => {
+    if (!claim(e)) return;
+    e.dataTransfer.dropEffect = 'copy';
+    if (activeDropPath !== claimKey) setActiveDropPath(claimKey);
+  };
+  const parent = nodeAt(root, path.slice(0, -1));
   return {
     isActive: activeDropPath === key,
-    onDragOver: (e) => {
-      if (!canAcceptDrop(e)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      e.dataTransfer.dropEffect = 'copy';
-      if (activeDropPath !== key) setActiveDropPath(key);
+    groupWith: {
+      visible: activeDropPath === key || activeDropPath === groupKey,
+      isActive: activeDropPath === groupKey,
+      logic: pairLogic(parent?.kind === 'group' ? parent.logic : '$and'),
+      onDragOver: over(groupKey),
+      onDrop: (e) => {
+        if (!claim(e)) return;
+        setActiveDropPath(null);
+        const dragged = readDragged(e);
+        if (dragged) applyEdit(groupWithAt(root, path, condFromDragged(dragged)));
+      },
     },
+    onDragOver: over(key),
     onDrop: (e) => {
-      if (!canAcceptDrop(e)) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!claim(e)) return;
       setActiveDropPath(null);
-      const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
-      if (!raw) return;
-      // `null` and bare scalars parse too; the field check below refuses them.
-      let dragged: DraggedField | null;
-      try {
-        dragged = JSON.parse(raw) as DraggedField;
-      } catch {
-        return;
-      }
-      // A dragged field can legitimately hold `undefined` (BSON's Undefined
-      // type) — `DocFieldTree`'s drag source now guards against starting
-      // such a drag at all, but this is defense in depth for any other
-      // payload source, since `condFromDragged` crashes downstream on one.
-      if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
+      const dragged = readDragged(e);
+      if (!dragged) return;
       // A raw row can hold a hand-typed clause a dropped field would
       // silently overwrite (`mergeOrReplaceDragged` only merges onto an
       // existing `cond`, so a `raw` target always falls to replace). An
@@ -586,6 +630,39 @@ function useRowDropHandlers(
       applyEdit(updateAt(root, path, sameRow(node, carryDisabled(node, mergeOrReplaceDragged(node, dragged)))));
     },
   };
+}
+
+/**
+ * Shown under a row only while a field is dragged over it. Like the groups'
+ * "Drop a field here" strips, it is `aria-hidden` and a drop target only:
+ * from the keyboard, the row menu's Wrap in group and then the new group's
+ * Add condition get to the same tree.
+ */
+function GroupWithStrip({ target, rowKey, what }: { target: GroupWithTarget; rowKey: string; what: string }) {
+  const T = themeVars;
+  if (!target.visible) return null;
+  return (
+    <div
+      aria-hidden
+      data-group-with={rowKey}
+      onDragOver={target.onDragOver}
+      onDrop={target.onDrop}
+      style={{
+        textAlign: 'center',
+        fontSize: T.fsXs,
+        lineHeight: '28px',
+        height: 28,
+        marginTop: 4,
+        borderRadius: T.rs,
+        border: `1px dashed ${T.accent}`,
+        background: target.isActive ? T.accentSoft : T.bg,
+        color: target.isActive ? T.accentInk : T.textMuted,
+        transition: 'background 120ms, color 120ms',
+      }}
+    >
+      Drop here to make an {target.logic === '$or' ? 'OR' : 'AND'} group with this {what}
+    </div>
+  );
 }
 
 /**
@@ -1138,6 +1215,7 @@ function CondRow({
           {opProblem}
         </span>
       )}
+      <GroupWithStrip target={rowDrop.groupWith} rowKey={pathKey(path)} what="condition" />
     </div>
   );
 }
@@ -1270,6 +1348,7 @@ function RawRow({
           </span>
         )}
       </div>
+      <GroupWithStrip target={rowDrop.groupWith} rowKey={pathKey(path)} what="clause" />
     </div>
   );
 }
@@ -1396,21 +1475,8 @@ function GroupView({
     e.preventDefault();
     e.stopPropagation();
     setActiveDropPath(null);
-    const raw = e.dataTransfer.getData(DRAGGED_FIELD_MIME);
-    if (!raw) return;
-    // `null` and bare scalars parse too; the field check below refuses them.
-    let dragged: DraggedField | null;
-    try {
-      dragged = JSON.parse(raw) as DraggedField;
-    } catch {
-      return;
-    }
-    // A dragged field can legitimately hold `undefined` (BSON's Undefined
-    // type) — `DocFieldTree`'s drag source now guards against starting
-    // such a drag at all, but this is defense in depth for any other
-    // payload source, since `condFromDragged` crashes downstream on one.
-    if (typeof dragged?.field !== 'string' || !dragged.field || dragged.value === undefined) return;
-    applyEdit(insertAt(root, path, condFromDragged(dragged)));
+    const dragged = readDragged(e);
+    if (dragged) applyEdit(insertAt(root, path, condFromDragged(dragged)));
   };
 
   // `insertAt` appends, so whatever is added next lands at this index.
