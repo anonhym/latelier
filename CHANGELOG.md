@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field over a condition or raw clause, a strip shows along the bottom of that
   row. Drop there to wrap the row and the new condition in a new group: an OR
   under an AND parent, or an AND under an OR or NOR parent. Dropping on the row
-  itself still merges or replaces it as before. (#848)
+  itself still merges or replaces it as before.
 
 ## [0.22.0] — 2026-11-23
 
