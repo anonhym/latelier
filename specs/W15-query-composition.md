@@ -1036,14 +1036,14 @@ them; note that GitHub's search tokenizer drops `§` and the decimal, so
 
 - The drawer of §1 and §13 is hosted by the **Inspector**, the right-hand panel that also shows the query plan. Its own content (the condition tree, the footer's Reset, Copy code and Open as pipeline) is unchanged.
 - It is **closed by default**: a profile that never chose starts with it closed, and a stored choice wins. Open by default it spent a fifth of the width on an empty state.
-- It opens from the labelled `Builder` button in the Filter Bar row and with ⌘⇧B, not from an edge notch. ⌘B now toggles the sidebar ([W01 §14.11](./W01-workspace-shell.md)).
+- It opens from the `Builder` button in the Filter Bar row, from the title bar's Query Builder toggle ([W01 §14.2](./W01-workspace-shell.md)) and with ⌘⇧B, not from an edge notch. ⌘B now toggles the sidebar ([W01 §14.11](./W01-workspace-shell.md)).
 - Its **Saved** and **Recent** tabs are removed; those lists live in the Filter Bar row's popovers ([W09 §12](./W09-saved-queries.md), [W10 §6](./W10-recent-preview.md)). The drawer has one job again, as §1 argued it should.
 - §13's narrow-width rule (one side panel at a time below 1100px) applies to the Inspector as it did to the drawer.
 
 ### Acceptance criteria
 
 - A fresh profile opens a collection with the Inspector closed.
-- The `Builder` button and ⌘⇧B open it on the Filter tab and move focus into it; pressing either again closes it.
+- The `Builder` button and ⌘⇧B open it on the Filter tab and move focus into it; pressing either again closes it. The title bar's Query Builder toggle opens and closes it too, and focus stays on that toggle.
 - The panel has no Saved or Recent tab.
 - Below 1100px, opening the Inspector closes the sidebar, and the reverse.
 

@@ -122,7 +122,7 @@ export function statusCountLayout(width: number | null): StatusCountLayout {
  * no control changes form under the user's hand.
  */
 export interface FilterBarLayout {
-  /** Save and Queries as icons, their names in tooltips and accessible names. */
+  /** Builder, Save and Queries as icons, their names in tooltips and accessible names. */
   queriesIcon: boolean;
   /** The pill group as one `Options` pill. */
   optionsFolded: boolean;
@@ -155,6 +155,7 @@ const ROW_GAP = 8;
 const OPTIONS_GROUP = 204; // Sort, Project, Limit and ⋯, unset
 const OPTIONS_FOLDED = 90; // `Options` and its chevron
 const BUILDER = 22;
+const BUILDER_LABELLED = 86; // `⊽ Builder`, labelled while Save and Queries are
 const SAVE_LABELLED = 162; // `☆ Save | Queries ▾`
 const SAVE_ICONS = 62; // `☆ | ◷ ▾`
 const RESET_ICON = 16;
@@ -162,7 +163,7 @@ const DIVIDER = 1;
 const RUN_WIDEST = 189; // "Fix projection to run" and the menu chevron
 
 function filterBarFixedWidth(form: FilterBarLayout): number {
-  const tools = BUILDER + ROW_GAP + (form.queriesIcon ? SAVE_ICONS : SAVE_LABELLED);
+  const tools = (form.queriesIcon ? BUILDER + SAVE_ICONS : BUILDER_LABELLED + SAVE_LABELLED) + ROW_GAP;
   const run = RESET_ICON + ROW_GAP + RUN_WIDEST;
   // The dividers are items of the row and of the tools, each with its gaps.
   const dividers = form.runCompact ? 0 : 2 * (DIVIDER + ROW_GAP);

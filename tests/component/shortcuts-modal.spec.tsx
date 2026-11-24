@@ -215,6 +215,9 @@ describe('shortcut hints in tooltips', () => {
           shellOpen={false}
           shellAvailable={false}
           onToggleShell={() => {}}
+          builderOpen={false}
+          builderAvailable={false}
+          onToggleBuilder={() => {}}
         />,
       );
       const text = screen.getByRole('button', { name: 'Search collections and actions' }).textContent;

@@ -83,12 +83,21 @@ afterEach(() => {
 });
 
 describe('Filter Bar row — the Builder toggle', () => {
-  it('is an icon with its shortcut in its name, at every width', () => {
+  it('says Builder while Save and Queries have their labels, its shortcut in its name', () => {
     renderBar();
     const labelled = screen.getByRole('button', { name: /^Builder \(.+\)$/ });
-    expect(labelled.textContent).toBe('');
+    expect(labelled.textContent).toBe('Builder');
     expect(labelled.getAttribute('aria-pressed')).toBe('true');
     expect(labelled.hasAttribute('data-builder-toggle')).toBe(true);
+  });
+
+  it('turns into an icon with Save and Queries, keeping its name and state', () => {
+    barWidth(1100);
+    renderBar();
+    const icon = screen.getByRole('button', { name: /^Builder \(.+\)$/ });
+    expect(icon.textContent).toBe('');
+    expect(icon.getAttribute('aria-pressed')).toBe('true');
+    expect(icon.hasAttribute('data-builder-toggle')).toBe(true);
   });
 });
 

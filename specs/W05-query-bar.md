@@ -219,7 +219,7 @@ A 3.5-second query used to change nothing on screen but the Run button's label, 
 
 ### 9.7 The Builder toggle and the Inspector
 
-- **`Builder`** is a labelled button in the row, pressed while the builder is open, bound to `⌘⇧B`. It replaces an 8px notch on the panel's edge as the way to open it.
+- **`Builder`** is a button in the row, pressed while the builder is open, bound to `⌘⇧B`; §10.2 sets when it shows its label. It replaces an 8px notch on the panel's edge as the way to open it. The title bar has a second toggle for the same panel ([W01 §14.2](./W01-workspace-shell.md)).
 - The right-hand panel is the **Inspector**: resizable from 320 to 640px (400 by default), with a 36px header holding its title, a tab switch and close (Esc).
   - **Filter**: the Query Builder, without the Saved and Recent tabs. Its footer keeps Reset, Copy code ▾ and Open as pipeline.
   - **Plan**: the explain view, opened from the result bar's plan badge or from the Run menu. It was a drawer over the results.
@@ -258,13 +258,13 @@ At a 1000px results pane the filter field got about 265px and the row's controls
 ### 10.2 The row
 
 ```
-[Filter] [ { name: "x" }                                ⤢ ]  [Sort|Project|Limit|⋯]  |  [⧩] [☆ Save|Queries ▾]  |  [⇤] [▶ Run ⌘↵|▾]
+[Filter] [ { name: "x" }                                ⤢ ]  [Sort|Project|Limit|⋯]  |  [⧩ Builder] [☆ Save|Queries ▾]  |  [⇤] [▶ Run ⌘↵|▾]
 ```
 
 - **The field is a box**: a 28px input with a 1px `--atelier-border-med` border, the `--atelier-bg` fill and the 6px radius, holding the textarea and Expand. Its edge is visible empty or full.
 - **The field keeps at least 480px** while a control can still collapse (§10.3). Once every control has collapsed, the row stays on one line until the field would go under its 320px floor, then wraps. The field takes whatever is left over.
 - **The option pills are one attached group**: Sort, Project, Limit and `⋯` in a 24px segment with a 1px border, 2px between pills. `⋯` keeps its menu (§9.2) and its accessible name `More options`; the menu also lists the row's own pills by their values, above the options to add. A set option is promoted as before. Each pill's label is capped with an ellipsis (its whole label is its tooltip). When set options outrun the group's room, the pills scroll inside the group rather than clip or push the field: `⋯` stays outside the scroll, and a pill opened from it or reached by Tab scrolls into view.
-- **Builder is an icon toggle** (the filter icon), `aria-pressed` while the Inspector is open on Filter, its name and `⌘⇧B` in the tooltip and accessible name. It replaces the labelled button of §9.7.
+- **Builder is a toggle labelled like Save and Queries**: `⧩ Builder` in form 0, the filter icon alone from form 1 (§10.3), `aria-pressed` while the Inspector is open on Filter, its name and `⌘⇧B` in the tooltip and accessible name at every width. An icon alone at every width went unnoticed as the way to open the builder. The title bar carries a second toggle for the same panel ([W01 §14.2](./W01-workspace-shell.md)).
 - **Save and History are one split control**: `☆ Save` saves the current query (it keeps the `saved.create` hint anchor); `Queries ▾` opens one 360px popover with two tabs, **Saved** and **History**, and one search box, with §9.6's keyboard preview in both. The popover opens on the tab last used in this tab, Saved the first time. §9.6's rule holds: this control is the only entry point to saved queries and history.
 - **The page-reset sentence ("Will jump to page 1 on run") is always its icon form**: `⇤` beside Run, the sentence as tooltip and as visually hidden text. It no longer takes about 170px of the field's room at any width.
 - Run is unchanged and is still the row's only filled button. Two 1px dividers group the row: options | tools | Run.
@@ -275,8 +275,8 @@ A pure `filterBarLayout(width)` in `toolbarLayout.ts`, in the shape of `canvasHe
 
 | Form | Step taken | About from |
 |---|---|---|
-| 0 | Every label: `☆ Save`, `Queries ▾`, `Run ⌘↵` | 1178px |
-| 1 | `queriesIcon`: Save and Queries as icons, `☆ \| ◷ ▾`, names in tooltips and accessible names | 1078px |
+| 0 | Every label: `⧩ Builder`, `☆ Save`, `Queries ▾`, `Run ⌘↵` | 1242px |
+| 1 | `queriesIcon`: Builder, Save and Queries as icons, `⧩ ☆ \| ◷ ▾`, names in tooltips and accessible names | 1078px |
 | 2 | `optionsFolded`: the pill group becomes one pill, `Options` or `Options · n` with n set options; its menu lists every option with its value and opens that option's popover anchored to the folded pill | 964px |
 | 3 | `runCompact`: Run without `⌘↵`, no dividers; the field may shrink from 480px to its 320px floor | 786px |
 | 4 | `wrap`: the field takes the first line whole; the controls move to a 36px second line, Run at its right end | below that |
@@ -290,7 +290,7 @@ The widths are the exact edges of `filterBarLayout`, from constants measured in 
 - At every width from 964px the field box is at least 480px wide; below that, at least 320px. The row stays 44px tall above form 4.
 - The form depends on width only: setting Sort, Limit and Hint, or starting a run, at a fixed width leaves every control's form unchanged.
 - Sort, Project, Limit and `⋯` read as one group; from form 2 they are one `Options` pill whose menu edits each option.
-- Builder is an icon toggle with `aria-pressed` and `⌘⇧B` in its accessible name.
+- Builder is labelled in form 0 and an icon from form 1, with `aria-pressed` and `⌘⇧B` in its accessible name at every width.
 - `☆ Save` saves; `Queries ▾` opens one popover with Saved and History tabs; the Saved list's rename from the palette (X07 §13.12) lands in the Saved tab.
 - The page-reset hint is the `⇤` icon at every width, its sentence readable by tooltip and screen reader.
 

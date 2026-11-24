@@ -24,7 +24,7 @@ const SIZES: Array<[number, number]> = [
 ];
 
 // Around each step of `filterBarLayout`, and well inside every form.
-const PANE_WIDTHS = [1500, 1200, 1178, 1177, 1170, 1090, 1078, 1077, 1070, 970, 964, 963, 955, 935, 925, 800, 790, 786, 785, 780, 600, 420];
+const PANE_WIDTHS = [1500, 1242, 1241, 1200, 1170, 1090, 1078, 1077, 1070, 970, 964, 963, 955, 935, 925, 800, 790, 786, 785, 780, 600, 420];
 
 const DOCS = Array.from({ length: 30 }, (_, n) => ({ n, status: n % 3 ? 'paid' : 'open', syndicateName: 'Le Condo-Fernand' }));
 const ONE_CONDITION = '{"syndicateName":{"$eq":"Le Condo-Fernand"}}';

@@ -262,7 +262,8 @@ The navigator's default width is 240px. Above the first row that is 180px instea
 
 Supersedes §10.
 
-- Left to right: the 70px traffic-light inset, a sidebar toggle (tooltip `Toggle sidebar ⌘B`; it replaces the edge notch), the breadcrumb, a drag spacer, the search field (§14.3), **Console** ([W11 §8](./W11-mongo-shell.md)), Settings. The theme toggle is gone from the bar ([X01 §8](./X01-theme-window-state.md)).
+- Left to right: the 70px traffic-light inset, a sidebar toggle (tooltip `Toggle sidebar ⌘B`; it replaces the edge notch), the breadcrumb, a drag spacer, the search field (§14.3), **Console** ([W11 §8](./W11-mongo-shell.md)), Settings, and a Query Builder toggle at the right edge. The theme toggle is gone from the bar ([X01 §8](./X01-theme-window-state.md)).
+- **Query Builder toggle**: the sidebar toggle's twin, mirrored to the bar's right edge because the panel it opens, the Inspector ([W05 §9.7](./W05-query-bar.md)), is on that side. Tooltip and accessible name `Toggle Query Builder ⌘⇧B`, `aria-pressed` while the panel is on screen. With no collection tab on Documents it is disabled and its tooltip says to open one: there is no panel to show, only a stored choice to flip. Not drawn on the welcome canvas's bare bar.
 - **Breadcrumb**: `● {connection} › {database} › {collection}`, inside `<nav aria-label="Location">`. Three buttons; the dot carries the Connection's colour and status; the last segment is weight 600. It states the Focused Tab's identity, once.
   - The connection segment opens the Connection Switcher ([X16 §13](./X16-multi-connection.md)).
   - The database segment lists that Connection's databases; choosing one lists its collections in the same dropdown.

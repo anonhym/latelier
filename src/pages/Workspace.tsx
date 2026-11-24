@@ -1877,6 +1877,13 @@ function WorkspaceInner() {
         onNavigatorDialogHandled={clearNavigatorDialog}
         navigatorRevealRequest={navigatorRevealRequest}
         setNavigatorRevealRequest={setNavigatorRevealRequest}
+        builderToggle={{
+          // Shown, not just preferred: off Documents the panel is shut whatever the pref says.
+          open: !!activeCollection && !builderShut,
+          // With no collection on Documents there is no panel to open, only a pref to flip.
+          available: !!activeCollection && activeView === 'documents',
+          onToggle: toggleBuilder,
+        }}
       />
 
       <PanelBody

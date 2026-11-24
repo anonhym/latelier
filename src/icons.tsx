@@ -34,6 +34,7 @@ import {
   IconFilter,
   IconGripVertical,
   IconLayoutSidebar,
+  IconLayoutSidebarRight,
   IconLink,
   IconList,
   IconLock,
@@ -115,6 +116,8 @@ export const I = {
   group: <IconParentheses size={13} stroke={s} />,
   link: <IconLink size={13} stroke={s} />,
   sidebar: <IconLayoutSidebar size={14} stroke={s} />,
+  // The title bar's right-hand twin of `sidebar`: it toggles the Inspector.
+  inspector: <IconLayoutSidebarRight size={14} stroke={s} />,
   undo: <IconArrowBackUp size={13} stroke={s} />,
   redo: <IconArrowForwardUp size={13} stroke={s} />,
 };

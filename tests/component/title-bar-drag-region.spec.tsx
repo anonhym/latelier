@@ -10,6 +10,9 @@ const baseProps = {
   shellOpen: false,
   shellAvailable: true,
   onToggleShell: () => {},
+  builderOpen: false,
+  builderAvailable: true,
+  onToggleBuilder: () => {},
 };
 
 const region = (el: HTMLElement) => (el.style as unknown as Record<string, string>).WebkitAppRegion;
@@ -41,6 +44,32 @@ describe('TitleBar', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(toggle);
     expect(onToggleSidebar).toHaveBeenCalledOnce();
+  });
+
+  it('the Query Builder toggle mirrors the sidebar toggle on the right edge', () => {
+    const onToggleBuilder = vi.fn();
+    render(<TitleBar {...baseProps} builderOpen onToggleBuilder={onToggleBuilder} />);
+    const toggle = screen.getByRole('button', { name: /^Toggle Query Builder \(.+\)$/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    // Last in the bar, after Settings: the panel it opens is on that side.
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[buttons.length - 1]).toBe(toggle);
+    fireEvent.click(toggle);
+    expect(onToggleBuilder).toHaveBeenCalledOnce();
+  });
+
+  it('the Query Builder toggle is disabled with no collection on Documents', () => {
+    const onToggleBuilder = vi.fn();
+    render(<TitleBar {...baseProps} builderAvailable={false} onToggleBuilder={onToggleBuilder} />);
+    const toggle = screen.getByRole('button', { name: /^Toggle Query Builder/ }) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
+    fireEvent.click(toggle);
+    expect(onToggleBuilder).not.toHaveBeenCalled();
+  });
+
+  it('the bare welcome bar has no Query Builder toggle', () => {
+    render(<TitleBar {...baseProps} bare />);
+    expect(screen.queryByRole('button', { name: /^Toggle Query Builder/ })).toBeNull();
   });
 
   it('the search field opens the palette', () => {

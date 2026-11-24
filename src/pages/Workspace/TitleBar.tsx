@@ -21,6 +21,11 @@ interface TitleBarProps {
   shellOpen: boolean;
   shellAvailable: boolean;
   onToggleShell: () => void;
+  /** Whether the Inspector (the Query Builder's panel) is on screen. */
+  builderOpen: boolean;
+  /** A collection tab on Documents: otherwise there is no panel to toggle. */
+  builderAvailable: boolean;
+  onToggleBuilder: () => void;
 }
 
 const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
@@ -35,8 +40,15 @@ export function TitleBar({
   shellOpen,
   shellAvailable,
   onToggleShell,
+  builderOpen,
+  builderAvailable,
+  onToggleBuilder,
 }: TitleBarProps) {
   const T = themeVars;
+  const builderShortcut = formatShortcut('⌘⇧B', isMacRenderer());
+  const builderTooltip = builderAvailable
+    ? `Toggle Query Builder (${builderShortcut})`
+    : "Open a collection's Documents view to use the Query Builder";
   const shellTooltip = shellAvailable
     ? 'Interactive shell for the focused connection (⌃`)'
     : 'Open a connection to use the Console';
@@ -144,6 +156,24 @@ export function TitleBar({
           {I.gear}
         </ActionIcon>
       </Tooltip>
+      {/* The sidebar toggle's twin, mirrored to the bar's right edge: the
+          panel it opens sits on that side. */}
+      {!bare && (
+        <Tooltip label={builderTooltip} withArrow>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="md"
+            onClick={onToggleBuilder}
+            disabled={!builderAvailable}
+            aria-label={`Toggle Query Builder (${builderShortcut})`}
+            aria-pressed={builderOpen}
+            style={NO_DRAG}
+          >
+            {I.inspector}
+          </ActionIcon>
+        </Tooltip>
+      )}
     </Group>
   );
 }

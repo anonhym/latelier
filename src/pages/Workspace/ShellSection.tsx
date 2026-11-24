@@ -61,6 +61,8 @@ export interface ShellSectionProps {
    */
   navigatorRevealRequest: NavigatorRevealInput | null;
   setNavigatorRevealRequest: (request: NavigatorRevealInput | null) => void;
+  /** The title bar's Inspector toggle, the right-hand twin of the sidebar toggle. */
+  builderToggle: { open: boolean; available: boolean; onToggle: () => void };
 }
 
 export function ShellSection({
@@ -87,6 +89,7 @@ export function ShellSection({
   onNavigatorDialogHandled,
   navigatorRevealRequest,
   setNavigatorRevealRequest,
+  builderToggle,
 }: ShellSectionProps) {
   const T = themeVars;
   const { sidebarCollapsed, toggleSidebar, leftWidth, setLeftWidth, commitLeftWidth } = panelPrefs;
@@ -169,6 +172,9 @@ export function ShellSection({
     shellOpen,
     shellAvailable: !!focusedConnection,
     onToggleShell: () => setShellOpen((v) => !v),
+    builderOpen: builderToggle.open,
+    builderAvailable: builderToggle.available,
+    onToggleBuilder: builderToggle.onToggle,
   };
 
   // Nothing saved: the welcome canvas fills the window (C03 §13.1). The title

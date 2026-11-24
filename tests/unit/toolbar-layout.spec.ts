@@ -158,8 +158,8 @@ describe('filterBarLayout', () => {
   // the field its 480px; the row wraps once the tightest one-line form would
   // leave it under 320px. The edges are exact.
   it.each([
-    [1178, ROW.labels],
-    [1177, ROW.queriesIcon],
+    [1242, ROW.labels],
+    [1241, ROW.queriesIcon],
     [1078, ROW.queriesIcon],
     [1077, ROW.folded],
     [964, ROW.folded],

@@ -179,3 +179,30 @@ describe('⌘B toggles the sidebar, not the builder', () => {
     expect(screen.getByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
   });
 });
+
+describe('the title bar’s Query Builder toggle', () => {
+  const titleToggle = () => screen.getByRole('button', { name: /^Toggle Query Builder/ }) as HTMLButtonElement;
+
+  it('opens and closes the Inspector, its pressed state tracking the Builder button', async () => {
+    renderWorkspace();
+    await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
+    expect(titleToggle().getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(titleToggle());
+    expect(await screen.findByRole('tablist', { name: 'Inspector view' })).toBeTruthy();
+    expect(titleToggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggleButton().getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(titleToggle());
+    await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Inspector view' })).toBeNull());
+    expect(titleToggle().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('is disabled and unpressed in the aggregation view, where the panel is shut', async () => {
+    renderWorkspace('aggregation', false);
+    await waitFor(() => expect(screen.getByRole('banner').textContent).toContain('Prod'));
+    await screen.findByRole('tab', { name: /Aggregation/ });
+    expect(titleToggle().disabled).toBe(true);
+    expect(titleToggle().getAttribute('aria-pressed')).toBe('false');
+  });
+});

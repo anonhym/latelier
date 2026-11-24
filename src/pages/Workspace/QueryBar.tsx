@@ -1158,18 +1158,34 @@ function QueryBarInner({
           data-testid="query-bar-actions"
           style={{ ...groupStyle, gap: T.gapSm, marginLeft: 'auto', flexShrink: 0 }}
         >
+          {/* Labelled while Save and Queries are: an unlabelled filter icon
+              went unnoticed as the way to open the builder. */}
           {onToggleBuilder && (
             <Tooltip label={`Builder (${builderShortcut})`} withArrow>
-              <ActionIcon
-                variant={builderOpen ? 'light' : 'default'}
-                size={22}
-                onClick={onToggleBuilder}
-                aria-label={`Builder (${builderShortcut})`}
-                aria-pressed={builderOpen}
-                data-builder-toggle
-              >
-                {I.filter}
-              </ActionIcon>
+              {layout.queriesIcon ? (
+                <ActionIcon
+                  variant={builderOpen ? 'light' : 'default'}
+                  size={22}
+                  onClick={onToggleBuilder}
+                  aria-label={`Builder (${builderShortcut})`}
+                  aria-pressed={builderOpen}
+                  data-builder-toggle
+                >
+                  {I.filter}
+                </ActionIcon>
+              ) : (
+                <Button
+                  variant={builderOpen ? 'light' : 'default'}
+                  size="compact-xs"
+                  leftSection={I.filter}
+                  onClick={onToggleBuilder}
+                  aria-label={`Builder (${builderShortcut})`}
+                  aria-pressed={builderOpen}
+                  data-builder-toggle
+                >
+                  Builder
+                </Button>
+              )}
             </Tooltip>
           )}
           {/* `☆`: saving the current query; `Queries ▾`: the saved ones and the
