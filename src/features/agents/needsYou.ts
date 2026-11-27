@@ -3,8 +3,10 @@ import { ago } from './agentsTime';
 
 /**
  * One open request in Needs you (X30 §8). Only Connection requests exist so
- * far; Proposals join this union as another kind, and `needsYouCount` is the
- * one place that counts them for the badge.
+ * far. Pending Proposals join as a second member of `NeedsYouItem`, counted
+ * by `needsYouCount` (the one count behind the switch's badge), merged
+ * newest first by `needsYouItems`, and drawn by a branch on `kind` in
+ * `NeedsYouList`.
  */
 export interface ConnectionRequestItem {
   kind: 'connection-request';

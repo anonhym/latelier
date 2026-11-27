@@ -348,6 +348,7 @@ Supersedes §11.
 | `⌘⌥→` / `⌘⌥←` | Next / previous tab |
 | `⌘K` / `⌘P` | Palette / palette on Collections |
 | `⌘B` | Toggle the sidebar |
+| `⌘⇧A` | Switch the sidebar between Databases and Agents mode, and move focus into it ([X30 §2](./X30-agents-mode.md)) |
 | `⌘⇧B` | Toggle the Query Builder (the Inspector's Filter tab) |
 | `⌘L` | Focus the filter |
 | `⌘↓` | From the filter, move to the first result row |
