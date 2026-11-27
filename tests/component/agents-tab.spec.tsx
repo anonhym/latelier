@@ -17,14 +17,19 @@ const TABS = [
   collectionTabFixture({ id: 't2', collection: 'orders', position: 1 }),
 ];
 
-/** Records every `api.tabs.*` call from here on. */
+/**
+ * Records every `api.tabs.*` call from here on, except a stored tab saving
+ * its own state: a collection tab's first query run lands a debounced
+ * `tabs.update` of its own, whenever the machine gets to it.
+ */
 function watchTabs(api: IpcApi): string[] {
   const calls: string[] = [];
+  const stored = new Set(TABS.map((t) => t.id));
   const tabs = api.tabs as unknown as Record<string, unknown>;
   for (const [name, fn] of Object.entries(tabs)) {
     if (typeof fn !== 'function') continue;
     tabs[name] = (...args: unknown[]) => {
-      calls.push(`tabs.${name}(${JSON.stringify(args[0] ?? null)})`);
+      if (!(name === 'update' && stored.has(args[0] as string))) calls.push(`tabs.${name}(${JSON.stringify(args[0] ?? null)})`);
       return (fn as (...a: unknown[]) => unknown)(...args);
     };
   }
