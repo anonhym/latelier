@@ -302,6 +302,34 @@ describe('AgentToolRunner tool context', () => {
     expect(seen!.proposals).toBe(proposals);
   });
 
+  it('refuses a Proposal ACCESS_OFF once the token is no longer valid, and never reaches the Proposals', async () => {
+    const rows: AgentReadLogEntry[] = [];
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ACCESS_OFF', assertConnection: () => undefined } as unknown as AgentGate,
+      tools: AGENT_TOOLS,
+      readLog: { insert: (row) => (rows.push(row), 'id') },
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => null },
+      log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
+    });
+    const args = {
+      connectionId: '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11',
+      sourceDb: 'shop',
+      sourceCollection: 'orders',
+      sourceField: 'customerId',
+      targetDb: 'shop',
+      targetCollection: 'customers',
+      reason: 'ids match',
+    };
+    for (const [name, input] of [['propose_reference_rule', args], ['get_proposal', { proposalId: '9b2f5c0e-8c1d-4b8e-9a39-1c3f9d2e7a10' }]] as const) {
+      const reply = await r.call(session, name, input, new AbortController().signal);
+      expect(reply).toMatchObject({ kind: 'result', closeSession: true, result: { isError: true } });
+    }
+    expect(rows.map((row) => row.outcome)).toEqual(['ACCESS_OFF', 'ACCESS_OFF']);
+  });
+
   it("logs a Proposal under its source namespace, which the call names as sourceDb and sourceCollection", async () => {
     const CONNECTION = '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11';
     const rows: AgentReadLogEntry[] = [];

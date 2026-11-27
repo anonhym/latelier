@@ -19,6 +19,7 @@ import { proposalPairKey, type ProposeInput } from '../agent/proposalInput.ts';
 import {
   coversSourceField,
   expiresAt,
+  isExpired,
   isOpen,
   nextStatus,
   OPEN_STATUSES,
@@ -237,6 +238,11 @@ export class AgentProposalService {
   accept(id: string, savedFor: AgentProposalSavedFor): { ruleId: string; savedFor: AgentProposalSavedFor } {
     const row = this.found(id);
     if (!isOpen(row.status)) throw new ConflictError(`Proposal ${id} is ${row.status}, not open`);
+    // Expiry is lazy: one past its 30 days still reads as open until something sweeps it.
+    if (isExpired(this.nowMs(), row.expiresAt)) {
+      this.move(row, 'expire');
+      throw new ConflictError(`Proposal ${id} expired`);
+    }
     if (this.deps.connections.findById(row.connectionId) === null) {
       this.move(row, 'expire');
       throw new NotFoundError(`connection ${row.connectionId} not found`);

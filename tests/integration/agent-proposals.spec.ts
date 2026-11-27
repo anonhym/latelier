@@ -316,6 +316,14 @@ describe('Agent Proposals (X28)', () => {
       expect(() => h.proposals.accept(randomUUID(), 'connection')).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
     });
 
+    it('accept is refused for a Proposal past its 30 days that nothing has swept yet, which then reads as expired', async () => {
+      const id = idOf(await propose(a));
+      clock += 30 * DAY;
+      expect(() => h.proposals.accept(id, 'connection')).toThrow(expect.objectContaining({ code: 'CONFLICT' }));
+      expect(h.proposalRepo.findById(id)).toMatchObject({ status: 'expired', decidedAt: '2026-12-27T10:00:00.000Z' });
+      expect(ruleCount()).toBe(0);
+    });
+
     it('accept works after the Connection was unshared or closed, and is refused once it is deleted', async () => {
       const id = idOf(await propose(a));
       h.connRepo.setShared(conn, false);
