@@ -121,9 +121,10 @@ X27 §8 says every tool is `readOnlyHint: true`. `propose_reference_rule` is the
   3. Both field paths: 1 to 256 characters, dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. Source and target the same field of the same collection: `INVALID_INPUT`.
   4. The pair key is on the Never list: the new code `PROPOSAL_DECLINED`, "The user declined this relation. Do not propose it again."
   5. The source field already has an effective rule: the new code `ALREADY_CONFIGURED`, naming no rule.
-  6. The token already backs 20 open Proposals: the new code `PROPOSAL_LIMIT`.
-  7. An open Proposal for the same pair exists. If this token already backs it, nothing is written. Otherwise the token is added as a backer, with its own reason, session and client. Either way the call returns that Proposal's id.
-- **Effect**: a `pending` Proposal with this token as its first backer, or this token added to an open one (step 7).
+  6. This token already backs an open Proposal for the same pair: nothing is written, and the call returns that Proposal's id. This comes before the cap, so a retry whose first response was lost always recovers its id.
+  7. The token already backs 20 open Proposals: the new code `PROPOSAL_LIMIT`. The cap applies only to creating a Proposal or joining one.
+  8. An open Proposal for the same pair exists: the token is added as a backer, with its own reason, session and client, and the call returns that Proposal's id.
+- **Effect**: a `pending` Proposal with this token as its first backer, this token added to an open one (step 8), or nothing for a repeat (step 6).
 - **Returns**: the app-written text "Proposed. The user will review it in L'Atelier; nothing changes until they accept it." and the Proposal id. The response is the same whether the Proposal is new or the token joined an existing one, so an Agent cannot learn that another Agent proposed the pair. Names stay inside the X27 §9.3 envelope.
 - The tool reads no documents. It does not check whether the relation holds: the user's check does that, on the user's side (§5).
 
@@ -181,7 +182,7 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 - `propose_reference_rule` creates one `pending` row and never a Reference Rule. No path creates a rule from a Proposal except `agentProposals:accept`.
 - Each refusal in §4.1 returns its code. A Proposal on a shared Connection that is not open is refused `NOT_OPEN` and makes a Connection request (X27 §16.6).
-- A repeat of an open pair by the same token returns the same id and writes nothing. The same pair from another token adds that token as a backer and returns the same id, which `get_proposal` then answers for it. A token backing 20 open Proposals is refused `PROPOSAL_LIMIT`.
+- A repeat of an open pair by the same token returns the same id and writes nothing. The same pair from another token adds that token as a backer and returns the same id, which `get_proposal` then answers for it. A token backing 20 open Proposals is refused `PROPOSAL_LIMIT` for a new or joined Proposal, and still gets the id back when it repeats a pair it already backs.
 - A pair on the Never list is refused `PROPOSAL_DECLINED`, and Never for this pair adds the key to `refs.discovery.never`.
 - Accept uses the stored pair, defaults to this Connection, and refuses a Proposal that is no longer open or whose source field gained a rule.
 - `get_proposal` reports the status to the Proposal's backers only.
@@ -204,7 +205,7 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 - `agent-proposals.spec.ts`, through an in-process MCP client:
   - each §4.1 check and its code, in order;
   - dedupe for one token, and a second token joining as a backer with its own reason;
-  - the 20 cap counting backed Proposals;
+  - the 20 cap counting backed Proposals, and a repeat at the cap returning its id;
   - `get_proposal` for both backers, and unknown for a third token;
   - the same response whether a Proposal is new or joined;
   - accept for the Connection and for the Family through `ReferenceRulesService`;
