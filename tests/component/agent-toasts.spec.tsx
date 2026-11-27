@@ -132,6 +132,14 @@ describe('Agent toasts', () => {
     expect(requestCards()).toHaveLength(0);
   });
 
+  it('hides a toast already showing once Agents mode opens, where the item shows in the list', () => {
+    const state = agentState({ connectionRequests: [request()] });
+    const m = mount({ state });
+    expect(requestCards()).toHaveLength(1);
+    m.update({ state, agentsMode: true });
+    expect(screen.getByRole('region', { name: 'Agent requests' }).children).toHaveLength(0);
+  });
+
   it('does not toast the Proposals already open at launch, only new ones', () => {
     const old = proposal({ id: 'p-old' });
     const m = mount({ state: agentState(), proposals: [], proposalsLoaded: false });
