@@ -8,6 +8,7 @@ import type { AgentsPage } from './agentsPage';
 import { sessionWhere } from './agentsPage';
 import { NeedsYouBadge } from './AgentsModeSwitch';
 import { needsYouCount, requestsBySession } from './needsYou';
+import { useOpenProposals } from './proposalStore';
 import { agentRows, endedSessionLine, endedSlice, isExpanded, liveSessionLine, type AgentRow } from './sidebarModel';
 import { useEndedSessions } from './useEndedSessions';
 import { useNow } from './useNow';
@@ -30,13 +31,20 @@ function itemPage(item: Item, tokenName: (id: string) => string): AgentsPage {
     case 'more':
       return { kind: 'agent', tokenId: item.parent };
     case 'live':
-      return { kind: 'session', sessionId: item.session.id, agentName: item.session.tokenName, where: sessionWhere(item.session) };
+      return {
+        kind: 'session',
+        sessionId: item.session.id,
+        agentName: item.session.tokenName,
+        where: sessionWhere(item.session),
+        tokenId: item.session.tokenId,
+      };
     case 'ended':
       return {
         kind: 'session',
         sessionId: item.session.id,
         agentName: item.session.tokenName ?? tokenName(item.parent),
         where: sessionWhere(item.session),
+        tokenId: item.parent,
       };
   }
 }
@@ -90,6 +98,7 @@ export function AgentsSidebar({
   const liveKey = (state?.sessions ?? []).map((s) => s.id).join(',');
   const ended = useEndedSessions(expandedIds, liveKey);
   const requests = requestsBySession(state);
+  const proposals = useOpenProposals().list;
   const tokenName = (id: string) => tokens.find((t) => t.id === id)?.name ?? 'Agent';
 
   const items: Item[] = [];
@@ -301,7 +310,7 @@ export function AgentsSidebar({
   };
 
   const homeCurrent = page?.kind === 'home';
-  const requestCount = needsYouCount(state);
+  const requestCount = needsYouCount(state, proposals);
 
   return (
     <div

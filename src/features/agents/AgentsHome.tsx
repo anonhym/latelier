@@ -9,7 +9,8 @@ import { AGENT_ACCESS_COPY, privilegeText } from '../agentAccess/agentAccessCopy
 import { shareWithAgents, stopSharingWithAgents } from '../agentAccess/useShareWithAgents';
 import type { AgentsPage } from './agentsPage';
 import { connectionRows, homeStatusLine, privilegePill, setupSteps, showSetup, type ConnectionActivity, type ConnectionRow, type SetupStep, type StatusTone } from './homeModel';
-import { needsYouItems } from './needsYou';
+import { laterItems, needsYouItems, type ProposalItem } from './needsYou';
+import { useOpenProposals } from './proposalStore';
 import { NeedsYouList } from './NeedsYouList';
 import { useAnySessionEver } from './useAnySessionEver';
 import { useNow } from './useNow';
@@ -220,7 +221,19 @@ export function AgentsHome({
     anySessionEver,
   });
   const rows = connectionRows({ connections, state, activity, now });
-  const items = needsYouItems(state, now);
+  const proposals = useOpenProposals().list;
+  const items = needsYouItems(state, now, proposals, state.sessions);
+  const later = laterItems(proposals, now, state.sessions);
+  // Review opens a Proposal in its first backer's session page; one whose session was not kept opens here.
+  const [reviewing, setReviewing] = React.useState<string | null>(null);
+  const review = (item: ProposalItem) => {
+    if (item.sessionId === null) {
+      setReviewing((id) => (id === item.proposal.id ? null : item.proposal.id));
+      return;
+    }
+    const tokenId = item.proposal.backers[0]?.tokenId ?? null;
+    onNavigate({ kind: 'session', sessionId: item.sessionId, agentName: item.agent, tokenId, proposalId: item.proposal.id });
+  };
 
   const enable = () =>
     void api.agentAccess.requestEnable().catch((err: unknown) => notify.error(getErrorMessage(err, 'Could not turn on Agent Access.')));
@@ -262,7 +275,9 @@ export function AgentsHome({
 
       <NeedsYouList
         items={items}
-        handlers={{ onOpenConnection: openConnection, onNotNow: (item) => dismiss(item.sessionId, item.connectionId) }}
+        later={later}
+        reviewing={reviewing}
+        handlers={{ onOpenConnection: openConnection, onNotNow: (item) => dismiss(item.sessionId, item.connectionId), onReview: review }}
       />
 
       <section

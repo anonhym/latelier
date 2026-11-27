@@ -1,11 +1,6 @@
 import type { AgentTokenInfo } from '@shared/types';
 
-/**
- * What the one Agents tab shows (X30 §4). Home, the Connect panel and Setup &
- * capabilities are drawn here; the Agent, session and All activity pages are
- * the next slice's, and keep their place in this union so a link to one
- * already works.
- */
+/** What the one Agents tab shows (X30 §4–§7). */
 export type AgentsPage =
   | { kind: 'home' }
   | { kind: 'connect'; tokenId?: string }
@@ -22,6 +17,10 @@ export type AgentsPage =
        */
       agentName?: string | null;
       where?: string | null;
+      /** The session's Agent, where the link knew it: how an ended session is found again. */
+      tokenId?: string | null;
+      /** A Proposal to open for review on the page (X30 §8's Review). */
+      proposalId?: string;
     };
 
 export const HOME_PAGE: AgentsPage = { kind: 'home' };

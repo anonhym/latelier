@@ -270,8 +270,8 @@ describe('privilegePill', () => {
 
 describe('needsYou', () => {
   it('counts open Connection requests for the badge, with its accessible text', () => {
-    expect(needsYouCount(null)).toBe(0);
-    expect(needsYouCount({ connectionRequests: [request(), request({ sessionId: 's2' })] })).toBe(2);
+    expect(needsYouCount(null, [])).toBe(0);
+    expect(needsYouCount({ connectionRequests: [request(), request({ sessionId: 's2' })] }, [])).toBe(2);
     expect(needsYouLabel(1)).toBe('1 Agent request');
     expect(needsYouLabel(3)).toBe('3 Agent requests');
   });
@@ -294,8 +294,10 @@ describe('needsYou', () => {
         ],
       },
       NOW,
+      [],
+      [],
     );
-    expect(items.map((i) => [i.sessionId, i.agent, i.outcome])).toEqual([
+    expect(items.map((i) => [i.sessionId, i.agent, i.kind === 'connection-request' ? i.outcome : null])).toEqual([
       ['new', 'An Agent', 'waiting'],
       ['old', 'laptop-claude', 'refused'],
     ]);
@@ -308,7 +310,7 @@ describe('needsYou', () => {
       at: minutesAgo(1),
       meta: 'claude-code · ~/Projects/shop-api · 1m ago · find on shop.orders',
     });
-    expect(needsYouItems(null, NOW)).toEqual([]);
+    expect(needsYouItems(null, NOW, [], [])).toEqual([]);
   });
 
   it('counts requests per session', () => {

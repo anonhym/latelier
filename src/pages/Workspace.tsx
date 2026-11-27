@@ -78,6 +78,7 @@ import { AgentsSidebar } from '../features/agents/AgentsSidebar';
 import { AgentsTab } from '../features/agents/AgentsTab';
 import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
+import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -360,6 +361,9 @@ function WorkspaceInner() {
   if (agentsTab.open && !agentsSeen) setAgentsSeen(true);
   const connectionIds = React.useMemo(() => connections.map((c) => c.id), [connections]);
   const connectionActivity = useConnectionActivity(connectionIds, agentsSeen);
+  // X28: the open Proposals, read once here for every surface that shows one.
+  useProposalSync();
+  const openProposals = useOpenProposals();
   const agentsShareHint = useFeatureHint(
     'agents.share',
     activeCollection !== null &&
@@ -1943,7 +1947,7 @@ function WorkspaceInner() {
   const agentsShell = {
     mode: sidebarMode,
     onMode: (mode: SidebarMode) => changeSidebarMode(mode),
-    needsYou: needsYouCount(agentAccess),
+    needsYou: needsYouCount(agentAccess, openProposals.list),
     sidebar: (
       <AgentsSidebar state={agentAccess} page={agentsTab.open ? agentsTab.page : null} onNavigate={agentsTab.show} />
     ),
