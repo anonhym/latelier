@@ -3,6 +3,9 @@
 import { describe, expect, it } from 'vitest';
 import { Decimal128, Long, ObjectId } from 'bson';
 import {
+  callMatches,
+  endReasonWords,
+  reachedConnections,
   canOpenAsQuery,
   findSeedPayload,
   isRefusedRow,
@@ -230,5 +233,80 @@ describe('the seed loads into the tab the runner then sends unchanged', () => {
       queryRaw: '{"a":1}',
       builder: { conditions: [], logic: 'AND', sort: '{"b":1}', limit: '', projection: [], projectionRaw: '{"c":1}' },
     });
+  });
+});
+
+describe('callMatches', () => {
+  const call = callRow({ sessionId: 's1', tokenId: 't1', connectionId: 'c-shop', database: 'shop', collection: 'orders', tool: 'find' });
+
+  it('matches every field the filter names, and ignores the ones it leaves out', () => {
+    expect(callMatches(call, { outcome: 'all' })).toBe(true);
+    expect(callMatches(call, { outcome: 'all', sessionId: 's1', tokenId: 't1', connectionId: 'c-shop', database: 'shop', collection: 'orders', tool: 'find' })).toBe(true);
+    expect(callMatches(call, { outcome: 'all', sessionId: 's2' })).toBe(false);
+    expect(callMatches(call, { outcome: 'all', tokenId: 't2' })).toBe(false);
+    expect(callMatches(call, { outcome: 'all', connectionId: 'c2' })).toBe(false);
+    expect(callMatches(call, { outcome: 'all', database: 'crm' })).toBe(false);
+    expect(callMatches(call, { outcome: 'all', collection: 'customers' })).toBe(false);
+    expect(callMatches(call, { outcome: 'all', tool: 'count' })).toBe(false);
+  });
+
+  it('filters by outcome as main does: refused is neither ok nor a paused call', () => {
+    const refused = callRow({ outcome: 'NOT_OPEN' });
+    const paused = callRow({ outcome: 'INPUT_REQUIRED' });
+    expect(callMatches(call, { outcome: 'ok' })).toBe(true);
+    expect(callMatches(refused, { outcome: 'ok' })).toBe(false);
+    expect(callMatches(paused, { outcome: 'ok' })).toBe(false);
+    expect(callMatches(refused, { outcome: 'refused' })).toBe(true);
+    expect(callMatches(call, { outcome: 'refused' })).toBe(false);
+    expect(callMatches(paused, { outcome: 'refused' })).toBe(false);
+    expect(callMatches(paused, { outcome: 'all' })).toBe(true);
+  });
+});
+
+describe('reachedConnections', () => {
+  it('reads a Connection reached once as reached, whatever else was refused on it', () => {
+    expect(
+      reachedConnections([
+        callRow({ connectionId: 'a', connectionName: 'Local', outcome: 'NOT_OPEN', ts: '2026-11-27T10:00:00.000Z' }),
+        callRow({ connectionId: 'a', connectionName: 'Local', outcome: 'ok', ts: '2026-11-27T09:00:00.000Z' }),
+      ]),
+    ).toEqual([{ connectionId: 'a', label: 'Local', tone: 'ok' }]);
+  });
+
+  it('reads one only refused by its newest refusal, in words', () => {
+    expect(
+      reachedConnections([
+        callRow({ connectionId: 'b', connectionName: 'Shop (prod)', outcome: 'BUSY', ts: '2026-11-27T09:00:00.000Z' }),
+        callRow({ connectionId: 'b', connectionName: 'Shop (prod)', outcome: 'NOT_OPEN', ts: '2026-11-27T10:00:00.000Z' }),
+        callRow({ connectionId: 'b', connectionName: 'Shop (prod)', outcome: 'TIMEOUT', ts: '2026-11-27T08:00:00.000Z' }),
+      ]),
+    ).toEqual([{ connectionId: 'b', label: 'Shop (prod) · refused, not open', tone: 'warn' }]);
+  });
+
+  it('reads one only asked about as asked to open, names a nameless one, skips calls with no Connection, sorts by label', () => {
+    expect(
+      reachedConnections([
+        callRow({ connectionId: 'z', connectionName: 'Zeta', outcome: 'ok' }),
+        callRow({ connectionId: 'c', connectionName: 'Archive', outcome: 'INPUT_REQUIRED' }),
+        callRow({ connectionId: 'n', connectionName: null, outcome: 'ok' }),
+        callRow({ connectionId: null, connectionName: 'none', outcome: 'ok' }),
+      ]),
+    ).toEqual([
+      { connectionId: 'c', label: 'Archive · asked to open', tone: 'warn' },
+      { connectionId: 'n', label: 'Connection', tone: 'ok' },
+      { connectionId: 'z', label: 'Zeta', tone: 'ok' },
+    ]);
+  });
+});
+
+describe('endReasonWords', () => {
+  it('says why a session ended', () => {
+    expect(endReasonWords('client-closed')).toBe('the client closed it');
+    expect(endReasonWords('user-ended')).toBe('you ended it');
+    expect(endReasonWords('token-revoked')).toBe('its token was revoked');
+    expect(endReasonWords('access-off')).toBe('Agent Access was turned off');
+    expect(endReasonWords('app-quit')).toBe("L'Atelier quit");
+    expect(endReasonWords('unknown')).toBe('reason not known');
+    expect(endReasonWords(null)).toBe('reason not known');
   });
 });

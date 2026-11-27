@@ -5,7 +5,14 @@ export type AgentsPage =
   | { kind: 'home' }
   | { kind: 'connect'; tokenId?: string }
   | { kind: 'setup' }
-  | { kind: 'activity'; connectionId?: string; database?: string; collection?: string }
+  | {
+      kind: 'activity';
+      tokenId?: string;
+      connectionId?: string;
+      database?: string;
+      collection?: string;
+      outcome?: 'all' | 'ok' | 'refused';
+    }
   | { kind: 'agent'; tokenId: string }
   | {
       kind: 'session';

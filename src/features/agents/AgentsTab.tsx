@@ -1,52 +1,21 @@
 import type { ReactNode } from 'react';
-import { UnstyledButton } from '@mantine/core';
-import { IconChevronLeft } from '@tabler/icons-react';
 import { themeVars } from '../../theme/themeVars';
 import type { AgentAccessState, ConnectionSummary } from '@shared/types';
-import { agentsPageCrumbs, type AgentsPage } from './agentsPage';
+import type { QuerySeed } from './activityRow';
+import { AgentPage } from './AgentPage';
+import type { AgentsPage } from './agentsPage';
 import { AgentsHome } from './AgentsHome';
+import { AllActivityPage } from './AllActivityPage';
 import { ConnectAgentPanel } from './ConnectAgentPanel';
 import type { ConnectDrafts, ConnectPanelAction } from './connectPanel';
 import type { ConnectionActivity } from './homeModel';
+import { SessionPage } from './SessionPage';
 import { SetupCapabilities } from './SetupCapabilities';
 
 const T = themeVars;
 
 /**
- * The Agent, session and All activity pages until they are built: a heading,
- * so a link to one already lands somewhere and the tab names it.
- */
-function PendingPage({
-  page,
-  state,
-  onNavigate,
-}: {
-  page: Extract<AgentsPage, { kind: 'agent' | 'session' | 'activity' }>;
-  state: AgentAccessState;
-  onNavigate: (page: AgentsPage) => void;
-}) {
-  const crumbs = agentsPageCrumbs(page, { tokens: state.tokens, sessions: state.sessions });
-  const heading = page.kind === 'agent' ? 'Agent' : page.kind === 'session' ? 'Session' : 'All activity';
-  return (
-    <div data-testid={`agents-page-${page.kind}`} style={{ display: 'flex', flexDirection: 'column', gap: themeVars.gapMd }}>
-      <UnstyledButton
-        onClick={() => onNavigate({ kind: 'home' })}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: themeVars.gapXs, color: T.textMuted, fontSize: T.fsSm, alignSelf: 'flex-start' }}
-      >
-        <IconChevronLeft size={14} aria-hidden="true" />
-        Agents
-      </UnstyledButton>
-      <h1 style={{ margin: 0, fontSize: T.fsLg, fontWeight: 600 }}>{heading}</h1>
-      {page.kind !== 'activity' && (
-        <div style={{ fontSize: T.fsMd, color: T.textMuted, overflowWrap: 'anywhere' }}>{crumbs.join(' · ')}</div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The body of the one Agents tab (X30 §4–§7): routes its page. Home, the
- * Connect panel and Setup & capabilities are drawn here.
+ * The body of the one Agents tab (X30 §4–§7): routes its page.
  */
 export function AgentsTab({
   page,
@@ -57,6 +26,7 @@ export function AgentsTab({
   connectDrafts,
   onConnectAction,
   activity,
+  onOpenQuery,
 }: {
   page: AgentsPage;
   /** Null until the first read of Agent Access lands. */
@@ -68,6 +38,8 @@ export function AgentsTab({
   connectDrafts: ConnectDrafts;
   onConnectAction: (tokenId: string | undefined, action: ConnectPanelAction) => void;
   activity: ReadonlyMap<string, ConnectionActivity>;
+  /** Open as query: fills a tab with an Agent's query and never runs it. */
+  onOpenQuery: (seed: QuerySeed) => void;
 }) {
   let body: ReactNode;
   if (!state) {
@@ -93,8 +65,23 @@ export function AgentsTab({
       case 'setup':
         body = <SetupCapabilities state={state} />;
         break;
-      default:
-        body = <PendingPage page={page} state={state} onNavigate={onNavigate} />;
+      case 'session':
+        // Keyed by session, so a page's own state (a Proposal opened for review) is the session's.
+        body = (
+          <SessionPage
+            key={`${page.sessionId}\u0000${page.proposalId ?? ''}`}
+            page={page}
+            state={state}
+            openConnection={openConnection}
+            onOpenQuery={onOpenQuery}
+          />
+        );
+        break;
+      case 'agent':
+        body = <AgentPage key={page.tokenId} page={page} state={state} onNavigate={onNavigate} />;
+        break;
+      case 'activity':
+        body = <AllActivityPage page={page} state={state} connections={connections} onNavigate={onNavigate} onOpenQuery={onOpenQuery} />;
     }
   }
   return (

@@ -1,4 +1,4 @@
-import type { AgentCallRow, AgentCallSummary, Stage } from '@shared/types';
+import type { AgentCallRow, AgentCallSummary, AgentCallsQuery, AgentSessionEndReason, Stage } from '@shared/types';
 import { ejsonParse, ejsonStringifyReadable, isPlainDocument } from '../../utils/ejson';
 import { prettyPrintJsonKeepingBigInts } from '../../utils/bigIntJson';
 import { humanBytes } from '../../utils/humanBytes';
@@ -183,4 +183,62 @@ export function findSeedPayload(seed: FindSeed): LegacySavedFindPayload {
 /** A short session id for display: the first eight characters. */
 export function shortId(id: string | null | undefined): string {
   return id ? id.slice(0, 8) : '';
+}
+
+/** What an Activity list shows: the `list-calls` filter without its paging. */
+export type ActivityFilter = Omit<AgentCallsQuery, 'before' | 'limit'>;
+
+/** Whether a call pushed live belongs in a list read with `filter`, as main's own filter would answer. */
+export function callMatches(call: AgentCallSummary, filter: ActivityFilter): boolean {
+  if (filter.outcome === 'ok' && call.outcome !== 'ok') return false;
+  if (filter.outcome === 'refused' && !isRefusedOutcome(call.outcome)) return false;
+  const keys = ['sessionId', 'tokenId', 'connectionId', 'database', 'collection', 'tool'] as const;
+  return keys.every((k) => filter[k] === undefined || filter[k] === call[k]);
+}
+
+/** One Connection a session called, as a pill: reached, or refused with the code in words. */
+export interface ReachedConnection {
+  connectionId: string;
+  label: string;
+  tone: 'ok' | 'warn';
+}
+
+/**
+ * The Connections a session reached (X30 §5.2), by name: one an `ok` call
+ * reached is a plain pill; one only refused reads "refused, not open" from
+ * its newest refusal; one only asked about reads "asked to open". Sorted by
+ * name.
+ */
+export function reachedConnections(
+  calls: ReadonlyArray<Pick<AgentCallSummary, 'connectionId' | 'connectionName' | 'outcome' | 'ts'>>,
+): ReachedConnection[] {
+  const by = new Map<string, { name: string; ok: boolean; refusal: { ts: string; outcome: string } | null }>();
+  for (const c of calls) {
+    if (!c.connectionId) continue;
+    const seen = by.get(c.connectionId) ?? { name: c.connectionName ?? 'Connection', ok: false, refusal: null };
+    if (c.outcome === 'ok') seen.ok = true;
+    else if (isRefusedOutcome(c.outcome) && (seen.refusal === null || c.ts > seen.refusal.ts)) seen.refusal = { ts: c.ts, outcome: c.outcome };
+    by.set(c.connectionId, seen);
+  }
+  return [...by.entries()]
+    .map(([connectionId, s]): ReachedConnection => {
+      if (s.ok) return { connectionId, label: s.name, tone: 'ok' };
+      if (s.refusal) return { connectionId, label: `${s.name} · refused, ${outcomeWords(s.refusal.outcome)}`, tone: 'warn' };
+      return { connectionId, label: `${s.name} · asked to open`, tone: 'warn' };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+const END_REASON_WORDS: Readonly<Record<AgentSessionEndReason, string>> = {
+  'client-closed': 'the client closed it',
+  'user-ended': 'you ended it',
+  'token-revoked': 'its token was revoked',
+  'access-off': 'Agent Access was turned off',
+  'app-quit': "L'Atelier quit",
+  unknown: 'reason not known',
+};
+
+/** Why a session ended, in words. */
+export function endReasonWords(reason: AgentSessionEndReason | null): string {
+  return END_REASON_WORDS[reason ?? 'unknown'];
 }

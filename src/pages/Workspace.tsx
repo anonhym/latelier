@@ -79,6 +79,7 @@ import { AgentsTab } from '../features/agents/AgentsTab';
 import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
+import { findSeedPayload, type QuerySeed } from '../features/agents/activityRow';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -1796,6 +1797,27 @@ function WorkspaceInner() {
     setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
   }, [tabs, pendingSavedTick, run, expandBuilder]);
+  // X30 §5.2 Open as query: an Agent's find or count lands in its collection's
+  // tab through the saved-query load, without the run; a pipeline opens on the
+  // Aggregation view, which never runs by itself. The user reads it and runs it.
+  const openAgentQuery = React.useCallback(
+    async (seed: QuerySeed) => {
+      const t = tabsRef.current;
+      const target = { connectionId: seed.connectionId, dbName: seed.database, collection: seed.collection };
+      try {
+        if (seed.kind === 'aggregate') {
+          await t.openAggregation({ ...target, initialState: { stages: seed.stages, activeStageId: null, dirty: true } });
+          return;
+        }
+        const tab = await t.openCollection({ ...target, reuseExisting: true });
+        pendingSavedRef.current = { kind: 'saved', tabId: tab.id, payload: findSeedPayload(seed), run: false };
+        setPendingSavedTick((n) => n + 1);
+      } catch (e) {
+        notify.error(getErrorMessage(e, String(e)), { title: 'Could not open the query' });
+      }
+    },
+    [tabsRef, setPendingSavedTick],
+  );
   // Rename… opens the collection's Saved list with the entry in its rename
   // input. A Connection that is not connected shows its Connect pane instead.
   const renameSaved = React.useCallback(
@@ -1972,6 +1994,7 @@ function WorkspaceInner() {
       connectDrafts={agentsTab.connectDrafts}
       onConnectAction={agentsTab.connectAction}
       activity={connectionActivity}
+      onOpenQuery={(seed) => void openAgentQuery(seed)}
     />
   ) : null;
 
