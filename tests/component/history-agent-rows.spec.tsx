@@ -122,7 +122,7 @@ describe('History with Agent rows', () => {
   it('offers Copy only on a refused call and on a cut one', async () => {
     mount({
       calls: [
-        agentFind('k-refused', 5, { $where: '1' }, { outcome: 'JS_NOT_ALLOWED', docCount: null }),
+        agentFind('k-refused', 5, { $where: '1' }, { outcome: 'JS_NOT_ALLOWED', docCount: undefined }),
         agentFind('k-cut', 6, { a: 1 }, { requestTruncated: true }),
       ],
     });
@@ -137,7 +137,7 @@ describe('History with Agent rows', () => {
   it('routes Enter by what the row offers: run the user\'s, load the Agent\'s, nothing for Copy only', async () => {
     const m = mount({
       runs: [mine('r1', 30, '{"a":1}')],
-      calls: [agentFind('k-ok', 5, { b: 2 }), agentFind('k-refused', 10, {}, { outcome: 'NOT_OPEN', docCount: null })],
+      calls: [agentFind('k-ok', 5, { b: 2 }), agentFind('k-refused', 10, {}, { outcome: 'NOT_OPEN', docCount: undefined })],
     });
     await waitFor(() => expect(agentRows()).toHaveLength(2));
     const search = screen.getByRole('textbox', { name: 'Search recent queries' });
