@@ -76,6 +76,7 @@ import { needsYouCount } from '../features/agents/needsYou';
 import { onAgentsPageRequest, takeAgentsPageRequest } from '../features/agents/agentsNav';
 import { AgentsSidebar } from '../features/agents/AgentsSidebar';
 import { AgentsTab } from '../features/agents/AgentsTab';
+import { AgentToastStack } from '../features/agents/AgentToastStack';
 import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
@@ -2105,6 +2106,32 @@ function WorkspaceInner() {
           <StatusBar connection={focusedConnection} />
         </AppShell.Footer>
       )}
+
+      {/* X30 §10.1: Agent requests in Databases mode, above the status bar. */}
+      <AgentToastStack
+        state={agentAccess}
+        proposals={openProposals.list}
+        proposalsLoaded={openProposals.loaded}
+        agentsMode={sidebarMode === 'agents'}
+        handlers={{
+          onOpenConnection: openConnection,
+          onViewSession: (item) =>
+            showAgentsPage({ kind: 'session', sessionId: item.sessionId, agentName: item.agent }),
+          onReview: (item) =>
+            showAgentsPage(
+              item.sessionId
+                ? {
+                    kind: 'session',
+                    sessionId: item.sessionId,
+                    agentName: item.agent,
+                    tokenId: item.proposal.backers[0]?.tokenId ?? null,
+                    proposalId: item.proposal.id,
+                  }
+                : HOME_PAGE,
+            ),
+          onOpenAgents: () => showAgentsPage(HOME_PAGE),
+        }}
+      />
 
       <FeatureHint
         id="agents.share"
