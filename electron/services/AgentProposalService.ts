@@ -45,6 +45,9 @@ export const CHECK_MAX_TIME_MS = 2000;
 
 const DECIDE_VERB = { later: 'set aside', reopen: 'reopened', decline: 'declined' } as const;
 
+/** A write made in the same transaction as a status change; it returns what to publish once that committed. */
+type Alongside = (row: StoredProposal) => () => void;
+
 /** Who is proposing: the session's identity as the runner hands it to a tool. */
 export type ProposalAuthor = Pick<AgentSessionIdentity, 'sessionId' | 'tokenId' | 'tokenName' | 'clientName'>;
 
@@ -65,7 +68,7 @@ export interface AgentProposalDeps {
     status(id: string): Pick<ConnectionRuntime, 'status'>;
     readClient(id: string): Promise<MongoClient>;
   };
-  appState: Pick<AppStateService, 'get' | 'set'>;
+  appState: Pick<AppStateService, 'get' | 'setDeferred'>;
   log: Pick<Logger, 'warn'>;
   /** Pushes that a Proposal was added or changed status. */
   emit: (event: AgentProposalEvent) => void;
@@ -301,12 +304,13 @@ export class AgentProposalService {
    * Never for this pair: declined, and the pair joins X26's Never list so no
    * Agent or discovery offers it again. Both land in one transaction (the Never
    * list is app state in the same database): a declined Proposal is never left
-   * off the list.
+   * off the list. The list's cache and listeners see the pair only once that
+   * transaction committed, so a rollback cannot leave a cached entry behind.
    */
   decline(id: string): { ok: true } {
     this.decide(id, 'decline', (row) => {
       const never = readNeverList(this.deps.appState.get<unknown>(NEVER_PAIRS_KEY));
-      this.deps.appState.set(NEVER_PAIRS_KEY, withNeverPair(never, row.pairKey));
+      return this.deps.appState.setDeferred(NEVER_PAIRS_KEY, withNeverPair(never, row.pairKey));
     });
     return { ok: true };
   }
@@ -318,7 +322,7 @@ export class AgentProposalService {
   }
 
   /** A user's choice: refused when the Proposal's status does not allow it. */
-  private decide(id: string, event: 'later' | 'reopen' | 'decline', alongside?: (row: StoredProposal) => void): StoredProposal {
+  private decide(id: string, event: 'later' | 'reopen' | 'decline', alongside?: Alongside): StoredProposal {
     const row = this.refresh(this.found(id));
     if (nextStatus(row.status, event) === null || !this.move(row, event, alongside)) {
       throw new ConflictError(`Proposal ${id} is ${row.status}; it cannot be ${DECIDE_VERB[event]}`);
@@ -328,20 +332,27 @@ export class AgentProposalService {
 
   /**
    * Applies `event` to an open Proposal, with `alongside` in the same
-   * transaction, and announces it once committed. False when the status does
-   * not allow it.
+   * transaction, and announces it once committed, then publishes what
+   * `alongside` wrote. False when the status does not allow it.
    */
-  private move(row: StoredProposal, event: ProposalEvent, alongside?: (row: StoredProposal) => void): boolean {
+  private move(row: StoredProposal, event: ProposalEvent, alongside?: Alongside): boolean {
     const to = nextStatus(row.status, event);
     if (to === null) return false;
     const decidedAt = isOpen(to) ? null : this.nowIso();
+    let publish: (() => void) | undefined;
     const moved = this.deps.repo.transaction(() => {
       if (!this.deps.repo.setStatus(row.id, OPEN_STATUSES, to, decidedAt)) return false;
-      alongside?.(row);
+      publish = alongside?.(row);
       return true;
     });
     if (!moved) return false;
     this.deps.emit({ id: row.id, status: to });
+    try {
+      publish?.();
+    } catch (err) {
+      // Committed already, and the cache was set before any listener ran: a listener that throws cannot undo the decision.
+      this.deps.log.warn('agent', 'a listener failed on a Proposal decision', { errName: err instanceof Error ? err.name : typeof err });
+    }
     return true;
   }
 

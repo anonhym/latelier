@@ -424,7 +424,7 @@ describe('Agent Proposals (X28)', () => {
 
     it('Never for this pair stays undone when the Never list cannot be written: the Proposal is still open and nothing is announced', async () => {
       const id = idOf(await propose(a));
-      const set = vi.spyOn(h.appState, 'set').mockImplementation(() => {
+      const set = vi.spyOn(h.appState, 'setDeferred').mockImplementation(() => {
         throw new Error('disk I/O error');
       });
       expect(() => h.proposals.decline(id)).toThrow('disk I/O error');
@@ -434,6 +434,41 @@ describe('Agent Proposals (X28)', () => {
       expect(h.proposalEvents).toEqual([{ id, status: 'pending' }]);
       expect(h.proposals.decline(id)).toEqual({ ok: true });
       expect(h.proposalRepo.findById(id)!.status).toBe('declined');
+    });
+
+    it('Never for this pair leaves no cached Never entry when its transaction fails to commit, so the pair can still be proposed', async () => {
+      const id = idOf(await propose(a));
+      expect(h.appState.get(NEVER_PAIRS_KEY)).toBeNull();
+      // Runs the whole decision, then fails where COMMIT would: SQLite rolls every write of it back.
+      const tx = vi.spyOn(h.proposalRepo, 'transaction').mockImplementation(<T>(fn: () => T): T =>
+        h.tmp.db.transaction((): T => {
+          fn();
+          throw new Error('SQLITE_BUSY: database is locked');
+        })(),
+      );
+      expect(() => h.proposals.decline(id)).toThrow('SQLITE_BUSY');
+      tx.mockRestore();
+      expect(h.appState.get(NEVER_PAIRS_KEY)).toBeNull();
+      expect(h.tmp.db.prepare('SELECT COUNT(*) AS n FROM app_state WHERE key = ?').get(NEVER_PAIRS_KEY)).toEqual({ n: 0 });
+      expect(h.proposalRepo.findById(id)).toMatchObject({ status: 'pending', decidedAt: null });
+      expect(h.proposalEvents).toEqual([{ id, status: 'pending' }]);
+      expect(idOf(await propose(a))).toBe(id);
+      expect(idOf(await propose(b))).toBe(id);
+    });
+
+    it('Never for this pair stays decided when a Never-list listener throws: the cache and the database agree', async () => {
+      const id = idOf(await propose(a));
+      h.appState.subscribe(NEVER_PAIRS_KEY, () => {
+        throw new Error('listener failed');
+      });
+      expect(h.proposals.decline(id)).toEqual({ ok: true });
+      const key = h.proposalRepo.findById(id)!.pairKey;
+      expect(h.proposalRepo.findById(id)!.status).toBe('declined');
+      expect(h.appState.get(NEVER_PAIRS_KEY)).toEqual([key]);
+      const row = h.tmp.db.prepare('SELECT value_json FROM app_state WHERE key = ?').get(NEVER_PAIRS_KEY) as { value_json: string };
+      expect(JSON.parse(row.value_json)).toEqual([key]);
+      expect(h.proposalEvents.at(-1)).toEqual({ id, status: 'declined' });
+      expect(codeOf(await propose(b))).toBe('PROPOSAL_DECLINED');
     });
   });
 
