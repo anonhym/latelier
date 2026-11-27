@@ -181,6 +181,7 @@
     "electron/agent/privilegeVerdict.ts",
     "electron/agent/snippets.ts",
     "electron/agent/bridgePaths.ts",
-    "electron/agent/safeText.ts"
+    "electron/agent/safeText.ts",
+    "electron/agent/openConnectionPause.ts"
   ]
 }

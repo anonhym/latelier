@@ -18,8 +18,12 @@ export const AGENT_ERROR_CODES = [
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
-/** What an Agent Read Log row records as the outcome. */
-export type AgentOutcome = 'ok' | AgentErrorCode;
+/**
+ * What an Agent Read Log row records as the outcome. `INPUT_REQUIRED` marks a
+ * call that paused to ask the user to open its Connection (X29 §5): a row of
+ * its own, never an error an Agent receives.
+ */
+export type AgentOutcome = 'ok' | 'INPUT_REQUIRED' | AgentErrorCode;
 
 const DEFAULT_MESSAGES: Record<AgentErrorCode, string> = {
   NOT_SHARED: 'This Connection is not shared with Agents.',

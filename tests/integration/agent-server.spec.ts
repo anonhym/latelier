@@ -38,6 +38,14 @@ describe('Agent server', () => {
     return a;
   }
 
+  /** The handshake was accepted: a request after it is answered, and the session then counts as a client. */
+  async function expectServed(s: net.Socket) {
+    const reply = new Promise<string>((resolve) => s.once('data', (c: Buffer) => resolve(c.toString('utf8'))));
+    s.write(`${JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'ping' })}\n`);
+    expect(JSON.parse(await reply)).toMatchObject({ id: 7, result: {} });
+    expect(h.svc.sessionCount).toBe(1);
+  }
+
   const connectionsIn = (text: string) =>
     (JSON.parse(envelopeBody(text)) as { connections: Array<Record<string, unknown>> }).connections;
 
@@ -195,8 +203,7 @@ describe('Agent server', () => {
       const s = await openSocket(socketPath);
       sockets.push(s);
       s.write(`${line}\n`);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(h.svc.sessionCount).toBe(1);
+      await expectServed(s);
     });
 
     it('keeps an initialize that arrives in the same chunk as the handshake', async () => {
@@ -224,8 +231,7 @@ describe('Agent server', () => {
         s.write(ch);
         await new Promise((r) => setImmediate(r));
       }
-      await new Promise((r) => setTimeout(r, 100));
-      expect(h.svc.sessionCount).toBe(1);
+      await expectServed(s);
     });
 
     it('times out a connection that never sends a line', async () => {

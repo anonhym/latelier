@@ -125,12 +125,42 @@ describe.skipIf(!present)('Agent Bridge against the Agent server', () => {
     const { token, tokenId, socketPath } = await start();
     const { child, exited } = runBridge({ LATELIER_AGENT_TOKEN: token, LATELIER_AGENT_SOCKET: socketPath });
     children.push(child);
+    // A request makes the session count as a client: a bare handshake is not yet one (a discovery probe looks the same).
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })}\n`);
     // The session is open once the server counts it.
     for (let i = 0; i < 200 && h.svc.sessionCount === 0; i++) await new Promise((r) => setTimeout(r, 25));
     expect(h.svc.sessionCount).toBe(1);
     h.svc.revokeToken(tokenId);
     const result = await within(exited, 10_000, 'the bridge to exit after the token was revoked');
     expect(result.code).toBe(0);
+  });
+
+  it('relays a 2026-07-28 session unchanged and exits 0 when the client closes stdin', async () => {
+    const { token, socketPath } = await start();
+    const { child, exited } = runBridge({ LATELIER_AGENT_TOKEN: token, LATELIER_AGENT_SOCKET: socketPath });
+    children.push(child);
+    const discover = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'server/discover',
+      params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} } },
+    };
+    const replied = new Promise<void>((resolve) => {
+      let seen = '';
+      child.stdout?.on('data', (c: Buffer) => {
+        seen += c.toString('utf8');
+        if (seen.includes('\n')) resolve();
+      });
+    });
+    child.stdin?.write(`${JSON.stringify(discover)}\n`);
+    await within(replied, 10_000, 'the discover reply through the bridge');
+    child.stdin?.end();
+    const result = await within(exited, 10_000, 'the bridge to exit after stdin closed');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const reply = JSON.parse(result.stdout.trim()) as { id: number; result: { supportedVersions: string[] } };
+    expect(reply.id).toBe(1);
+    expect(reply.result.supportedVersions).toContain('2026-07-28');
   });
 
   it('exits 3 with the exact line once Agent Access is off', async () => {

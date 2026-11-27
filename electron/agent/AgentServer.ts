@@ -50,8 +50,11 @@ export class AgentServer {
     return this.listener ? (this.endpoint?.path ?? null) : null;
   }
 
+  /** Sessions past a discovery probe: what presence shows as connected clients (X29 §2). */
   get sessionCount(): number {
-    return this.sessions.size;
+    let count = 0;
+    for (const session of this.sessions) if (session.isActive) count += 1;
+    return count;
   }
 
   /** Called whenever a session opens or closes. */
@@ -169,14 +172,17 @@ export class AgentServer {
       runner: this.deps.runner,
       tools: this.deps.tools,
       log: this.deps.log,
+      onActive: () => {
+        // Not under the key `token`: the logger redacts any value filed under that name, so the Agent's name would never show.
+        this.deps.log.info('agent', 'session opened', { agentName: row.name });
+        this.onSessionsChanged?.();
+      },
       onClosed: (s) => {
-        if (this.sessions.delete(s)) this.onSessionsChanged?.();
+        if (this.sessions.delete(s) && s.isActive) this.onSessionsChanged?.();
       },
     });
+    // Counted in presence only once it is active: a client's discovery probe opens and closes a session of its own.
     this.sessions.add(session);
-    this.onSessionsChanged?.();
-    // Not under the key `token`: the logger redacts any value filed under that name, so the Agent's name would never show.
-    this.deps.log.info('agent', 'session opened', { agentName: row.name });
     try {
       await session.start();
     } catch (err) {

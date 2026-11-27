@@ -144,6 +144,8 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 
 ### 4.5 Handshake and sessions
 
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §2 and §3: each session is served in the protocol era the client opens with, and client info comes from each request in the 2026-07-28 era.
+
 - The bridge's first line on the socket is `{"agentToken":"<token>","protocol":1}\n`. Main hashes the token and compares it in constant time against the stored hashes (§5). A `protocol` value main does not support is refused the same way, so a bridge and an app that drifted apart fail loudly instead of mis-speaking. On failure it writes one JSON-RPC error line and closes. On success the rest of the stream belongs to MCP.
 - Main runs one MCP `Server` per socket connection, over the SDK's `StdioServerTransport` constructed on the socket's own streams (the SDK supports this for Unix sockets). `maxBufferSize` is set to 1 MiB, so an oversized message closes that session only.
 - `initialize.clientInfo` (name and version) is recorded with the token's name on every Agent Read Log row.
@@ -239,6 +241,8 @@ The same rule filters `list_databases` and `list_collections`, so the Agent is n
 
 ## 8. Tools
 
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §4: in the 2026-07-28 era, a call on a shared Connection that is closed can pause and ask the user to open it.
+
 Every tool has `annotations: { readOnlyHint: true, openWorldHint: false }`, and a strict input schema. A tool returns no `outputSchema` and no `structuredContent`: some clients show the model only the structured part of a result and drop the text, which hid the documents themselves (found in a real client).
 
 | Tool | Input | Returns |
@@ -298,6 +302,8 @@ After every `await` that returns data, the gates are checked again, **before** s
 ## 11. Agent Read Log
 
 ### 11.1 Table
+
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §5: `outcome` also takes `INPUT_REQUIRED`, for a call's asking round.
 
 A new table `agent_read_log` with these columns:
 

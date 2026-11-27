@@ -1,6 +1,6 @@
 # X29 — Agent Access on MCP 2026-07-28: protocol negotiation and a pause for a closed Connection
 
-> **Status: Draft.**
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -51,8 +51,10 @@ It also records why the two other 2026-07-28 features, Skills over MCP and Tasks
 - **Keeping "an oversized message closes that session only."** `serveStdio` installs its own `onclose` and `onerror` on the transport, which replaces the two handlers `AgentSession.start()` sets today. Without the `onclose` one, an oversized message would close the SDK transport but leave the socket open, and the bridge would wait on a socket nothing reads. Two changes keep the behaviour:
   - The warn log moves to `serveStdio`'s `onerror` option, still logging the error's class only.
   - Right after `serveStdio` returns (it assigns its handlers synchronously, before the transport starts), `AgentSession` wraps the transport's `onclose`: it calls the SDK's handler first, then ends the socket. The pinned `Server`'s own `onclose` is not enough: it fires only once an era is pinned, and an oversized *first* message arrives before that.
+- The factory can run twice on one socket: a `server/discover` probe followed by an `initialize` discards the modern instance and builds a legacy one. Each `Server` is built inside the factory, with handlers bound to that instance and its era.
 - The factory builds the `Server` with the same tools, the same `instructions` and the same `capabilities: { tools: {} }` in both eras. In the modern era the SDK answers `server/discover` from it, so the instructions still reach the client.
-- **A probe session is normal.** An SDK client in automatic negotiation mode over the base stdio client transport sends its `server/discover` probe from a short-lived sibling process, started from the same command. For L'Atelier that means one extra bridge spawn and one extra socket session per connect: token handshake, `server/discover`, close. That session calls no tool and writes no Read Log row. It must log nothing above debug level. Today `AgentServer.sessionCount`, which feeds presence (the status bar's "Connected now"), counts every authenticated socket, so a probe would show up as a second client for a moment. X29 counts a session only once it has received a request other than `server/discover`. Which clients probe this way depends on their own MCP client, so the app must not assume either way.
+- The `Server` turns off the SDK's legacy shim (`inputRequired: { legacyShim: false }`). On a 2025-era connection the shim would turn an `input_required` answer into a server-to-client `elicitation/create` held open on the socket, which §7 rejects. The app never pauses in that era (§4.1); the option makes sure of it.
+- **A probe session is normal.** An SDK client in automatic negotiation mode over the base stdio client transport sends its `server/discover` probe from a short-lived sibling process, started from the same command. For L'Atelier that means one extra bridge spawn and one extra socket session per connect: token handshake, `server/discover`, close. That session calls no tool and writes no Read Log row. It must log nothing above debug level. Today `AgentServer.sessionCount`, which feeds presence (the status bar's "Connected now"), counts every authenticated socket, so a probe would show up as a second client for a moment. X29 counts a session only once it has received a request other than `server/discover`: `AgentSession` wraps the transport's `onmessage` the same way as its `onclose`, and the `session opened` info line and the presence update move to that moment. Which clients probe this way depends on their own MCP client, so the app must not assume either way.
 - `legacy: 'serve'` keeps every 2025-era client working unchanged: it opens with `initialize` and is served the way a hand-wired stdio server is served today.
 - The token handshake (X27 §4.5) is unchanged and still comes first: the handshake reader holds the socket paused and pushes back any bytes after the token line, and `serveStdio` starts reading only once the session is attached.
 - The token is still re-checked on every tool call. Losing protocol-level sessions changes nothing here: the socket stays the unit of identity, and the token was never a protocol session.
@@ -62,7 +64,7 @@ It also records why the two other 2026-07-28 features, Skills over MCP and Tasks
 
 - **Legacy era:** unchanged. `initialize.clientInfo`, read through `server.getClientVersion()`.
 - **Modern era:** `getClientVersion()` returns nothing, because there is no `initialize`. Each call reads `io.modelcontextprotocol/clientInfo` from `ctx.mcpReq.envelope` instead. Spec rules: clients SHOULD send it, not MUST, so a call without it records `null`, as a legacy client without `clientInfo` does today.
-- Both values are cut to 128 characters, as today, because the client chooses them.
+- Both values are cut to 128 characters, as today, because the client chooses them. A value that is not a string is recorded as `null`. In the modern era the SDK validates the envelope before any handler runs and refuses a malformed `clientInfo` with `-32602`, so such a request writes no row.
 - The value is read per call, not per session: in the modern era nothing ties one request's client info to the next.
 
 ## 4. Pausing for a closed Connection
@@ -72,9 +74,9 @@ It also records why the two other 2026-07-28 features, Skills over MCP and Tasks
 All of these hold:
 
 - The connection is in the modern era.
-- The request's client capabilities (from the envelope) declare form-mode elicitation: `elicitation.form`, or a bare `elicitation: {}` that names neither `form` nor `url`. That is the SDK's own rule (a bare declaration keeps its pre-mode meaning of form support), so the app reuses the SDK's capability check rather than writing its own.
+- The request's client capabilities (from the envelope) declare form-mode elicitation: `elicitation.form`, or a bare `elicitation: {}` that names neither `form` nor `url`. That is the SDK's own rule (a bare declaration keeps its pre-mode meaning of form support). SDK 2.4.0 does not export its check, so `electron/agent/openConnectionPause.ts` mirrors it and unit tests pin it. The two must agree: the SDK refuses an `input_required` answer the request's capabilities do not cover, and by then the asking round's Read Log row is written.
 - The tool takes a `connectionId`: every tool except `list_connections`.
-- The call would end in `NOT_OPEN` from the gate (X27 §6.1): Agent Access is on, the Connection is shared, and it is not connected. That covers both the admission check and a Connection that closed while the call waited for a slot; either way, the lease is released before the asking round answers.
+- The call would end in `NOT_OPEN` from the gate (X27 §6.1): Agent Access is on, the Connection is shared, and it is not connected. That is the admission check, which runs before the call takes a concurrency slot, so the asking round holds none. A Connection that closes while a call waits for a slot or runs ends that call with `CANCELLED`, as X27 §6.1 says, and is not asked about.
 - The request carries no answer to this question yet.
 
 Otherwise the call fails with `NOT_OPEN`, as today. `ACCESS_OFF` and `NOT_SHARED` never ask: granting access is the user's decision inside L'Atelier, not an answer in the Agent's host (§4.4).
@@ -95,8 +97,10 @@ The asking round holds no concurrency slot (X27 §6.4), opens no agent client an
 The client retries the same `tools/call` with `inputResponses.openConnection`:
 
 - **`accept`:** the gate runs again. If the Connection is now connected, the call proceeds as any other call does, with the same token check, limits and Read Log row. If it is still not connected, the call fails with `NOT_OPEN` and asks no second time, so one call never asks more than once.
-- **`decline` or `cancel`:** the call fails with `NOT_OPEN` immediately.
-- An answer under any other key is ignored.
+- **`decline` or `cancel`:** the call fails with `NOT_OPEN` immediately, without running the gate again.
+- **Anything else under `openConnection`** (a malformed answer, or one the SDK dropped as malformed and listed in `droppedInputResponseKeys`) counts as answered and not accepted: `NOT_OPEN`, never a second question.
+- An answer under any other key is ignored, and so is an `openConnection` answer on `list_connections`, which names no Connection.
+- The token check still comes first on the retry, so a revoked token gets `ACCESS_OFF` and the session ends, whatever the answer.
 
 The SDK client's default is to fulfil and retry automatically, so to the Agent the whole exchange is one tool call.
 
@@ -108,7 +112,7 @@ The SDK client's default is to fulfil and retry automatically, so to the Agent t
 
 - The asking round writes its own row, before the `input_required` answer goes out (fail closed, X27 §11.2). Its `outcome` is a new code, `INPUT_REQUIRED`, with `doc_count` 0 and `bytes` 0. The retry writes its own row with its own outcome. A paused call therefore shows as two rows: `INPUT_REQUIRED`, then `ok` or `NOT_OPEN`.
 - `outcome` has no `CHECK` constraint (migration 020 left it open on purpose), so no migration is needed. The repository's list of valid outcomes gains `INPUT_REQUIRED`.
-- The session read count (X27 §11.3, "N Agent reads this session") counts every row it is told about today, refused ones included. It skips `INPUT_REQUIRED` rows, so a paused call counts as one read, not two.
+- The session read count (X27 §11.3, "N Agent reads this session") counts every row it is told about today, refused ones included. The runner now passes each row's outcome, and the count skips `INPUT_REQUIRED` rows, so a paused call counts as one read, not two. The state still goes out to the renderer for that row.
 - `INPUT_REQUIRED` is a Read Log outcome only. It is not an error code in X27 §9.4's sense, and no Agent ever receives it as an error.
 
 ## 6. Agent Bridge
@@ -147,10 +151,15 @@ None block implementation.
 
 ## Test cases
 
-- `agent-server.spec.ts` (integration): an SDK client pinned to `2026-07-28` over the real socket: `server/discover` returns the instructions and `supportedVersions` containing `2026-07-28`; `tools/list` matches the legacy list. An SDK client with default negotiation still gets a working session. A 2025-era opening (`initialize` with no envelope) still works. An oversized first message, and an oversized message after a pinned era, each end the socket (the client sees EOF) while a second session on another socket keeps working. A session that sends only `server/discover` and closes writes no Read Log row and no warn line.
-- `agent-read-log.spec.ts`: `client_name` and `client_version` from the envelope in the modern era, from `initialize` in the legacy era, `null` when absent, cut to 128 characters.
-- `agent-gate.spec.ts` / `agent-tools.spec.ts`: the pause matrix: modern + form elicitation + `NOT_OPEN` asks; each of legacy era, no elicitation capability, `ACCESS_OFF`, `NOT_SHARED`, `list_connections` does not. `accept` with the Connection opened between rounds returns data; `accept` while still closed returns `NOT_OPEN` with no second ask; `decline` and `cancel` return `NOT_OPEN`. Two Read Log rows per paused call. After an asking round the Connection's concurrency limiter is idle and no agent client was opened for it. A token revoked between rounds is refused on the retry.
-- A test that the elicitation message contains the Connection name and nothing from the database, and that a 300-character name is cut to 256.
+- `tests/integration/agent-mcp-2026.spec.ts`, over the real socket:
+  - Era negotiation: `server/discover` returns the instructions and `supportedVersions` containing `2026-07-28`; a client pinned to `2026-07-28` lists the same ten tools, annotations included, as a 2025-era client, gets the instructions, and gets the same `list_connections` result. The existing suites keep exercising the 2025 era: the default test client opens with `initialize`.
+  - A session that sends only `server/discover` and closes writes no Read Log row, logs nothing at info or above and never shows in presence; a modern session shows once it sends anything else.
+  - An oversized first message, before any era is chosen, and an oversized message after each era is pinned, each end that socket while another session keeps working.
+  - Client info: from the envelope in the modern era, cut to 128 characters; from `initialize` in the legacy era; `null` when a modern request carries none; a malformed envelope is refused by the SDK before any row.
+  - The pause matrix: modern + form elicitation + `NOT_OPEN` asks once; `decline`, `cancel`, and `accept` while still closed each end in `NOT_OPEN` with no second question; a bare `elicitation: {}` is asked; no elicitation, URL-only elicitation, a legacy client declaring form elicitation, `NOT_SHARED` and `list_connections` are never asked. Two Read Log rows per paused call, the first `INPUT_REQUIRED` with no data, and one read in the session count. No agent client is opened for an asking round. A token revoked between rounds is refused on the retry. The question names only the Connection, cut to 256 characters.
+  - On a real Connection over the memory server: `accept` after the Connection is opened between rounds returns the documents, with rows `INPUT_REQUIRED` then `ok`.
+- `tests/unit/agent-tool-runner.spec.ts`: the runner asks only on `NOT_OPEN` with `canAsk` and no answer; a refused answer fails `NOT_OPEN` without running the gate; the token check comes before the answer; a Connection whose row is gone is not asked about; an asking row that cannot be written fails closed with `DB_ERROR` and asks nothing.
+- `tests/unit/agent-open-connection-pause.spec.ts`: the capability rule, the answer reading (malformed and SDK-dropped answers count as refused), the message and its 256-character cut, and client info cut to 128 characters or `null`.
 - `bridge/src/relay.rs` unit test: a `server/discover` reply as the first line is not a refusal.
 - `tests/e2e/x27-agent-access.e2e.ts`: the existing flows pass unchanged. One new flow: an SDK client pinned to 2026-07-28, through the packaged bridge, on a shared Connection that is closed, opens it from the app between rounds and gets documents.
 

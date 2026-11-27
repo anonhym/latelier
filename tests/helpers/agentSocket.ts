@@ -67,16 +67,34 @@ export interface AgentConnection {
   close: () => Promise<void>;
 }
 
+/** The answer a test client gives an `elicitation/create`, given the request's params. */
+export type ElicitAnswer = (params: { message: string; requestedSchema?: unknown }) => Promise<{ action: 'accept' | 'decline' | 'cancel' }>;
+
+export interface ConnectAgentOptions {
+  /** Pin the 2026-07-28 era. The default client speaks the 2025 era (it opens with `initialize`). */
+  modern?: boolean;
+  /** Declared client capabilities, e.g. `{ elicitation: { form: {} } }`. */
+  capabilities?: Record<string, unknown>;
+  /** Registered as the `elicitation/create` handler; needs an `elicitation` capability. */
+  onElicit?: ElicitAnswer;
+}
+
 /** Handshakes with the token, then runs an MCP `Client` over the same socket. */
 export async function connectAgent(
   socketPath: string,
   token: string,
-  clientInfo = { name: 'spec-client', version: '9.9' },
+  clientInfo: { name: string; version: string } = { name: 'spec-client', version: '9.9' },
+  options: ConnectAgentOptions = {},
 ): Promise<AgentConnection> {
   const socket = await openSocket(socketPath);
   const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
   socket.write(handshakeLine(token));
-  const client = new Client(clientInfo);
+  const client = new Client(clientInfo, {
+    capabilities: options.capabilities ?? {},
+    ...(options.modern ? { versionNegotiation: { mode: { pin: '2026-07-28' } } } : {}),
+  });
+  const onElicit = options.onElicit;
+  if (onElicit) client.setRequestHandler('elicitation/create', (request) => onElicit(request.params as { message: string; requestedSchema?: unknown }));
   await client.connect(new SocketTransport(socket));
   return {
     socket,
