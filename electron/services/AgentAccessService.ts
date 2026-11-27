@@ -569,6 +569,9 @@ export class AgentAccessService {
   renameToken(id: string, name: string): AgentTokenInfo {
     if (!this.deps.tokenRepo.rename(id, name)) throw new NotFoundError(`agent token ${id} not found`);
     this.server.renameToken(id, name);
+    for (const session of this.server.liveSessions()) {
+      if (session.tokenId === id) this.requests.renameSession(session.id, name);
+    }
     const row = this.deps.tokenRepo.findById(id);
     if (!row) throw new NotFoundError(`agent token ${id} not found`);
     this.emitState();
@@ -674,8 +677,10 @@ export class AgentAccessService {
     if (row.connectionId === null || row.sessionId === null) return 'ignored';
     if (this.deps.pool.status(row.connectionId).status === 'connected') return 'ignored';
     if (this.deps.connRepo.findById(row.connectionId)?.share_with_agents !== 1) return 'ignored';
+    // A session that ended while its call ran has no one left to open the Connection for.
     const session = this.server.liveSessions().find((s) => s.id === row.sessionId);
-    return this.requests.observe(row, this.displayFolder(session?.folder ?? null));
+    if (!session) return 'ignored';
+    return this.requests.observe(row, this.displayFolder(session.folder));
   }
 
   /** A session opening or closing is pushed at once, not coalesced. */

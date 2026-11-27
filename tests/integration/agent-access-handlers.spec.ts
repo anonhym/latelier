@@ -13,8 +13,9 @@ import { createPickedCredentialPaths } from '../../electron/security/credentialP
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
 import { TOKEN_RE, hashToken } from '../../electron/agent/token';
 import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
-import type { AgentAccessState, AgentCopyResult, AgentTokenInfo, Connection, ConnectionInput } from '../../shared/types';
+import type { AgentAccessState, AgentCallSummary, AgentCopyResult, AgentTokenInfo, Connection, ConnectionInput } from '../../shared/types';
 import { CLIPBOARD_CLEAR_MS } from '../../electron/services/AgentAccessService';
+import type { ConnectionRequests } from '../../electron/agent/connectionRequests';
 import { NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, handshakeLine, openSocket, readUntilClosed, textOf } from '../helpers/agentSocket';
@@ -705,6 +706,22 @@ describe('agentAccess:* channels', () => {
       const [session] = await ok<Array<{ tokenName: string }>>(IPC_CHANNELS.agentAccessListSessions, { includeEnded: true, limit: 10 });
       expect(session!.tokenName).toBe('Old');
     });
+
+    it("renames the Agent on its open Connection requests, and pushes them", async () => {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy('Old');
+      const id = h.tokenRepo.list()[0]!.id;
+      const connectionId = randomUUID();
+      h.addConnection(connectionId, 'prod', { shared: true });
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await agent.client.callTool({ name: 'find', arguments: { connectionId, database: 'shop', collection: 'orders' } });
+
+      await ok(IPC_CHANNELS.agentAccessRenameToken, { id, name: 'New' });
+      expect(h.states.at(-1)!.connectionRequests).toEqual([expect.objectContaining({ connectionId, tokenName: 'New' })]);
+      const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
+      expect(state.connectionRequests).toEqual([expect.objectContaining({ connectionId, tokenName: 'New' })]);
+    });
   });
 
   describe('clearing the copied setup', () => {
@@ -837,7 +854,37 @@ describe('agentAccess:* channels', () => {
     });
 
     it('answers a dismiss for a session that is not live without remembering it', async () => {
-      expect(await ok(IPC_CHANNELS.agentAccessDismissRequest, { sessionId: randomUUID(), connectionId: randomUUID() })).toEqual({ ok: true });
+      const sessionId = randomUUID();
+      const connectionId = randomUUID();
+      expect(await ok(IPC_CHANNELS.agentAccessDismissRequest, { sessionId, connectionId })).toEqual({ ok: true });
+      const held = (h.svc as unknown as { requests: ConnectionRequests }).requests;
+      expect(held.isDismissed(sessionId, connectionId)).toBe(false);
+    });
+
+    it('makes none for a row whose session is no longer live', async () => {
+      const { connectionId } = await agentOnClosedShare();
+      const row: AgentCallSummary = {
+        id: randomUUID(),
+        sessionId: randomUUID(),
+        ts: new Date().toISOString(),
+        tokenId: null,
+        tokenName: 'Claude Code',
+        clientName: 'spec-client',
+        clientVersion: '1.0.0',
+        connectionId,
+        connectionName: 'prod',
+        database: 'shop',
+        collection: 'orders',
+        tool: 'find',
+        docCount: 0,
+        bytes: 0,
+        durationMs: 1,
+        outcome: 'NOT_OPEN',
+        truncated: false,
+      };
+      // The row a call writes after its session closed: nothing reaches it through the socket.
+      (h.svc as unknown as { onRowWritten(r: AgentCallSummary): void }).onRowWritten(row);
+      expect(await requests()).toEqual([]);
     });
 
     it('ends it when its session ends', async () => {
