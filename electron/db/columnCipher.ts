@@ -36,6 +36,8 @@ const SEALED_ONLY_COLUMNS: ReadonlySet<string> = new Set([
   'agent_read_log.request_json',
   // Born sealed by migration 021: the folder names the OS user and their projects.
   'agent_sessions.folder',
+  // Born sealed by migration 022: an Agent's reason can quote document values.
+  'agent_proposal_backers.reason',
 ]);
 
 /**

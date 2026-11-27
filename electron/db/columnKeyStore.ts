@@ -36,6 +36,10 @@ const PROTECTED_TABLES = [
   'agent_read_log',
   // Its folder is born sealed; a session row without it says nothing worth keeping.
   'agent_sessions',
+  // A backer's reason is born sealed. The Proposals go with their backers, so a
+  // reset never leaves a Proposal nobody proposed.
+  'agent_proposal_backers',
+  'agent_proposals',
   'column_keys',
 ] as const;
 
