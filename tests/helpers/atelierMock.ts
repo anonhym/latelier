@@ -23,6 +23,7 @@ export const AGENT_ACCESS_OFF: AgentAccessState = {
   socketPath: '',
   sessionReadCount: 0,
   sessionCount: 0,
+  sessions: [],
   tokens: [],
   bridgeInstalled: false,
   bridgePath: '',

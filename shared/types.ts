@@ -1798,14 +1798,115 @@ export interface PrivilegeResult {
   errorCode?: string;
 }
 
+/** Why an Agent session ended (X27 §16.2). */
+export type AgentSessionEndReason = 'client-closed' | 'user-ended' | 'token-revoked' | 'access-off' | 'app-quit' | 'unknown';
+
+/**
+ * A live Agent session, as the renderer sees it. Names, client info and the
+ * folder came from the Agent's side: text only, never markup or a link.
+ */
+export interface AgentSessionInfo {
+  id: string;
+  tokenId: string;
+  tokenName: string;
+  clientName: string | null;
+  clientVersion: string | null;
+  /** The bridge's working folder in display form (home as `~`), or null when it reported none. Reported, not proven. */
+  folder: string | null;
+  startedAt: string;
+  /** Agent Read Log rows this session wrote, refusals included; a paused call's asking round is not one. */
+  callCount: number;
+  /** Rows whose outcome is neither `ok` nor `INPUT_REQUIRED`. */
+  refusedCount: number;
+  lastCallAt: string | null;
+}
+
+/** A stored session, live or ended, from `agentAccess:list-sessions`. */
+export interface AgentSessionRow {
+  id: string;
+  tokenId: string | null;
+  tokenName: string | null;
+  clientName: string | null;
+  clientVersion: string | null;
+  /** Display form, as in `AgentSessionInfo`. */
+  folder: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  endReason: AgentSessionEndReason | null;
+  callCount: number;
+  refusedCount: number;
+  lastCallAt: string | null;
+}
+
+/**
+ * One Agent Read Log row without its request: what `agentAccess:call-event`
+ * pushes for each new row. `outcome` is `ok`, `INPUT_REQUIRED` or an Agent
+ * error code. Database, collection, tool and client names are untrusted text.
+ */
+export interface AgentCallSummary {
+  id: string;
+  sessionId: string | null;
+  ts: string;
+  tokenId: string | null;
+  tokenName: string | null;
+  clientName: string | null;
+  clientVersion: string | null;
+  connectionId: string | null;
+  connectionName: string | null;
+  database: string | null;
+  collection: string | null;
+  tool: string;
+  docCount: number;
+  bytes: number;
+  durationMs: number;
+  outcome: string;
+  truncated: boolean;
+}
+
+/** A row from `agentAccess:list-calls`: the summary plus the request, decrypted in main for that call only. */
+export interface AgentCallRow extends AgentCallSummary {
+  /** The tool arguments as the Agent sent them, JSON text; null when none were stored. Untrusted. */
+  request: string | null;
+  /** The request was over the size cap and `request` holds only its start. */
+  requestTruncated: boolean;
+}
+
+/** `refused` is every outcome but `ok` and `INPUT_REQUIRED`. */
+export type AgentCallOutcomeFilter = 'all' | 'ok' | 'refused';
+
+export interface AgentCallsQuery {
+  sessionId?: string;
+  tokenId?: string;
+  connectionId?: string;
+  database?: string;
+  collection?: string;
+  tool?: string;
+  outcome: AgentCallOutcomeFilter;
+  /** The last row of the previous page. */
+  before?: { ts: string; id: string };
+  /** 1 to 200. */
+  limit: number;
+}
+
+export interface AgentSessionsQuery {
+  tokenId?: string;
+  includeEnded: boolean;
+  /** The last row of the previous page. */
+  before?: { startedAt: string; id: string };
+  /** 1 to 200. */
+  limit: number;
+}
+
 export interface AgentAccessState {
   enabled: boolean;
   /** The socket or pipe path, for troubleshooting; empty while the server is not listening. */
   socketPath: string;
   /** Tool calls logged since the app started, refusals included. */
   sessionReadCount: number;
-  /** Live Agent sessions. */
+  /** Live Agent sessions; always `sessions.length`. */
   sessionCount: number;
+  /** The live sessions, past their discovery probe. */
+  sessions: AgentSessionInfo[];
   tokens: AgentTokenInfo[];
   bridgeInstalled: boolean;
   bridgePath: string;

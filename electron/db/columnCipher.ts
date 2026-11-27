@@ -34,6 +34,8 @@ const SEALED_ONLY_COLUMNS: ReadonlySet<string> = new Set([
   'recent_field_values.value',
   // Born sealed by migration 020: the Agent Read Log never held plaintext.
   'agent_read_log.request_json',
+  // Born sealed by migration 021: the folder names the OS user and their projects.
+  'agent_sessions.folder',
 ]);
 
 /**

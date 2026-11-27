@@ -244,6 +244,7 @@ export class AgentAccessService {
       socketPath: this.socketPath ?? '',
       sessionReadCount: this.readCount,
       sessionCount: this.sessionCount,
+      sessions: [],
       tokens: this.listTokens(),
       bridgeInstalled: this.deps.bridge.isInstalled(),
       bridgePath: this.deps.bridge.installedPath,

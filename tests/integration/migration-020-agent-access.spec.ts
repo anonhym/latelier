@@ -30,10 +30,10 @@ describe('migration 020: Agent Access', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('creates the two tables and the log index, and records version 20', () => {
+  it('creates the two tables and the log index, and the schema reaches the latest version', () => {
     const names = (tmp.db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index')").all() as { name: string }[]).map((r) => r.name);
     expect(names).toEqual(expect.arrayContaining(['agent_tokens', 'agent_read_log', 'idx_agent_read_log_ts']));
-    expect((tmp.db.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(20);
+    expect((tmp.db.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(21);
   });
 
   it('adds share_with_agents defaulting to 0 for an existing row', () => {

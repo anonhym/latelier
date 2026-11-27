@@ -148,10 +148,11 @@ describe('column key store', () => {
     tmp.db.prepare(`INSERT INTO agent_read_log (id, ts, tool, request_json, duration_ms, outcome)
       VALUES ('l', ?, 'find', x'01', 1, 'ok')`).run(now);
     tmp.db.prepare(`INSERT INTO agent_tokens (id, name, token_hash, created_at) VALUES ('tok', 'Claude', 'hash', ?)`).run(now);
+    tmp.db.prepare(`INSERT INTO agent_sessions (id, token_id, folder, started_at) VALUES ('ses', 'tok', x'01', ?)`).run(now);
 
     resetProtectedData(tmp.db, log());
 
-    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'agent_read_log', 'column_keys']) {
+    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'agent_read_log', 'agent_sessions', 'column_keys']) {
       expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
     }
     // Hashes only, no sealed cell: the Agent Tokens outlive a key reset.

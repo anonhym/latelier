@@ -34,6 +34,8 @@ const PROTECTED_TABLES = [
   // Born sealed, so it is not in LEGACY_COLUMNS: no plaintext to migrate. agent_tokens
   // holds hashes only and no sealed cell, so it survives a key reset.
   'agent_read_log',
+  // Its folder is born sealed; a session row without it says nothing worth keeping.
+  'agent_sessions',
   'column_keys',
 ] as const;
 
