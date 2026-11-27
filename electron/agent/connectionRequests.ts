@@ -21,6 +21,8 @@ export type ObserveResult = 'added' | 'updated' | 'ignored';
 interface Entry {
   request: AgentConnectionRequest;
   lastAtMs: number;
+  /** Paused calls whose retry has not been seen yet: each one's NOT_OPEN concludes it rather than counting again. */
+  pendingPauses: number;
 }
 
 const key = (sessionId: string, connectionId: string): string => `${sessionId}\u0000${connectionId}`;
@@ -49,21 +51,22 @@ export class ConnectionRequests {
    * id it guessed.
    *
    * A paused call writes two rows, its asking round (`INPUT_REQUIRED`) and
-   * its retry; the retry's `NOT_OPEN` concludes that same call, so it moves
-   * the request to refused without counting a second call.
+   * its retry; the retry's `NOT_OPEN` concludes that same call, so it is not
+   * counted again. Calls can overlap, so pauses are counted, not inferred
+   * from the last outcome: the request stays `waiting` while any is pending.
    */
   observe(row: RequestSourceRow, folder: string | null): ObserveResult {
     const waiting = row.outcome === 'INPUT_REQUIRED';
     if (!waiting && row.outcome !== 'NOT_OPEN') return 'ignored';
     const { sessionId, connectionId, connectionName } = row;
     if (sessionId === null || connectionId === null || connectionName === null) return 'ignored';
-    if (this.dismissed.get(sessionId)?.has(connectionId)) return 'ignored';
+    if (this.isDismissed(sessionId, connectionId)) return 'ignored';
     const nowMs = this.now();
     const at = new Date(nowMs).toISOString();
-    const lastOutcome = waiting ? 'waiting' : 'refused';
     const existing = this.entries.get(key(sessionId, connectionId));
     if (existing) {
-      const concludesPause = !waiting && existing.request.lastOutcome === 'waiting';
+      const concludesPause = !waiting && existing.pendingPauses > 0;
+      existing.pendingPauses += waiting ? 1 : concludesPause ? -1 : 0;
       existing.request = {
         ...existing.request,
         connectionName,
@@ -72,13 +75,14 @@ export class ConnectionRequests {
         lastTool: row.tool,
         database: row.database,
         collection: row.collection,
-        lastOutcome,
+        lastOutcome: existing.pendingPauses > 0 ? 'waiting' : 'refused',
       };
       existing.lastAtMs = nowMs;
       return 'updated';
     }
     this.entries.set(key(sessionId, connectionId), {
       lastAtMs: nowMs,
+      pendingPauses: waiting ? 1 : 0,
       request: {
         sessionId,
         tokenName: row.tokenName,
@@ -92,7 +96,7 @@ export class ConnectionRequests {
         lastTool: row.tool,
         database: row.database,
         collection: row.collection,
-        lastOutcome,
+        lastOutcome: waiting ? 'waiting' : 'refused',
       },
     });
     return 'added';
@@ -107,6 +111,23 @@ export class ConnectionRequests {
     }
     pairs.add(connectionId);
     return this.entries.delete(key(sessionId, connectionId));
+  }
+
+  /** Whether the user dismissed this pair in this session: the Agent is then told not to retry. */
+  isDismissed(sessionId: string, connectionId: string): boolean {
+    return this.dismissed.get(sessionId)?.has(connectionId) === true;
+  }
+
+  /** The session's Agent was renamed: its requests show the new name. Returns whether one changed. */
+  renameSession(sessionId: string, tokenName: string): boolean {
+    let renamed = false;
+    for (const entry of this.entries.values()) {
+      if (entry.request.sessionId === sessionId) {
+        entry.request = { ...entry.request, tokenName };
+        renamed = true;
+      }
+    }
+    return renamed;
   }
 
   /** The session ended: its requests go, and so do its dismissals. Returns whether a request went. */

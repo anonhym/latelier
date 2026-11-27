@@ -189,4 +189,42 @@ describe('ConnectionRequests', () => {
     expect(at).toBeGreaterThanOrEqual(before);
     expect(at).toBeLessThanOrEqual(Date.now());
   });
+
+  it('counts two overlapping paused calls on one pair as two calls', () => {
+    reqs.observe(row({ outcome: 'INPUT_REQUIRED' }), null);
+    reqs.observe(row({ outcome: 'INPUT_REQUIRED', tool: 'count' }), null);
+    expect(reqs.list()[0]).toMatchObject({ count: 2, lastOutcome: 'waiting' });
+    reqs.observe(row({ outcome: 'NOT_OPEN' }), null);
+    // One of the two is still waiting in the Agent's host.
+    expect(reqs.list()[0]).toMatchObject({ count: 2, lastOutcome: 'waiting', lastTool: 'find' });
+    reqs.observe(row({ outcome: 'NOT_OPEN', tool: 'count' }), null);
+    expect(reqs.list()[0]).toMatchObject({ count: 2, lastOutcome: 'refused', lastTool: 'count' });
+    reqs.observe(row({ outcome: 'NOT_OPEN' }), null);
+    expect(reqs.list()[0]).toMatchObject({ count: 3, lastOutcome: 'refused' });
+  });
+
+  it('says whether a pair was dismissed, until its session ends', () => {
+    expect(reqs.isDismissed('s1', 'c1')).toBe(false);
+    reqs.dismiss('s1', 'c1');
+    expect(reqs.isDismissed('s1', 'c1')).toBe(true);
+    expect(reqs.isDismissed('s1', 'c2')).toBe(false);
+    expect(reqs.isDismissed('s2', 'c1')).toBe(false);
+    reqs.endSession('s1');
+    expect(reqs.isDismissed('s1', 'c1')).toBe(false);
+  });
+
+  it("renames the Agent on a session's requests, and no other session's", () => {
+    reqs.observe(row(), null);
+    reqs.observe(row({ connectionId: 'c2' }), null);
+    reqs.observe(row({ sessionId: 's2' }), null);
+    expect(reqs.renameSession('s1', 'Renamed')).toBe(true);
+    expect(reqs.list().map((r) => [r.sessionId, r.connectionId, r.tokenName])).toEqual(
+      expect.arrayContaining([
+        ['s1', 'c1', 'Renamed'],
+        ['s1', 'c2', 'Renamed'],
+        ['s2', 'c1', 'Claude Code'],
+      ]),
+    );
+    expect(reqs.renameSession('s3', 'x')).toBe(false);
+  });
 });
