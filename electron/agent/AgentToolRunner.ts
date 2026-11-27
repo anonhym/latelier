@@ -5,13 +5,14 @@ import type { Logger } from '../log.ts';
 import {
   AgentToolError,
   errorText,
+  NOT_OPEN_DECLINED_MESSAGE,
   toAgentError,
   type AgentError,
   type AgentOutcome,
 } from './errorMap.ts';
 import { metaLine } from './envelope.ts';
 import { openConnectionMessage, type OpenConnectionAnswer } from './openConnectionPause.ts';
-import type { AgentTool, ToolOutcome } from './tools.ts';
+import type { AgentReferenceRules, AgentTool, ToolOutcome } from './tools.ts';
 
 export interface AgentCallResult {
   [key: string]: unknown;
@@ -26,12 +27,16 @@ export interface AgentToolRunnerDeps {
   tokens: { touchLastUsed(id: string, at: string): void };
   connections: { findById(id: string): { id: string; name: string } | null };
   log: Pick<Logger, 'warn' | 'error'>;
+  /** The Reference Rules the relation tools read (X27 §16.7). */
+  refs: AgentReferenceRules;
   /**
    * Called once per Agent Read Log row written, with the row as stored minus
    * its request: for the read counts and the live call feed. One object, so a
    * consumer that needs more of the call can be given it without a new argument.
    */
   onRowWritten?: (row: AgentCallSummary) => void;
+  /** Whether the user dismissed this session's Connection request for the Connection (X27 §16.6). */
+  openDeclined?: (sessionId: string, connectionId: string) => boolean;
   now?: () => number;
 }
 
@@ -119,8 +124,8 @@ export class AgentToolRunner {
       if (!tool) throw new AgentToolError('INVALID_INPUT', 'Unknown tool.');
       const input = tool.inputSchema.parse(rawArgs ?? {});
       // Declined, cancelled or garbled: the user did not open it, so the gate is not run again.
-      if (ask.answer === 'refused' && takesConnection(input)) throw new AgentToolError('NOT_OPEN');
-      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log });
+      if (ask.answer === 'refused' && takesConnection(input)) throw new AgentToolError('NOT_OPEN', NOT_OPEN_DECLINED_MESSAGE);
+      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs });
     } catch (err) {
       failure = toAgentError(err);
       if (failure.code === 'DB_ERROR') {
@@ -136,6 +141,15 @@ export class AgentToolRunner {
     const durationMs = Math.max(0, Math.round(now() - t0));
     const target = this.target(rawArgs);
     const question = failure?.code === 'NOT_OPEN' ? this.question(ask, target.connectionName) : null;
+    // A refusal on a pair the user dismissed must not claim the user was asked again.
+    if (
+      failure?.code === 'NOT_OPEN' &&
+      question === null &&
+      target.connectionId !== null &&
+      this.deps.openDeclined?.(session.sessionId, target.connectionId) === true
+    ) {
+      failure = { ...failure, message: NOT_OPEN_DECLINED_MESSAGE };
+    }
     const text = failure ? errorText(failure) : outcome!.text;
     let rowOutcome: AgentOutcome = 'ok';
     if (question !== null) rowOutcome = 'INPUT_REQUIRED';

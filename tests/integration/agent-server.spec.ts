@@ -87,7 +87,13 @@ describe('Agent server', () => {
         bridge: h.bridge,
         platform: process.platform,
         homedir: '/home/nobody',
-        dialogs: { showMessageBox: async () => ({ response: 0 }), writeClipboard: async () => undefined },
+        dialogs: {
+          showMessageBox: async () => ({ response: 0 }),
+          writeClipboard: async () => undefined,
+          readClipboard: async () => '',
+          clearClipboard: () => undefined,
+        },
+        refs: h.refs,
         emit: () => undefined,
         emitCall: () => undefined,
       });
@@ -504,6 +510,8 @@ describe('Agent server', () => {
         'aggregate',
         'explain_find',
         'explain_aggregate',
+        'list_references',
+        'suggest_references',
       ]);
       for (const tool of tools) {
         expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
@@ -554,6 +562,8 @@ describe('Agent server', () => {
         'explain_aggregate',
         'COLLSCAN',
         'nothing is refused because of it',
+        'call list_references before sampling documents',
+        'suggest_references',
       ]) {
         expect(text, fact).toContain(fact);
       }

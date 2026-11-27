@@ -27,7 +27,8 @@ export type AgentOutcome = 'ok' | 'INPUT_REQUIRED' | AgentErrorCode;
 
 const DEFAULT_MESSAGES: Record<AgentErrorCode, string> = {
   NOT_SHARED: 'This Connection is not shared with Agents.',
-  NOT_OPEN: "This Connection is not open. Ask the user to open it in L'Atelier.",
+  // X27 §16.6: the refusal raised a Connection request the user sees in L'Atelier.
+  NOT_OPEN: "This Connection is not open. L'Atelier has asked the user to open it; try again after they do.",
   ACCESS_OFF: 'Agent Access is off.',
   NAMESPACE_DENIED: 'Agents cannot read this database or collection.',
   STAGE_NOT_ALLOWED: 'This pipeline stage is not allowed.',
@@ -38,6 +39,14 @@ const DEFAULT_MESSAGES: Record<AgentErrorCode, string> = {
   CANCELLED: 'The operation was cancelled.',
   DB_ERROR: 'The database returned an error.',
 };
+
+/**
+ * NOT_OPEN when the user said no: they dismissed this session's request for
+ * the Connection, or declined X29's question. Nothing was asked of them this
+ * time, so the Agent is told not to keep trying (X27 §16.6).
+ */
+export const NOT_OPEN_DECLINED_MESSAGE =
+  'The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to.';
 
 export function defaultAgentMessage(code: AgentErrorCode): string {
   return DEFAULT_MESSAGES[code];

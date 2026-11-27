@@ -54,6 +54,7 @@
     "src/pages/Workspace/builderToPipeline.ts",
     "src/pages/Workspace/queryCaps.ts",
     "electron/services/referencePairing.ts",
+    "electron/services/referenceCandidates.ts",
     "src/pages/Workspace/toolbarLayout.ts",
     "src/pages/Workspace/resultPaneState.ts",
     "src/pages/Workspace/optionPills.ts",
@@ -184,6 +185,7 @@
     "electron/agent/safeText.ts",
     "electron/agent/openConnectionPause.ts",
     "electron/agent/folderDisplay.ts",
-    "electron/agent/callQuery.ts"
+    "electron/agent/callQuery.ts",
+    "electron/agent/connectionRequests.ts"
   ]
 }

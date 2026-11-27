@@ -5,9 +5,11 @@ import type {
   AgentCallRow,
   AgentCallSummary,
   AgentCallsQuery,
+  AgentCopyResult,
   AgentSessionRow,
   AgentSessionsQuery,
   AgentTokenInfo,
+  SnippetClient,
   PrivilegeResult,
   AggExplainInput,
   AggInput,
@@ -348,8 +350,8 @@ export interface IpcApi {
 
   /**
    * Agent Access (X27). The renderer only asks: every state change is made by
-   * a main-process dialog, and no method here takes or returns a token. The
-   * token is shown, and copied to the clipboard, by main's own message box.
+   * a main-process dialog, and no method here takes or returns a token. A
+   * token is only ever written to the clipboard, by main, after its own confirm.
    */
   agentAccess: {
     getState: () => Promise<AgentAccessState>;
@@ -362,9 +364,6 @@ export interface IpcApi {
      * open, leaves it `false`); `privilege` is what the check concluded.
      */
     setShared: (input: { connectionId: string; shared: boolean }) => Promise<{ shared: boolean; privilege?: PrivilegeResult }>;
-    /** The row exists once this resolves; main's dialog shows the token once and ends with Done. */
-    addToken: (input: { name: string }) => Promise<AgentTokenInfo>;
-    regenerateToken: (input: { id: string }) => Promise<AgentTokenInfo>;
     revokeToken: (input: { id: string }) => Promise<{ ok: true }>;
     /** Deletes the per-user copy of the Agent Bridge. Refused while Agent Access is on. */
     removeBridge: () => Promise<{ removed: boolean }>;
@@ -382,6 +381,18 @@ export interface IpcApi {
     endSession: (input: { sessionId: string }) => Promise<{ ok: true }>;
     /** Main pushes each new Agent Read Log row, without its request; returns the unsubscribe. */
     onCall: (cb: (row: AgentCallSummary) => void) => () => void;
+    /** Ends a Connection request; that session makes no new one for that Connection (X27 §16.6). */
+    dismissRequest: (input: { sessionId: string; connectionId: string }) => Promise<{ ok: true }>;
+    /**
+     * After main's confirm, creates an Agent Token and copies the client's
+     * setup, which holds it, to the clipboard (X27 §16.8). Resolves once the
+     * write has returned. The token never comes back.
+     */
+    connectClient: (input: { name: string; client: SnippetClient }) => Promise<AgentCopyResult>;
+    /** Regenerates an Agent's token after main's confirm, ending its live sessions, and copies its setup. */
+    copySetup: (input: { id: string; client: SnippetClient }) => Promise<AgentCopyResult>;
+    /** Renames an Agent. Stored log and session rows keep the name they were written with. */
+    renameToken: (input: { id: string; name: string }) => Promise<AgentTokenInfo>;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -743,8 +754,6 @@ export const IPC_CHANNELS = {
   agentAccessRequestEnable:   'agentAccess:request-enable',
   agentAccessDisable:         'agentAccess:disable',
   agentAccessSetShared:       'agentAccess:set-shared',
-  agentAccessAddToken:        'agentAccess:add-token',
-  agentAccessRegenerateToken: 'agentAccess:regenerate-token',
   agentAccessRevokeToken:     'agentAccess:revoke-token',
   agentAccessRemoveBridge:    'agentAccess:remove-bridge',
   agentAccessStateEvent:      'agentAccess:state-event',
@@ -752,6 +761,10 @@ export const IPC_CHANNELS = {
   agentAccessListCalls:       'agentAccess:list-calls',
   agentAccessListSessions:    'agentAccess:list-sessions',
   agentAccessEndSession:      'agentAccess:end-session',
+  agentAccessDismissRequest:  'agentAccess:dismiss-request',
+  agentAccessConnectClient:   'agentAccess:connect-client',
+  agentAccessCopySetup:       'agentAccess:copy-setup',
+  agentAccessRenameToken:     'agentAccess:rename-token',
 
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',
@@ -992,13 +1005,15 @@ interface AdaptedSig {
   'agentAccess:request-enable':   { in: EmptyObject; out: ApiOut<'agentAccess', 'requestEnable'> };
   'agentAccess:disable':          { in: EmptyObject; out: ApiOut<'agentAccess', 'disable'> };
   'agentAccess:set-shared':       { in: ApiArg<'agentAccess', 'setShared'>; out: ApiOut<'agentAccess', 'setShared'> };
-  'agentAccess:add-token':        { in: ApiArg<'agentAccess', 'addToken'>; out: ApiOut<'agentAccess', 'addToken'> };
-  'agentAccess:regenerate-token': { in: ApiArg<'agentAccess', 'regenerateToken'>; out: ApiOut<'agentAccess', 'regenerateToken'> };
   'agentAccess:revoke-token':     { in: ApiArg<'agentAccess', 'revokeToken'>; out: ApiOut<'agentAccess', 'revokeToken'> };
   'agentAccess:remove-bridge':    { in: EmptyObject; out: ApiOut<'agentAccess', 'removeBridge'> };
   'agentAccess:list-calls':       { in: ApiArg<'agentAccess', 'listCalls'>; out: ApiOut<'agentAccess', 'listCalls'> };
   'agentAccess:list-sessions':    { in: ApiArg<'agentAccess', 'listSessions'>; out: ApiOut<'agentAccess', 'listSessions'> };
   'agentAccess:end-session':      { in: ApiArg<'agentAccess', 'endSession'>; out: ApiOut<'agentAccess', 'endSession'> };
+  'agentAccess:dismiss-request':  { in: ApiArg<'agentAccess', 'dismissRequest'>; out: ApiOut<'agentAccess', 'dismissRequest'> };
+  'agentAccess:connect-client':   { in: ApiArg<'agentAccess', 'connectClient'>; out: ApiOut<'agentAccess', 'connectClient'> };
+  'agentAccess:copy-setup':       { in: ApiArg<'agentAccess', 'copySetup'>; out: ApiOut<'agentAccess', 'copySetup'> };
+  'agentAccess:rename-token':     { in: ApiArg<'agentAccess', 'renameToken'>; out: ApiOut<'agentAccess', 'renameToken'> };
   'query:find':     { in: ApiArg<'query', 'find'>; out: FindResultWire };
   'agg:run':        { in: ApiArg<'agg', 'run'>; out: AggResultWire };
   'agg:runAndSave': { in: ApiArg<'agg', 'runAndSave'>; out: AggResultWire & AggSaveCounts };

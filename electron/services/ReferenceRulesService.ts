@@ -13,6 +13,7 @@ import type {
 } from '@shared/types';
 import { NotFoundError, ValidationError } from '../errors.ts';
 import { effectiveRules } from './effectiveRules.ts';
+import { detectCandidateFieldsFromDocs, matchCandidates } from './referenceCandidates.ts';
 import { targetFieldProblem } from './familyExportFormat.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
 import { ejsonEncode, parseEjsonField } from '../mongo/ejson.ts';
@@ -50,54 +51,8 @@ export function projectionToMongo(fields: string[]): Record<string, 1> | undefin
   return out;
 }
 
-/** Convert `"contacts"` → `"contact"` using a few forgiving rules. */
-function singularize(word: string): string {
-  if (word.length <= 2) return word;
-  if (/ies$/.test(word)) return word.slice(0, -3) + 'y';
-  if (/ses$/.test(word)) return word.slice(0, -2);
-  if (/s$/.test(word)) return word.slice(0, -1);
-  return word;
-}
-
-function pluralize(word: string): string {
-  if (/s$/.test(word)) return word;
-  if (/y$/.test(word) && !/[aeiou]y$/.test(word)) return word.slice(0, -1) + 'ies';
-  return word + 's';
-}
-
-/**
- * Find candidate reference fields by naming convention. Matches:
- *   - `<stem>_id`   → collection `<plural(stem)>`
- *   - `<stem>Id`    → collection `<plural(stem)>`
- * Returns one candidate per unique source field. The service later verifies
- * the target collection exists before offering it to the user.
- */
-export function detectCandidateFieldsFromDocs(
-  sampleDocs: unknown[],
-): Array<{ sourceField: string; stem: string }> {
-  const seen = new Map<string, string>();
-  const walk = (obj: unknown, prefix: string): void => {
-    if (obj === null || obj === undefined) return;
-    if (Array.isArray(obj)) {
-      for (const item of obj.slice(0, 3)) walk(item, prefix);
-      return;
-    }
-    if (typeof obj !== 'object') return;
-    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
-      const path = prefix ? `${prefix}.${key}` : key;
-      if (key === '_id') continue;
-      const stem = /^(.+)_id$/.exec(key)?.[1] ?? /^(.+)Id$/.exec(key)?.[1];
-      if (stem && !seen.has(path)) seen.set(path, stem);
-      // Recurse one level, skipping EJSON sentinels like {$oid, $date}.
-      if (!prefix && val && typeof val === 'object' && !Array.isArray(val)) {
-        const keys = Object.keys(val);
-        if (!keys.some((k) => k.startsWith('$'))) walk(val, path);
-      }
-    }
-  };
-  for (const doc of sampleDocs.slice(0, 25)) walk(doc, '');
-  return [...seen.entries()].map(([sourceField, stem]) => ({ sourceField, stem }));
-}
+// Re-exported so the editor's callers keep importing it from here.
+export { detectCandidateFieldsFromDocs };
 
 function buildInsert(input: ReferenceRuleCreateInput): ReferenceRuleInsert {
   const now = nowIso();
@@ -330,9 +285,8 @@ export class ReferenceRulesService {
   }
 
   async autodetect(input: ReferenceAutodetectInput): Promise<ReferenceAutodetectCandidate[]> {
-    const existingByField = new Map(
-      this.effective(input.connectionId, input.dbName, input.collection)
-        .map((r) => [r.sourceField, r]),
+    const existingSourceFields = new Set(
+      this.effective(input.connectionId, input.dbName, input.collection).map((r) => r.sourceField),
     );
 
     // A failure is reported, not turned into "no candidates": an empty list
@@ -356,37 +310,11 @@ export class ReferenceRulesService {
     if (cols.length === 0) return [];
     const collectionNames = new Set(cols.map((c) => c.name));
 
-    const candidates = detectCandidateFieldsFromDocs(docs);
-    const out: ReferenceAutodetectCandidate[] = [];
-    for (const { sourceField, stem } of candidates) {
-      const guesses = uniqueNonEmpty([
-        pluralize(stem),
-        stem,
-        pluralize(singularize(stem)),
-      ]);
-      const match = guesses.find((g) => collectionNames.has(g));
-      if (!match) continue;
-      out.push({
-        sourceField,
-        targetDb: input.dbName,
-        targetCollection: match,
-        targetField: '_id',
-        alreadyConfigured: existingByField.has(sourceField),
-      });
-    }
-    return out;
+    return matchCandidates(
+      detectCandidateFieldsFromDocs(docs),
+      collectionNames,
+      input.dbName,
+      existingSourceFields,
+    );
   }
 }
-
-function uniqueNonEmpty(items: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of items) {
-    if (item && !seen.has(item)) {
-      seen.add(item);
-      out.push(item);
-    }
-  }
-  return out;
-}
-

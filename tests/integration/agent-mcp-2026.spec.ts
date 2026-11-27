@@ -15,6 +15,7 @@ import {
 } from '../helpers/agentSocket';
 import { MAX_MESSAGE_BYTES } from '../../electron/agent/AgentSession';
 import { SERVER_INSTRUCTIONS } from '../../electron/agent/tools';
+import { defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
 const MODERN = '2026-07-28';
 const FORM = { elicitation: { form: {} } };
@@ -125,7 +126,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       expect(modern.client.getNegotiatedProtocolVersion()).toBe(MODERN);
       expect(legacy.client.getNegotiatedProtocolVersion()).not.toBe(MODERN);
       const modernTools = (await modern.client.listTools()).tools;
-      expect(modernTools).toHaveLength(10);
+      expect(modernTools).toHaveLength(12);
       expect(modernTools).toEqual((await legacy.client.listTools()).tools);
       expect(modern.client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
     });
@@ -178,7 +179,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       s.write(oversized());
       expect(await ended).toBe('');
       expect(s.destroyed || s.readableEnded).toBe(true);
-      expect((await other.client.listTools()).tools).toHaveLength(10);
+      expect((await other.client.listTools()).tools).toHaveLength(12);
     });
 
     it.each([
@@ -191,7 +192,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       await a.client.listTools();
       a.socket.write(oversized());
       await a.closed;
-      expect((await other.client.listTools()).tools).toHaveLength(10);
+      expect((await other.client.listTools()).tools).toHaveLength(12);
     });
   });
 
@@ -234,6 +235,21 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
   });
 
   describe('pausing for a closed Connection', () => {
+    it('raises one Connection request, waiting while the question is open and refused after a decline', async () => {
+      const { socketPath, token } = await start();
+      h.addConnection(CLOSED_ID, 'prod', { shared: true });
+      const seen: Array<Array<{ lastOutcome: string; count: number }>> = [];
+      const { onElicit } = answering('decline', () => {
+        seen.push(h.svc.getState().connectionRequests);
+      });
+      const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
+      await modern.client.callTool(findOn(CLOSED_ID));
+      expect(seen).toEqual([[expect.objectContaining({ connectionId: CLOSED_ID, connectionName: 'prod', lastOutcome: 'waiting', count: 1 })]]);
+      expect(h.svc.getState().connectionRequests).toEqual([
+        expect.objectContaining({ connectionId: CLOSED_ID, lastOutcome: 'refused', count: 1, lastTool: 'find' }),
+      ]);
+    });
+
     it('asks once, writes an INPUT_REQUIRED row first, and fails NOT_OPEN on decline', async () => {
       const { socketPath, token } = await start();
       h.addConnection(CLOSED_ID, 'prod', { shared: true });
@@ -241,7 +257,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
       const result = await modern.client.callTool(findOn(CLOSED_ID));
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toMatch(/^NOT_OPEN: /);
+      expect(textOf(result)).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
       expect(asked).toEqual([`The Connection "prod" is closed. Open it in L'Atelier, then accept to continue.`]);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
       expect(rows()[0]).toMatchObject({ tool: 'find', doc_count: 0, bytes: 0 });
@@ -254,7 +270,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       h.addConnection(CLOSED_ID, 'prod', { shared: true });
       const { asked, onElicit } = answering('cancel');
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
-      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toMatch(/^NOT_OPEN: /);
+      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
       expect(asked).toHaveLength(1);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
     });
@@ -264,7 +280,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       h.addConnection(CLOSED_ID, 'prod', { shared: true });
       const { asked, onElicit } = answering('accept');
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
-      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toMatch(/^NOT_OPEN: /);
+      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toBe(`NOT_OPEN: ${defaultAgentMessage('NOT_OPEN')}`);
       expect(asked).toHaveLength(1);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
     });
@@ -399,6 +415,8 @@ describe('X29 pause on a real Connection', () => {
       ['aggregate', { ...on, pipeline: [{ $sort: { n: 1 } }] }],
       ['explain_find', on],
       ['explain_aggregate', { ...on, pipeline: [{ $match: { n: 1 } }] }],
+      ['list_references', { connectionId: f.connectionId }],
+      ['suggest_references', on],
     ];
     // The last line carries the duration, the envelope tag is random per call, and explain output carries the server's own timings. None is the era's doing.
     const stable = (result: { content?: unknown; isError?: boolean }) => ({
@@ -406,7 +424,7 @@ describe('X29 pause on a real Connection', () => {
       text: textOf(result).split('\n').slice(0, -1).join('\n').replaceAll(/untrusted-data-[0-9a-f]{32}/g, 'untrusted-data-TAG').replace(/"(executionTimeMillis\w*|millis|works|advanced|needTime|saveState|restoreState)":\s*\d+/g, '"$1":0'),
     });
     try {
-      expect(calls).toHaveLength(10);
+      expect(calls).toHaveLength(12);
       for (const [name, args] of calls) {
         const legacy = stable(await f.call(name, args));
         const current = stable(await modern.client.callTool({ name, arguments: args }));

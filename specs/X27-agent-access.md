@@ -568,12 +568,16 @@ When an Agent asks for a shared Connection that is not open, the call either pau
 
 The two fit together: X29's question tells the user to open the Connection in L'Atelier and then accept, and the request puts an **Open** button there. It is not X29 §7's rejected alternative: nothing opens a dialog or a window, and nothing opens a Connection on the Agent's request; the user clicks.
 
-- Main keeps the requests in memory, one per (session, Connection): `{ sessionId, tokenName, clientName, connectionId, connectionName, firstAt, lastAt, count, lastTool, database, collection }`. A further refusal on the same pair updates `lastAt`, `count` and the target, and never makes a second request.
+- Main keeps the requests in memory, one per (session, Connection): `{ sessionId, tokenName, clientName, folder, connectionId, connectionName, firstAt, lastAt, count, lastTool, database, collection, lastOutcome }`. `folder` is the session's folder in display form (§16.3), or null. `lastOutcome` is `waiting` while the last call is paused in the Agent's host on X29's question, and `refused` once a call was refused `NOT_OPEN`, so [X30](./X30-agents-mode.md) can say which. A further refusal on the same pair updates `lastAt`, `count`, the tool, the target and `lastOutcome`, and never makes a second request. `count` counts calls: a paused call's retry, refused after its `INPUT_REQUIRED` row, is the same call and moves `lastOutcome` to `refused` without adding to it.
 - **Only `NOT_OPEN` and `INPUT_REQUIRED` make a request.** `NOT_SHARED` never does: an unknown id reads as not shared (`AgentGate.checkConnection`), so a request built on it would let text the Agent read point a "share this?" prompt at any Connection id it guessed. A Connection an Agent can name has been shared already, and §2 lists it as `unavailable`.
 - A request ends when its Connection opens, when the user dismisses it (`agentAccess:dismiss-request` `{ sessionId, connectionId }`), when its session ends, when the Connection is unshared or deleted, or 30 minutes after its `lastAt`. Requests are not persisted.
 - **A dismissal holds for the session.** After the user dismisses a (session, Connection) pair, further `NOT_OPEN` or `INPUT_REQUIRED` rows on it make no new request for the rest of that session, so an Agent steered by its data cannot keep asking the user to open a Connection. The refusals are still logged.
 - **The Agent never opens anything.** The renderer's Open button runs the user's ordinary connect action. §1's "letting an Agent open, wake or connect a Connection" stays out of scope: the Agent asks, and a person clicks.
-- The `NOT_OPEN` message to the Agent becomes "This Connection is not open. L'Atelier has asked the user to open it; try again after they do." X29 §4.2's question is unchanged.
+- The `NOT_OPEN` message to the Agent depends on whether the user has already said no:
+  - By default it is "This Connection is not open. L'Atelier has asked the user to open it; try again after they do."
+  - Once the user has dismissed the request for that (session, Connection) pair, or declined or cancelled X29's question, it is "The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to." Without this, an Agent told to try again would keep making calls the user has already turned down.
+
+  X29 §4.2's question is unchanged.
 
 ### 16.7 Relation tools
 
@@ -593,14 +597,15 @@ The server's `instructions` mention both tools: check `list_references` before s
 This replaces §5.2's token window (a native message box with five copy buttons that closed on every press). The token still never reaches the renderer.
 
 - `agentAccess:connect-client` `{ name, client }` (`client` is a `SnippetClient`): main shows a one-question native confirm: "Copy the setup for {client}? It contains a new Agent Token named “{name}”. Paste it into {client} straight away." On confirm, main creates the token, builds the snippet with `configSnippet`, writes it with `clipboard.writeText`, and returns `{ tokenId, copiedAt }`. Cancel returns `{ cancelled: true }` and creates nothing.
-- `agentAccess:copy-setup` `{ id, client }` for an existing Agent: the confirm says the token will be **regenerated** and the Agent's live sessions will end (§5.2). On confirm, main regenerates and copies the same way. A token cannot be copied without being regenerated, because it is never stored.
+- `agentAccess:copy-setup` `{ id, client }` for an existing Agent: the confirm asks "Copy the {client} setup for “{name}”?", says "It contains this Agent's token. Anything that can read your clipboard can use it until you revoke or regenerate it.", and says the token will be **regenerated** and how many of the Agent's live sessions will end (§5.2). Its buttons are Cancel and Copy setup. On confirm, main regenerates and copies the same way. A token cannot be copied without being regenerated, because it is never stored.
+- A failed clipboard write fails the call. After `connect-client` the new token is deleted, since nobody holds it. After `copy-setup` the old token is already gone and its sessions ended, so the error says to copy the setup again.
 - Main resolves the call only after the clipboard write returns, so the renderer reports "copied" only when it is true.
 - **Clearing.** Five minutes after a copy, and at quit, main reads the clipboard and clears it only if it still holds exactly the text main wrote. Anything the user copied since is left alone.
 - `agentAccess:add-token` and `agentAccess:regenerate-token`, and the message box behind them, are removed. `agentAccess:revoke-token` stays.
 
 ### 16.9 IPC
 
-Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAccess:list-calls`, `agentAccess:list-sessions`, `agentAccess:call-event` (push), `agentAccess:dismiss-request`, `agentAccess:connect-client`, `agentAccess:copy-setup`. `agentAccess:get-state` and `agentAccess:state-event` carry §16.4's fields. Removed: `agentAccess:add-token`, `agentAccess:regenerate-token`. No channel carries a secret from the renderer, and none returns a token, so the `SECRET_INPUT` allowlist is unchanged.
+Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAccess:list-calls`, `agentAccess:list-sessions`, `agentAccess:call-event` (push), `agentAccess:end-session`, `agentAccess:dismiss-request`, `agentAccess:connect-client`, `agentAccess:copy-setup`, and [X30 §13](./X30-agents-mode.md)'s `agentAccess:rename-token`. `agentAccess:get-state` and `agentAccess:state-event` carry §16.4's fields. Removed: `agentAccess:add-token`, `agentAccess:regenerate-token`. No channel carries a secret from the renderer, and none returns a token, so the `SECRET_INPUT` allowlist is unchanged.
 
 ### 16.10 Acceptance criteria
 
@@ -610,7 +615,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 - The bridge sends `protocol: 2` with its working folder, cut to 1,024 bytes. Main accepts protocols 1 and 2 and refuses any other. A line over 4,096 bytes is refused.
 - The folder is stored sealed, and the renderer receives it only in display form, with `~` for the home directory and no control characters.
 - `agentAccess:list-calls` filters by session, token, Connection, namespace, tool and outcome, pages by `(ts, id)` without gaps or repeats, and caps `limit` at 200. `agentAccess:list-sessions` pages the same way on `(started_at, id)`.
-- A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session.
+- A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session. Until the user dismisses the request or declines or cancels the question, the Agent is told to try again once the Connection is open. After any of these, it is told not to retry unless the user asks.
 - No Agent call ever connects a Connection.
 - `list_references` returns the effective rules without the §7.4 namespaces. `suggest_references` samples only through the agent client, never connects a closed Connection, and returns errors as codes instead of an empty list.
 - `connect-client` and `copy-setup` create or regenerate a token only after main's confirm, write it only to the clipboard, and resolve only after the write. Cancel changes nothing. The clipboard is cleared after five minutes and at quit only if it still holds what main wrote.

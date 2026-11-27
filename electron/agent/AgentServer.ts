@@ -175,6 +175,13 @@ export class AgentServer {
     }
   }
 
+  /** The Agent was renamed: its live sessions write the new name from their next call on. */
+  renameToken(tokenId: string, name: string): void {
+    for (const session of this.sessions) {
+      if (session.identity.tokenId === tokenId) session.identity.tokenName = name;
+    }
+  }
+
   private async accept(socket: net.Socket): Promise<void> {
     // A reset must never become an uncaught exception, here or inside the session.
     socket.on('error', () => socket.destroy());

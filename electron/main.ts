@@ -866,6 +866,9 @@ app.whenReady().then(() => {
     }),
     log,
   });
+  // Before Agent Access: the relation tools read the same rules the user's editor does (X27 §16.7).
+  const refsRepo = new ReferenceRulesRepo(db);
+  const refsSvc = new ReferenceRulesService(refsRepo, pool);
   agentSvc = new AgentAccessService({
     appState,
     tokenRepo: new AgentTokenRepo(db),
@@ -884,7 +887,10 @@ app.whenReady().then(() => {
       showMessageBox: (options) =>
         win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
       writeClipboard: (text) => clipboard.writeText(text),
+      readClipboard: () => clipboard.readText(),
+      clearClipboard: () => clipboard.clear(),
     },
+    refs: refsSvc,
     // The state holds no token; the renderer learns of every change from here.
     emit: (state) => {
       if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessStateEvent, state);
@@ -1021,8 +1027,6 @@ app.whenReady().then(() => {
   });
   registerScriptChannels(router, scriptSvc);
 
-  const refsRepo = new ReferenceRulesRepo(db);
-  const refsSvc = new ReferenceRulesService(refsRepo, pool);
   registerRefsChannels(router, refsSvc);
 
   const familyRepo = new FamilyRepo(db);

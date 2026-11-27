@@ -5,6 +5,8 @@ import {
   configSnippet,
   shellQuotePath,
   SNIPPET_CLIENTS,
+  snippetLabel,
+  snippetTemplates,
   TOKEN_PLACEHOLDER,
 } from '../../electron/agent/snippets';
 import { generateToken, TOKEN_RE } from '../../electron/agent/token';
@@ -21,21 +23,26 @@ function shellWords(cmdTail: string): string[] {
 describe('configSnippet', () => {
   const token = generateToken();
 
-  it('offers the Claude Code command first, then the three JSON configurations, each with its own note', () => {
-    expect(SNIPPET_CLIENTS.map((c) => [c.client, c.button])).toEqual([
-      ['claude-code-cli', 'Copy Claude Code command'],
-      ['claude-code', 'Copy for Claude Code (JSON)'],
-      ['claude-desktop', 'Copy for Claude Desktop'],
-      ['cursor', 'Copy for Cursor'],
+  it('offers the Claude Code command first, then the three JSON configurations, each with the name the confirm shows', () => {
+    expect(SNIPPET_CLIENTS.map((c) => [c.client, c.label])).toEqual([
+      ['claude-code-cli', 'Claude Code (command)'],
+      ['claude-code', 'Claude Code (JSON)'],
+      ['claude-desktop', 'Claude Desktop'],
+      ['cursor', 'Cursor'],
     ]);
-    expect(SNIPPET_CLIENTS[0]!.copied).toBe(
-      'Claude Code command copied. Paste it into a terminal and run it, then check with: claude mcp list',
-    );
-    expect(SNIPPET_CLIENTS.slice(1).map((c) => c.copied)).toEqual([
-      'Configuration copied for Claude Code (JSON).',
-      'Configuration copied for Claude Desktop.',
-      'Configuration copied for Cursor.',
-    ]);
+    expect(SNIPPET_CLIENTS.map((c) => snippetLabel(c.client))).toEqual(SNIPPET_CLIENTS.map((c) => c.label));
+    expect(() => snippetLabel('vim' as never)).toThrow('unknown MCP client vim');
+  });
+
+  it('builds a template per client with the placeholder, never a token', () => {
+    const templates = snippetTemplates(BRIDGE, 'darwin');
+    expect(Object.keys(templates)).toEqual(['claude-code-cli', 'claude-code', 'claude-desktop', 'cursor']);
+    for (const client of SNIPPET_CLIENTS.map((c) => c.client)) {
+      expect(templates[client]).toBe(configSnippet(client, BRIDGE, TOKEN_PLACEHOLDER, 'darwin'));
+    }
+    expect(templates['claude-code-cli']).toBe(claudeCodeCommandTemplate(BRIDGE, 'darwin'));
+    expect(JSON.parse(templates.cursor).mcpServers.latelier.env.LATELIER_AGENT_TOKEN).toBe('YOUR_TOKEN');
+    expect(snippetTemplates(WIN, 'win32')['claude-code-cli']).toContain(`"${WIN}"`);
   });
 
   it('writes the bridge path, no args and the token in the environment', () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import net from 'node:net';
+import type { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createRouter } from '../../electron/ipc/router';
 import { registerAgentAccessChannels } from '../../electron/ipc/handlers/agentAccess';
@@ -12,21 +13,22 @@ import { createPickedCredentialPaths } from '../../electron/security/credentialP
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
 import { TOKEN_RE, hashToken } from '../../electron/agent/token';
 import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
-import type { AgentAccessState, AgentTokenInfo, Connection, ConnectionInput } from '../../shared/types';
+import type { AgentAccessState, AgentCallSummary, AgentCopyResult, AgentTokenInfo, Connection, ConnectionInput } from '../../shared/types';
+import { CLIPBOARD_CLEAR_MS } from '../../electron/services/AgentAccessService';
+import type { ConnectionRequests } from '../../electron/agent/connectionRequests';
+import { NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, handshakeLine, openSocket, readUntilClosed, textOf } from '../helpers/agentSocket';
 import { createIpcShim } from '../helpers/ipcShim';
 import { createSafeStorageMock } from '../helpers/safeStorageMock';
 
 const TURN_ON = 1;
-const COPY_CLAUDE_CODE_COMMAND = 1;
-const COPY_CLAUDE_CODE = 2;
-const COPY_CLAUDE_DESKTOP = 3;
-const COPY_CURSOR = 4;
+const COPY = 1;
 
-/** The token in a token dialog is the last paragraph of its detail. */
-function tokenIn(detail: string): string {
-  return detail.split('\n\n').at(-1)!;
+/** The token in a copied JSON setup. */
+function tokenInSetup(text: string): string {
+  return (JSON.parse(text) as { mcpServers: { latelier: { env: { LATELIER_AGENT_TOKEN: string } } } }).mcpServers.latelier.env
+    .LATELIER_AGENT_TOKEN;
 }
 
 function connInput(name: string): ConnectionInput {
@@ -56,8 +58,8 @@ describe('agentAccess:* channels', () => {
   let pool: MongoPool;
   const sessions: Array<() => Promise<void>> = [];
 
-  function setup(platform: NodeJS.Platform = 'darwin') {
-    h = createAgentHarness({ platform });
+  function setup(platform: NodeJS.Platform = 'darwin', now?: () => number) {
+    h = createAgentHarness({ platform, ...(now ? { now } : {}) });
     shim = createIpcShim();
     const router = createRouter(shim.ipcMain, () => true);
     registerAgentAccessChannels(router, h.svc);
@@ -119,60 +121,99 @@ describe('agentAccess:* channels', () => {
     });
 
     it.each([
-      ['no name', {}],
-      ['an empty name', { name: '' }],
-      ['a blank name', { name: '   ' }],
-      ['a name over 64 characters', { name: 'x'.repeat(65) }],
-      ['a name that is not a string', { name: 7 }],
-      ['a name with a newline', { name: 'Claude\nTurn on?' }],
-      ['a name with a control character', { name: 'a\u0007b' }],
-      ['a name with a bidi override', { name: 'Claude\u202EedoC' }],
-      ['a name with a line separator', { name: 'Claude\u2028Turn on?' }],
-      ['a name with a paragraph separator', { name: 'Claude\u2029Turn on?' }],
-      ['a name with a zero-width space', { name: 'Clau\u200Bde' }],
-      ['a name with a private-use character', { name: 'Clau\uE000de' }],
-      ['an extra key', { name: 'ok', token: 'abc' }],
-    ])('add-token refuses %s', async (_name, payload) => {
-      const env = await invoke(IPC_CHANNELS.agentAccessAddToken, payload);
+      ['no name', { client: 'cursor' }],
+      ['an empty name', { name: '', client: 'cursor' }],
+      ['a blank name', { name: '   ', client: 'cursor' }],
+      ['a name over 64 characters', { name: 'x'.repeat(65), client: 'cursor' }],
+      ['a name that is not a string', { name: 7, client: 'cursor' }],
+      ['a name with a newline', { name: 'Claude\nTurn on?', client: 'cursor' }],
+      ['a name with a control character', { name: 'a\u0007b', client: 'cursor' }],
+      ['a name with a bidi override', { name: 'Claude\u202EedoC', client: 'cursor' }],
+      ['a name with a line separator', { name: 'Claude\u2028Turn on?', client: 'cursor' }],
+      ['a name with a paragraph separator', { name: 'Claude\u2029Turn on?', client: 'cursor' }],
+      ['a name with a zero-width space', { name: 'Clau\u200Bde', client: 'cursor' }],
+      ['a name with a private-use character', { name: 'Clau\uE000de', client: 'cursor' }],
+      ['no client', { name: 'ok' }],
+      ['an unknown client', { name: 'ok', client: 'vim' }],
+      ['an extra key', { name: 'ok', client: 'cursor', token: 'abc' }],
+      ['no payload', undefined],
+    ])('connect-client refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessConnectClient, payload);
       expect(env.ok).toBe(false);
       if (!env.ok) expect(env.error.code).toBe('VALIDATION');
       expect(h.tokenRepo.list()).toHaveLength(0);
       expect(h.boxes).toHaveLength(0);
     });
 
-    it.each([IPC_CHANNELS.agentAccessRegenerateToken, IPC_CHANNELS.agentAccessRevokeToken])(
-      '%s refuses an id that is not a uuid and an extra key',
-      async (channel) => {
-        for (const payload of [{ id: 'abc' }, {}, { id: randomUUID(), extra: 1 }, undefined]) {
-          const env = await invoke(channel, payload);
-          expect(env.ok).toBe(false);
-          if (!env.ok) expect(env.error.code).toBe('VALIDATION');
-        }
-      },
-    );
-
-    it('accepts a name of exactly 64 characters', async () => {
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'n'.repeat(64) });
-      expect(info.name).toHaveLength(64);
+    it.each([
+      ['an id that is not a uuid', { id: 'abc', client: 'cursor' }],
+      ['no client', { id: randomUUID() }],
+      ['an unknown client', { id: randomUUID(), client: 'vim' }],
+      ['an extra key', { id: randomUUID(), client: 'cursor', extra: 1 }],
+      ['no payload', undefined],
+    ])('copy-setup refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessCopySetup, payload);
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      expect(h.boxes).toHaveLength(0);
     });
 
-    it('accepts an ordinary Unicode name as it is', async () => {
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Café 笔记本' });
-      expect(info.name).toBe('Café 笔记本');
-      expect(h.boxes[0]!.message).toBe('Token for "Café 笔记本"');
+    it.each([
+      ['an id that is not a uuid', { id: 'abc', name: 'ok' }],
+      ['no name', { id: randomUUID() }],
+      ['a blank name', { id: randomUUID(), name: '  ' }],
+      ['a name over 64 characters', { id: randomUUID(), name: 'x'.repeat(65) }],
+      ['a name with a newline', { id: randomUUID(), name: 'a\nb' }],
+      ['a name with a bidi override', { id: randomUUID(), name: 'a\u202Eb' }],
+      ['an extra key', { id: randomUUID(), name: 'ok', extra: 1 }],
+      ['no payload', undefined],
+    ])('rename-token refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessRenameToken, payload);
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it.each([
+      ['a session id that is not a uuid', { sessionId: 's', connectionId: randomUUID() }],
+      ['a Connection id that is not a uuid', { sessionId: randomUUID(), connectionId: 'c' }],
+      ['no Connection id', { sessionId: randomUUID() }],
+      ['an extra key', { sessionId: randomUUID(), connectionId: randomUUID(), open: true }],
+      ['no payload', undefined],
+    ])('dismiss-request refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessDismissRequest, payload);
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it('revoke-token refuses an id that is not a uuid and an extra key', async () => {
+      for (const payload of [{ id: 'abc' }, {}, { id: randomUUID(), extra: 1 }, undefined]) {
+        const env = await invoke(IPC_CHANNELS.agentAccessRevokeToken, payload);
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      }
+    });
+
+    it('accepts a name of exactly 64 characters', async () => {
+      await addTokenAndCopy('n'.repeat(64));
+      expect(h.tokenRepo.list()[0]!.name).toHaveLength(64);
+    });
+
+    it('accepts an ordinary Unicode name as it is, and names it in the confirm', async () => {
+      await addTokenAndCopy('Café 笔记本');
+      expect(h.tokenRepo.list()[0]!.name).toBe('Café 笔记本');
+      expect(h.boxes[0]!.detail).toBe('It contains a new Agent Token named “Café 笔记本”. Paste it into Claude Code (JSON) straight away.');
     });
 
     it('prints a stored name that is not safe with the unsafe characters taken out', async () => {
       h.tokenRepo.insert({ id: randomUUID(), name: 'Evil\n\u202EDone?', token_hash: hashToken('x'), created_at: 'now', last_used_at: null });
       const id = h.tokenRepo.list()[0]!.id;
-      await ok(IPC_CHANNELS.agentAccessRegenerateToken, { id });
-      expect(h.boxes[0]!.message).toBe('New token for "Evil Done?"');
+      expect(await ok(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'cursor' })).toEqual({ cancelled: true });
+      expect(h.boxes[0]!.message).toBe('Copy the Cursor setup for “Evil Done?”?');
     });
 
     it('trims the name it stores', async () => {
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: '  Claude Code  ' });
-      expect(info.name).toBe('Claude Code');
-      expect(h.tokenRepo.findById(info.id)?.name).toBe('Claude Code');
+      await addTokenAndCopy('  Claude Code  ');
+      expect(h.tokenRepo.list()[0]!.name).toBe('Claude Code');
     });
   });
 
@@ -255,8 +296,8 @@ describe('agentAccess:* channels', () => {
 
     it('lists a live session and its calls, and ends it through the channel', async () => {
       const socketPath = await turnOn();
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      const token = tokenIn(h.boxes.at(-1)!.detail!);
+      const token = await addTokenAndCopy();
+      const info = { id: h.tokenRepo.list()[0]!.id };
       const agent = await connectAgent(socketPath, token);
       sessions.push(() => agent.close());
       await agent.client.callTool({ name: 'list_connections', arguments: {} });
@@ -386,179 +427,231 @@ describe('agentAccess:* channels', () => {
     });
   });
 
-  /** Adds a token through the channel and returns the plaintext the dialog showed. */
+  /** Adds an Agent through the channel, confirming main's question, and returns the token its copied setup holds. */
   async function addTokenAndCopy(name = 'Claude Code'): Promise<string> {
-    await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name });
-    return tokenIn(h.boxes.at(-1)!.detail);
+    h.answers.push(COPY);
+    const out = await ok<AgentCopyResult>(IPC_CHANNELS.agentAccessConnectClient, { name, client: 'claude-code' });
+    if ('cancelled' in out) throw new Error('the copy confirm was not answered');
+    return tokenInSetup(h.clipboard.at(-1)!);
   }
 
-  describe('tokens', () => {
-    it('creates the row before the dialog opens, and ends with Done', async () => {
-      let rowsWhileOpen = -1;
-      h.onBox = () => {
-        rowsWhileOpen = h.tokenRepo.list().length;
-      };
-
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-
-      expect(rowsWhileOpen).toBe(1);
-      expect(info).toEqual({ id: expect.any(String), name: 'Claude Code', createdAt: expect.any(String) });
+  describe('copying a setup (X27 §16.8)', () => {
+    it('asks first, with Cancel as the default, and Cancel creates and copies nothing', async () => {
+      h.answers.push(0);
+      expect(await ok(IPC_CHANNELS.agentAccessConnectClient, { name: 'Claude Code', client: 'cursor' })).toEqual({ cancelled: true });
       expect(h.boxes).toHaveLength(1);
-      expect(h.boxes[0]!.buttons).toEqual(['Done', 'Copy Claude Code command', 'Copy for Claude Code (JSON)', 'Copy for Claude Desktop', 'Copy for Cursor']);
-      expect([h.boxes[0]!.defaultId, h.boxes[0]!.cancelId]).toEqual([0, 0]);
+      const box = h.boxes[0]!;
+      expect(box.buttons).toEqual(['Cancel', 'Copy setup']);
+      expect([box.defaultId, box.cancelId]).toEqual([0, 0]);
+      expect(box.message).toBe('Copy the setup for Cursor?');
+      expect(box.detail).toBe('It contains a new Agent Token named “Claude Code”. Paste it into Cursor straight away.');
+      expect(h.tokenRepo.list()).toHaveLength(0);
       expect(h.clipboard).toEqual([]);
     });
 
-    it('shows a well-formed token once, and stores only its hash', async () => {
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      const token = tokenIn(h.boxes[0]!.detail);
+    it('treats a button it does not know as Cancel', async () => {
+      h.answers.push(9);
+      expect(await ok(IPC_CHANNELS.agentAccessConnectClient, { name: 'Claude Code', client: 'cursor' })).toEqual({ cancelled: true });
+      expect(h.tokenRepo.list()).toHaveLength(0);
+    });
 
+    it('on confirm creates the token, copies its setup, and answers only once the write has returned', async () => {
+      let release!: () => void;
+      h.clipboardHold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      h.answers.push(COPY);
+      let settled = false;
+      const pending = invoke<AgentCopyResult>(IPC_CHANNELS.agentAccessConnectClient, { name: 'Claude Code', client: 'claude-code' }).then((env) => {
+        settled = true;
+        return env;
+      });
+      await vi.waitFor(() => expect(h.tokenRepo.list()).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      release();
+      const env = await pending;
+      if (!env.ok) throw new Error(env.error.message);
+      const row = h.tokenRepo.list()[0]!;
+      expect(env.data).toEqual({ tokenId: row.id, copiedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
+      const token = tokenInSetup(h.clipboard[0]!);
       expect(token).toMatch(TOKEN_RE);
       expect(token).toHaveLength(43);
-      const row = h.tokenRepo.list()[0]!;
       expect(row.token_hash).toBe(hashToken(token));
       expect(JSON.stringify(row)).not.toContain(token);
     });
 
-    it('copies the configuration for each client and shows the box again until Done', async () => {
-      h.answers.push(COPY_CLAUDE_CODE, COPY_CURSOR, COPY_CLAUDE_DESKTOP, 0);
-
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-
-      expect(h.boxes).toHaveLength(4);
-      const token = tokenIn(h.boxes[0]!.detail);
-      expect(h.boxes.map((b) => tokenIn(b.detail))).toEqual([token, token, token, token]);
-      expect(h.boxes[0]!.detail).not.toContain('Configuration copied');
-      expect(h.boxes[1]!.detail).toContain('Configuration copied for Claude Code (JSON).');
-      expect(h.boxes[2]!.detail).toContain('Configuration copied for Cursor.');
-      expect(h.boxes[3]!.detail).toContain('Configuration copied for Claude Desktop.');
-
-      expect(h.clipboard).toHaveLength(3);
-      const [code, cursor, desktop] = h.clipboard.map((c) => JSON.parse(c).mcpServers.latelier);
-      expect(code).toEqual({ type: 'stdio', command: h.bridge.installedPath, args: [], env: { LATELIER_AGENT_TOKEN: token } });
-      expect(cursor).toEqual({ command: h.bridge.installedPath, args: [], env: { LATELIER_AGENT_TOKEN: token } });
-      expect(desktop).toEqual(cursor);
-    });
-
-    it('says so in the box, still open to the token, when the clipboard write fails', async () => {
-      h.clipboardFails = true;
-      h.answers.push(COPY_CURSOR, 0);
-
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-
-      expect(info.name).toBe('Claude Code');
-      expect(h.boxes).toHaveLength(2);
-      expect(h.boxes[1]!.detail).toContain('Could not copy it (Copy for Cursor). Copy the token by hand, or regenerate it.');
-      expect(tokenIn(h.boxes[1]!.detail)).toBe(tokenIn(h.boxes[0]!.detail));
-      expect(h.boxes[1]!.detail).not.toContain('Configuration copied');
-      expect(vi.mocked(h.log.warn)).toHaveBeenCalledWith('agent', 'could not copy the Agent configuration', { errName: 'Error' });
-    });
-
-    it('copies the claude mcp add command, names it in the note, and tells Claude Code users how in the box', async () => {
-      h.answers.push(COPY_CLAUDE_CODE_COMMAND, 0);
-
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-
-      const token = tokenIn(h.boxes[0]!.detail);
-      expect(h.boxes[0]!.detail).toContain('Claude Code: copy the command, paste it into a terminal and run it.');
-      expect(h.clipboard).toEqual([
-        // The harness path is plain characters, so it stays a bare word; quoting is unit-tested against a real shell.
-        `claude mcp add latelier --scope user -e LATELIER_AGENT_TOKEN=${token} -- ${h.bridge.installedPath}`,
+    it("copies each client's own setup", async () => {
+      for (const client of ['claude-code-cli', 'claude-code', 'claude-desktop', 'cursor'] as const) {
+        h.answers.push(COPY);
+        await ok(IPC_CHANNELS.agentAccessConnectClient, { name: client, client });
+      }
+      const [cli, code, desktop, cursor] = h.clipboard;
+      // The harness path is plain characters, so it stays a bare word; quoting is unit-tested against a real shell.
+      expect(cli).toMatch(new RegExp(`^claude mcp add latelier --scope user -e LATELIER_AGENT_TOKEN=[A-Za-z0-9_-]{43} -- ${h.bridge.installedPath}$`));
+      const parsed = [code, desktop, cursor].map((c) => JSON.parse(c!).mcpServers.latelier);
+      expect(parsed[0]).toEqual({ type: 'stdio', command: h.bridge.installedPath, args: [], env: { LATELIER_AGENT_TOKEN: expect.any(String) } });
+      expect(parsed[1]).toEqual({ command: h.bridge.installedPath, args: [], env: { LATELIER_AGENT_TOKEN: expect.any(String) } });
+      expect(parsed[2]).toEqual({ command: h.bridge.installedPath, args: [], env: { LATELIER_AGENT_TOKEN: expect.any(String) } });
+      expect(h.boxes.map((b) => b.message)).toEqual([
+        'Copy the setup for Claude Code (command)?',
+        'Copy the setup for Claude Code (JSON)?',
+        'Copy the setup for Claude Desktop?',
+        'Copy the setup for Cursor?',
       ]);
-      expect(h.boxes[1]!.detail).toContain('Claude Code command copied. Paste it into a terminal and run it, then check with: claude mcp list');
-      expect(tokenIn(h.boxes[1]!.detail)).toBe(token);
     });
 
-    it('states the Claude Code command with a placeholder, never a token', async () => {
-      h.answers.push(0);
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      const token = tokenIn(h.boxes[0]!.detail);
+    it('leaves no token behind and says so when the clipboard write fails', async () => {
+      h.clipboardFails = true;
+      h.answers.push(COPY);
+      const env = await invoke(IPC_CHANNELS.agentAccessConnectClient, { name: 'Claude Code', client: 'cursor' });
+      expect(env.ok).toBe(false);
+      if (!env.ok) {
+        expect(env.error.code).toBe('INTERNAL');
+        expect(env.error.message).toBe('The setup could not be copied, so the Agent was not added. Try again.');
+      }
+      expect(h.tokenRepo.list()).toEqual([]);
+      expect(vi.mocked(h.log.warn)).toHaveBeenCalledWith('agent', 'could not copy the Agent setup', { errName: 'Error' });
+    });
+
+    it('states every setup with a placeholder, never a token', async () => {
+      const token = await addTokenAndCopy();
       const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
       expect(state.claudeCodeCommand).toContain('LATELIER_AGENT_TOKEN=YOUR_TOKEN');
-      expect(state.claudeCodeCommand).toContain(h.bridge.installedPath);
+      expect(Object.keys(state.snippetTemplates)).toEqual(['claude-code-cli', 'claude-code', 'claude-desktop', 'cursor']);
+      expect(state.snippetTemplates['claude-code-cli']).toBe(state.claudeCodeCommand);
+      expect(tokenInSetup(state.snippetTemplates.cursor)).toBe('YOUR_TOKEN');
       expect(JSON.stringify(state)).not.toContain(token);
     });
 
-    it('ends the loop when the box is dismissed with Escape', async () => {
-      h.answers.push(0);
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      expect(h.boxes).toHaveLength(1);
-    });
-
-    it('ends the loop on a button it does not know, rather than spinning', async () => {
-      h.answers.push(9);
-      await ok(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      expect(h.boxes).toHaveLength(1);
-      expect(h.clipboard).toEqual([]);
-    });
-
-    it('lets the token it showed connect, and nothing else', async () => {
+    it('lets the token it copied connect', async () => {
       const socketPath = await turnOn();
       const token = await addTokenAndCopy();
-
       const agent = await connectAgent(socketPath, token);
       sessions.push(() => agent.close().catch(() => undefined));
       expect(textOf(await agent.client.callTool({ name: 'list_connections', arguments: {} }))).toContain('untrusted-data');
     });
 
-    it('never lets the token reach an envelope, a pushed state, a log line or the state', async () => {
-      await turnOn();
-      h.answers.push(COPY_CLAUDE_CODE, 0);
-      const envelopes: unknown[] = [];
-      const addEnv = await invoke<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
-      envelopes.push(addEnv);
-      const token = tokenIn(h.boxes.at(-1)!.detail);
-      // Not vacuous: the token really is in the dialog, on the clipboard and valid.
-      expect(token).toMatch(TOKEN_RE);
-      expect(h.clipboard[0]).toContain(token);
+    it('copy-setup: the confirm says the token is regenerated and the live session ends; Cancel changes nothing', async () => {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy();
+      const row = h.tokenRepo.list()[0]!;
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await vi.waitFor(() => expect(h.svc.sessionCount).toBe(1));
 
-      const id = (addEnv as { ok: true; data: AgentTokenInfo }).data.id;
       h.answers.push(0);
-      const regenEnv = await invoke(IPC_CHANNELS.agentAccessRegenerateToken, { id });
-      const regenerated = tokenIn(h.boxes.at(-1)!.detail);
-      expect(regenerated).toMatch(TOKEN_RE);
-      expect(regenerated).not.toBe(token);
-      envelopes.push(regenEnv);
-      envelopes.push(await invoke(IPC_CHANNELS.agentAccessGetState, {}));
-      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRevokeToken, { id }));
-      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRevokeToken, { id }));
-      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRegenerateToken, { id }));
-      await ok(IPC_CHANNELS.agentAccessDisable, {});
+      expect(await ok(IPC_CHANNELS.agentAccessCopySetup, { id: row.id, client: 'claude-desktop' })).toEqual({ cancelled: true });
 
-      const everything = JSON.stringify([envelopes, h.states, vi.mocked(h.log.info).mock.calls, vi.mocked(h.log.warn).mock.calls, vi.mocked(h.log.error).mock.calls, vi.mocked(h.log.debug).mock.calls]);
-      for (const secret of [token, regenerated, hashToken(token), hashToken(regenerated)]) {
-        expect(everything).not.toContain(secret);
-      }
-      expect(h.states.length).toBeGreaterThan(0);
+      const box = h.boxes.at(-1)!;
+      expect(box.buttons).toEqual(['Cancel', 'Copy setup']);
+      expect([box.defaultId, box.cancelId]).toEqual([0, 0]);
+      expect(box.message).toBe('Copy the Claude Desktop setup for “Claude Code”?');
+      expect(box.detail).toBe(
+        "It contains this Agent's token. Anything that can read your clipboard can use it until you revoke or regenerate it.\n\n" +
+          'Copying it regenerates the token: a setup that holds the old one stops working. This Agent’s live session ends.',
+      );
+      expect(h.tokenRepo.findById(row.id)!.token_hash).toBe(row.token_hash);
+      expect(h.clipboard).toHaveLength(1);
+      expect(h.svc.sessionCount).toBe(1);
     });
 
-    it('regenerates: the dialog says so, the old token stops and the new one connects', async () => {
+    it('copy-setup counts the live sessions it will end, and names none when there are none', async () => {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy();
+      const id = h.tokenRepo.list()[0]!.id;
+      h.answers.push(0);
+      await ok(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'cursor' });
+      expect(h.boxes.at(-1)!.detail).toMatch(/stops working\.$/);
+      const a = await connectAgent(socketPath, token);
+      const b = await connectAgent(socketPath, token);
+      sessions.push(() => a.close().catch(() => undefined), () => b.close().catch(() => undefined));
+      await vi.waitFor(() => expect(h.svc.sessionCount).toBe(2));
+      h.answers.push(0);
+      await ok(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'cursor' });
+      expect(h.boxes.at(-1)!.detail).toMatch(/This Agent’s 2 live sessions end\.$/);
+    });
+
+    it('copy-setup on confirm regenerates: the old token stops, its session ends, and the copied one connects', async () => {
       const socketPath = await turnOn();
       const oldToken = await addTokenAndCopy();
       const id = h.tokenRepo.list()[0]!.id;
+      const agent = await connectAgent(socketPath, oldToken);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await vi.waitFor(() => expect(h.svc.sessionCount).toBe(1));
 
-      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessRegenerateToken, { id });
+      h.answers.push(COPY);
+      const out = await ok<AgentCopyResult>(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'claude-code' });
 
-      expect(info).toMatchObject({ id, name: 'Claude Code' });
-      const box = h.boxes.at(-1)!;
-      expect(box.title).toBe('Token regenerated');
-      expect(box.detail).toContain('The previous token for this Agent no longer works.');
-      const newToken = tokenIn(box.detail);
+      expect(out).toEqual({ tokenId: id, copiedAt: expect.any(String) });
+      await agent.closed;
+      const [ended] = await ok<Array<{ endReason: string }>>(IPC_CHANNELS.agentAccessListSessions, { includeEnded: true, limit: 10 });
+      expect(ended!.endReason).toBe('token-revoked');
+      const newToken = tokenInSetup(h.clipboard.at(-1)!);
       expect(newToken).not.toBe(oldToken);
       const refused = await openSocket(socketPath);
       refused.write(handshakeLine(oldToken));
       expect(await readUntilClosed(refused)).toContain('Agent token refused');
-      const agent = await connectAgent(socketPath, newToken);
-      sessions.push(() => agent.close().catch(() => undefined));
+      const fresh = await connectAgent(socketPath, newToken);
+      sessions.push(() => fresh.close().catch(() => undefined));
+    });
+
+    it('copy-setup says the token was regenerated when the clipboard write fails', async () => {
+      await addTokenAndCopy();
+      const row = h.tokenRepo.list()[0]!;
+      h.clipboardFails = true;
+      h.answers.push(COPY);
+      const env = await invoke(IPC_CHANNELS.agentAccessCopySetup, { id: row.id, client: 'cursor' });
+      expect(env.ok).toBe(false);
+      if (!env.ok) {
+        expect(env.error.code).toBe('INTERNAL');
+        expect(env.error.message).toBe('The token was regenerated, but the setup could not be copied. Copy the setup again.');
+      }
+      expect(h.tokenRepo.findById(row.id)!.token_hash).not.toBe(row.token_hash);
     });
 
     it('answers NOT_FOUND for a token that does not exist, without showing a dialog', async () => {
-      for (const channel of [IPC_CHANNELS.agentAccessRegenerateToken, IPC_CHANNELS.agentAccessRevokeToken]) {
-        const env = await invoke(channel, { id: randomUUID() });
+      const id = randomUUID();
+      for (const [channel, payload] of [
+        [IPC_CHANNELS.agentAccessCopySetup, { id, client: 'cursor' }],
+        [IPC_CHANNELS.agentAccessRenameToken, { id, name: 'x' }],
+        [IPC_CHANNELS.agentAccessRevokeToken, { id }],
+      ] as const) {
+        const env = await invoke(channel, payload);
         expect(env.ok).toBe(false);
         if (!env.ok) expect(env.error.code).toBe('NOT_FOUND');
       }
       expect(h.boxes).toHaveLength(0);
+    });
+
+    it('never lets a token reach an envelope, a pushed state, a log line or the state', async () => {
+      await turnOn();
+      const envelopes: unknown[] = [];
+      h.answers.push(COPY);
+      const addEnv = await invoke<AgentCopyResult>(IPC_CHANNELS.agentAccessConnectClient, { name: 'Claude Code', client: 'claude-code' });
+      envelopes.push(addEnv);
+      const token = tokenInSetup(h.clipboard.at(-1)!);
+      // Not vacuous: the token really is on the clipboard and valid.
+      expect(token).toMatch(TOKEN_RE);
+
+      const id = h.tokenRepo.list()[0]!.id;
+      h.answers.push(COPY);
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'claude-code' }));
+      const regenerated = tokenInSetup(h.clipboard.at(-1)!);
+      expect(regenerated).toMatch(TOKEN_RE);
+      expect(regenerated).not.toBe(token);
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRenameToken, { id, name: 'Renamed' }));
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessGetState, {}));
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRevokeToken, { id }));
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessRevokeToken, { id }));
+      envelopes.push(await invoke(IPC_CHANNELS.agentAccessCopySetup, { id, client: 'cursor' }));
+      await ok(IPC_CHANNELS.agentAccessDisable, {});
+
+      const everything = JSON.stringify([envelopes, h.states, h.boxes, vi.mocked(h.log.info).mock.calls, vi.mocked(h.log.warn).mock.calls, vi.mocked(h.log.error).mock.calls, vi.mocked(h.log.debug).mock.calls]);
+      for (const secret of [token, regenerated, hashToken(token), hashToken(regenerated)]) {
+        expect(everything).not.toContain(secret);
+      }
+      expect(h.states.length).toBeGreaterThan(0);
     });
 
     it('revokes: the row goes, the live session closes and the list shrinks', async () => {
@@ -580,6 +673,268 @@ describe('agentAccess:* channels', () => {
       const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
       expect(state.tokens).toHaveLength(1);
       for (const key of Object.keys(state.tokens[0]!)) expect(['id', 'name', 'createdAt', 'lastUsedAt']).toContain(key);
+    });
+  });
+
+  describe('renaming an Agent', () => {
+    it('renames it, trimmed, and pushes the state', async () => {
+      await addTokenAndCopy('Old');
+      const id = h.tokenRepo.list()[0]!.id;
+      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessRenameToken, { id, name: '  New name  ' });
+      expect(info).toMatchObject({ id, name: 'New name' });
+      expect(h.tokenRepo.findById(id)!.name).toBe('New name');
+      expect(h.states.at(-1)!.tokens).toEqual([expect.objectContaining({ id, name: 'New name' })]);
+    });
+
+    it('keeps the name each log row was written with, and a live session writes the new one from its next call', async () => {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy('Old');
+      const id = h.tokenRepo.list()[0]!.id;
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await agent.client.callTool({ name: 'list_connections', arguments: {} });
+
+      await ok(IPC_CHANNELS.agentAccessRenameToken, { id, name: 'New' });
+      // Two rows in one millisecond would page in id order, not call order.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await agent.client.callTool({ name: 'list_connections', arguments: {} });
+
+      const calls = await ok<Array<{ tokenName: string }>>(IPC_CHANNELS.agentAccessListCalls, { outcome: 'all', limit: 10 });
+      expect(calls.map((c) => c.tokenName)).toEqual(['New', 'Old']);
+      expect(h.svc.liveSessions()[0]!.tokenName).toBe('New');
+      // The session row is a copy taken when the session was counted.
+      const [session] = await ok<Array<{ tokenName: string }>>(IPC_CHANNELS.agentAccessListSessions, { includeEnded: true, limit: 10 });
+      expect(session!.tokenName).toBe('Old');
+    });
+
+    it("renames the Agent on its open Connection requests, and pushes them", async () => {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy('Old');
+      const id = h.tokenRepo.list()[0]!.id;
+      const connectionId = randomUUID();
+      h.addConnection(connectionId, 'prod', { shared: true });
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await agent.client.callTool({ name: 'find', arguments: { connectionId, database: 'shop', collection: 'orders' } });
+
+      await ok(IPC_CHANNELS.agentAccessRenameToken, { id, name: 'New' });
+      expect(h.states.at(-1)!.connectionRequests).toEqual([expect.objectContaining({ connectionId, tokenName: 'New' })]);
+      const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});
+      expect(state.connectionRequests).toEqual([expect.objectContaining({ connectionId, tokenName: 'New' })]);
+    });
+  });
+
+  describe('clearing the copied setup', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('clears it five minutes after the copy when the clipboard still holds it, and not before', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      await addTokenAndCopy();
+      await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS - 1);
+      expect(h.clipboardClears).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.clipboardClears).toBe(1);
+      expect(h.clipboardText).toBe('');
+    });
+
+    it('leaves the clipboard alone when the user copied something else since', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      await addTokenAndCopy();
+      h.clipboardText = 'something the user copied';
+      await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS);
+      expect(h.clipboardClears).toBe(0);
+      expect(h.clipboardText).toBe('something the user copied');
+    });
+
+    it('times a second copy from its own write, and clears only that one', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      await addTokenAndCopy('One');
+      await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS - 1000);
+      await addTokenAndCopy('Two');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(h.clipboardClears).toBe(0);
+      await vi.advanceTimersByTimeAsync(CLIPBOARD_CLEAR_MS - 1000);
+      expect(h.clipboardClears).toBe(1);
+    });
+
+    it('clears it at quit when it still holds the setup, and leaves it otherwise', async () => {
+      await addTokenAndCopy();
+      await h.svc.stop();
+      expect(h.clipboardClears).toBe(1);
+
+      await h.cleanup();
+      setup();
+      await addTokenAndCopy();
+      h.clipboardText = 'mine';
+      await h.svc.stop();
+      expect(h.clipboardClears).toBe(0);
+      expect(h.clipboardText).toBe('mine');
+    });
+
+    it('still quits when the clipboard cannot be read, and logs it by class', async () => {
+      await addTokenAndCopy();
+      h.clipboardReadFails = true;
+      await h.svc.stop();
+      expect(h.clipboardClears).toBe(0);
+      expect(vi.mocked(h.log.warn)).toHaveBeenCalledWith('agent', 'could not clear the copied Agent setup', { errName: 'Error' });
+    });
+
+    it('does nothing at quit when nothing was copied', async () => {
+      await h.svc.stop();
+      expect(h.clipboardClears).toBe(0);
+    });
+  });
+
+  describe('Connection requests (X27 §16.6)', () => {
+    const find = (connectionId: string) => ({ name: 'find', arguments: { connectionId, database: 'shop', collection: 'orders' } });
+
+    async function agentOnClosedShare() {
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy();
+      const connectionId = randomUUID();
+      h.addConnection(connectionId, 'prod', { shared: true });
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      const sessionId = h.svc.liveSessions()[0]!.id;
+      return { agent, connectionId, sessionId };
+    }
+
+    const requests = async () => (await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).connectionRequests;
+
+    it('turns a NOT_OPEN refusal into one request, pushed at once, and tells the Agent the user was asked', async () => {
+      const { agent, connectionId, sessionId } = await agentOnClosedShare();
+      const before = h.states.length;
+      const result = await agent.client.callTool(find(connectionId));
+      expect(textOf(result)).toBe("NOT_OPEN: This Connection is not open. L'Atelier has asked the user to open it; try again after they do.");
+      // Not the coalesced push: a new request goes out with the row.
+      expect(h.states.slice(before).some((s) => s.connectionRequests.length === 1)).toBe(true);
+      expect(await requests()).toEqual([
+        {
+          sessionId,
+          tokenName: 'Claude Code',
+          clientName: 'spec-client',
+          folder: null,
+          connectionId,
+          connectionName: 'prod',
+          firstAt: expect.any(String),
+          lastAt: expect.any(String),
+          count: 1,
+          lastTool: 'find',
+          database: 'shop',
+          collection: 'orders',
+          lastOutcome: 'refused',
+        },
+      ]);
+      await agent.client.callTool({ name: 'count', arguments: { connectionId, database: 'crm', collection: 'leads' } });
+      expect(await requests()).toEqual([expect.objectContaining({ count: 2, lastTool: 'count', database: 'crm', collection: 'leads' })]);
+    });
+
+    it('ends the request when the Connection opens', async () => {
+      const { agent, connectionId } = await agentOnClosedShare();
+      await agent.client.callTool(find(connectionId));
+      (h.pool as unknown as EventEmitter).emit('status', { id: connectionId, status: 'connecting' });
+      expect(await requests()).toHaveLength(1);
+      (h.pool as unknown as EventEmitter).emit('status', { id: connectionId, status: 'connected' });
+      expect(h.states.at(-1)!.connectionRequests).toEqual([]);
+      expect(await requests()).toEqual([]);
+    });
+
+    it('ends it on dismiss, and the pair makes no new one in that session while the refusal is still logged', async () => {
+      const { agent, connectionId, sessionId } = await agentOnClosedShare();
+      await agent.client.callTool(find(connectionId));
+      expect(await ok(IPC_CHANNELS.agentAccessDismissRequest, { sessionId, connectionId })).toEqual({ ok: true });
+      expect(h.states.at(-1)!.connectionRequests).toEqual([]);
+      // The Agent is told the user chose not to open it, so it stops retrying.
+      expect(textOf(await agent.client.callTool(find(connectionId)))).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
+      expect(await requests()).toEqual([]);
+      const calls = await ok<Array<{ outcome: string }>>(IPC_CHANNELS.agentAccessListCalls, { connectionId, outcome: 'all', limit: 10 });
+      expect(calls.map((c) => c.outcome)).toEqual(['NOT_OPEN', 'NOT_OPEN']);
+    });
+
+    it('answers a dismiss for a session that is not live without remembering it', async () => {
+      const sessionId = randomUUID();
+      const connectionId = randomUUID();
+      expect(await ok(IPC_CHANNELS.agentAccessDismissRequest, { sessionId, connectionId })).toEqual({ ok: true });
+      const held = (h.svc as unknown as { requests: ConnectionRequests }).requests;
+      expect(held.isDismissed(sessionId, connectionId)).toBe(false);
+    });
+
+    it('makes none for a row whose session is no longer live', async () => {
+      const { connectionId } = await agentOnClosedShare();
+      const row: AgentCallSummary = {
+        id: randomUUID(),
+        sessionId: randomUUID(),
+        ts: new Date().toISOString(),
+        tokenId: null,
+        tokenName: 'Claude Code',
+        clientName: 'spec-client',
+        clientVersion: '1.0.0',
+        connectionId,
+        connectionName: 'prod',
+        database: 'shop',
+        collection: 'orders',
+        tool: 'find',
+        docCount: 0,
+        bytes: 0,
+        durationMs: 1,
+        outcome: 'NOT_OPEN',
+        truncated: false,
+      };
+      // The row a call writes after its session closed: nothing reaches it through the socket.
+      (h.svc as unknown as { onRowWritten(r: AgentCallSummary): void }).onRowWritten(row);
+      expect(await requests()).toEqual([]);
+    });
+
+    it('ends it when its session ends', async () => {
+      const { agent, connectionId } = await agentOnClosedShare();
+      await agent.client.callTool(find(connectionId));
+      await agent.close();
+      await vi.waitFor(() => expect(h.states.at(-1)!.connectionRequests).toEqual([]));
+    });
+
+    it('ends it when the Connection is unshared', async () => {
+      const { agent, connectionId } = await agentOnClosedShare();
+      await agent.client.callTool(find(connectionId));
+      await ok(IPC_CHANNELS.agentAccessSetShared, { connectionId, shared: false });
+      expect(await requests()).toEqual([]);
+    });
+
+    it('ends it when the Connection is deleted or edited elsewhere', async () => {
+      const { agent, connectionId } = await agentOnClosedShare();
+      await agent.client.callTool(find(connectionId));
+      (h.pool as unknown as EventEmitter).emit('connection-identity-changed', connectionId);
+      expect(await requests()).toEqual([]);
+    });
+
+    it('makes none for NOT_SHARED: an unshared Connection or an id the Agent guessed', async () => {
+      const { agent } = await agentOnClosedShare();
+      const unshared = randomUUID();
+      h.addConnection(unshared, 'stage');
+      for (const id of [unshared, randomUUID()]) {
+        expect(textOf(await agent.client.callTool(find(id)))).toMatch(/^NOT_SHARED: /);
+      }
+      expect(await requests()).toEqual([]);
+    });
+  });
+
+  describe('Connection requests on a clock', () => {
+    it('drops a request 30 minutes after its last refusal', async () => {
+      let now = Date.parse('2026-11-27T10:00:00.000Z');
+      await h.cleanup();
+      setup('darwin', () => now);
+      const socketPath = await turnOn();
+      const token = await addTokenAndCopy();
+      const connectionId = randomUUID();
+      h.addConnection(connectionId, 'prod', { shared: true });
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close().catch(() => undefined));
+      await agent.client.callTool({ name: 'find', arguments: { connectionId, database: 'd', collection: 'c' } });
+      now += 30 * 60 * 1000 - 1;
+      expect((await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).connectionRequests).toHaveLength(1);
+      now += 1;
+      expect((await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {})).connectionRequests).toEqual([]);
     });
   });
 
@@ -833,8 +1188,30 @@ describe('agentAccess:* channels', () => {
     it('pushes nothing after stop, even when something later changes', async () => {
       await h.svc.stop();
       const after = h.states.length;
-      await h.svc.addTokenWithDialog('Late');
+      h.answers.push(COPY);
+      expect(await h.svc.connectClient('Late', 'cursor')).toEqual({ cancelled: true });
       expect(h.states).toHaveLength(after);
+      expect(h.tokenRepo.list()).toEqual([]);
+      expect(h.clipboard).toEqual([]);
+    });
+
+    it('creates no Agent when the app starts quitting while the copy question is open', async () => {
+      h.onBox = () => void h.svc.stop();
+      h.answers.push(COPY);
+      expect(await h.svc.connectClient('Late', 'cursor')).toEqual({ cancelled: true });
+      expect(h.tokenRepo.list()).toEqual([]);
+      expect(h.clipboard).toEqual([]);
+    });
+
+    it('keeps the old token when the app starts quitting while the copy-setup question is open', async () => {
+      await addTokenAndCopy();
+      const before = h.tokenRepo.list()[0]!;
+      const copies = h.clipboard.length;
+      h.onBox = () => void h.svc.stop();
+      h.answers.push(COPY);
+      expect(await h.svc.copySetup(before.id, 'cursor')).toEqual({ cancelled: true });
+      expect(h.tokenRepo.list()).toEqual([before]);
+      expect(h.clipboard).toHaveLength(copies);
     });
 
     it('folds a burst of reads into one push of the count, and pushes nothing once stopped', async () => {

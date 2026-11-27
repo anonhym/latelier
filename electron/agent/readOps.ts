@@ -27,7 +27,7 @@ import type { ToolContext, ToolOutcome } from './tools.ts';
 export const AGENT_COMMENT = 'latelier-agent';
 export const AGENT_MAX_TIME_MS = 10_000;
 
-const readOptions = { maxTimeMS: AGENT_MAX_TIME_MS, comment: AGENT_COMMENT } as const;
+export const readOptions = { maxTimeMS: AGENT_MAX_TIME_MS, comment: AGENT_COMMENT } as const;
 
 /** Revives the Extended JSON an Agent sent, once the guards have read it as plain JSON. */
 function revive(value: unknown, field: string): Document {
@@ -40,7 +40,7 @@ function revive(value: unknown, field: string): Document {
 }
 
 /** Every document the cursor yields is checked against the gates before anything serialises it (X27 §10). */
-async function* checked(cursor: AsyncIterable<Document>, assertStill: () => void): AsyncGenerator<Document> {
+export async function* checked(cursor: AsyncIterable<Document>, assertStill: () => void): AsyncGenerator<Document> {
   for await (const doc of cursor) {
     assertStill();
     yield doc;
@@ -75,7 +75,7 @@ export async function withLease<T>(
 }
 
 /** Closing is cleanup: a failure is logged by class and never replaces the result or the error that is already on its way. */
-async function closeQuietly(cursor: AbstractCursor<Document>, ctx: ToolContext): Promise<void> {
+export async function closeQuietly(cursor: AbstractCursor<Document>, ctx: ToolContext): Promise<void> {
   await cursor.close().catch((err: unknown) => {
     ctx.log.warn('agent', 'closing an Agent cursor failed', { errName: err instanceof Error ? err.name : typeof err });
   });

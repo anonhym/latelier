@@ -183,8 +183,6 @@ const api: IpcApi = {
     requestEnable: () => call(IPC_CHANNELS.agentAccessRequestEnable, {}),
     disable: () => call(IPC_CHANNELS.agentAccessDisable, {}),
     setShared: (input) => call(IPC_CHANNELS.agentAccessSetShared, input),
-    addToken: (input) => call(IPC_CHANNELS.agentAccessAddToken, input),
-    regenerateToken: (input) => call(IPC_CHANNELS.agentAccessRegenerateToken, input),
     revokeToken: (input) => call(IPC_CHANNELS.agentAccessRevokeToken, input),
     removeBridge: () => call(IPC_CHANNELS.agentAccessRemoveBridge, {}),
     onState: (cb) => {
@@ -200,6 +198,10 @@ const api: IpcApi = {
       ipcRenderer.on(IPC_CHANNELS.agentAccessCallEvent, listener);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.agentAccessCallEvent, listener);
     },
+    dismissRequest: (input) => call(IPC_CHANNELS.agentAccessDismissRequest, input),
+    connectClient: (input) => call(IPC_CHANNELS.agentAccessConnectClient, input),
+    copySetup: (input) => call(IPC_CHANNELS.agentAccessCopySetup, input),
+    renameToken: (input) => call(IPC_CHANNELS.agentAccessRenameToken, input),
   },
 
   secrets: {

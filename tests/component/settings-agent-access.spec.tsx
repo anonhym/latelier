@@ -57,40 +57,64 @@ describe('Settings: Agent Access', () => {
     expect((screen.getByRole('switch', { name: 'Agent Access' }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('Regenerate, Revoke and turning off go to main by token id', async () => {
-    const regenerateToken = vi.fn(async ({ id }: { id: string }) => ({ id, name: 'x', createdAt: '' }));
+  it('Copy setup, Revoke and turning off go to main by token id, with the chosen client', async () => {
+    const copySetup = vi.fn(async ({ id }: { id: string }) => ({ tokenId: id, copiedAt: '2026-11-27T00:00:00.000Z' }));
     const revokeToken = vi.fn(async () => ({ ok: true as const }));
     const disable = vi.fn(async () => ({ enabled: false as const }));
-    mount(ON, { regenerateToken, revokeToken, disable });
-    await userEvent.click(await screen.findByRole('button', { name: 'Regenerate Zed' }));
+    mount(ON, { copySetup, revokeToken, disable });
+    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Client' }), 'cursor');
+    await userEvent.click(screen.getByRole('button', { name: 'Copy setup: Zed' }));
     await userEvent.click(screen.getByRole('button', { name: 'Revoke Claude Code' }));
     await userEvent.click(screen.getByRole('switch', { name: 'Agent Access' }));
     await waitFor(() => expect(disable).toHaveBeenCalled());
-    expect(regenerateToken).toHaveBeenCalledWith({ id: 't2' });
+    expect(copySetup).toHaveBeenCalledWith({ id: 't2', client: 'cursor' });
     expect(revokeToken).toHaveBeenCalledWith({ id: 't1' });
   });
 
-  it('Add Agent sends the trimmed name and offers no empty submit', async () => {
-    const addToken = vi.fn(async ({ name }: { name: string }) => ({ id: 'n', name, createdAt: '' }));
-    mount(ON, { addToken });
+  it('offers the four clients, the Claude Code command first', async () => {
+    mount(ON);
+    const select = await screen.findByRole('combobox', { name: 'Client' });
+    expect((select as HTMLSelectElement).value).toBe('claude-code-cli');
+    expect(within(select).getAllByRole('option').map((o) => [(o as HTMLOptionElement).value, o.textContent])).toEqual([
+      ['claude-code-cli', 'Claude Code (command)'],
+      ['claude-code', 'Claude Code (JSON)'],
+      ['claude-desktop', 'Claude Desktop'],
+      ['cursor', 'Cursor'],
+    ]);
+  });
+
+  it('Add Agent sends the trimmed name and the client, offers no empty submit, and closes once copied', async () => {
+    const connectClient = vi.fn(async () => ({ tokenId: 'n', copiedAt: '2026-11-27T00:00:00.000Z' }));
+    mount(ON, { connectClient });
     await userEvent.click(await screen.findByRole('button', { name: 'Add Agent' }));
     const add = screen.getByRole('button', { name: 'Add' });
     expect((add as HTMLButtonElement).disabled).toBe(true);
     await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), '  Cursor  ');
     await userEvent.click(add);
-    await waitFor(() => expect(addToken).toHaveBeenCalledWith({ name: 'Cursor' }));
+    await waitFor(() => expect(connectClient).toHaveBeenCalledWith({ name: 'Cursor', client: 'claude-code-cli' }));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Agent name' })).toBeNull());
+  });
+
+  it('keeps the name when main’s confirm was cancelled', async () => {
+    const connectClient = vi.fn(async () => ({ cancelled: true as const }));
+    mount(ON, { connectClient });
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Agent' }));
+    await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), 'Cursor');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(connectClient).toHaveBeenCalled());
+    expect((screen.getByRole('textbox', { name: 'Agent name' }) as HTMLInputElement).value).toBe('Cursor');
   });
 
   it('never renders a token: the DOM carries only what getState returned', async () => {
     const SECRET = 'tok_SECRET_abcdefghijklmnop';
-    // A token reaching the renderer would have to arrive on a state object or an add result.
-    const addToken = vi.fn(async ({ name }: { name: string }) => ({ id: 'n', name, createdAt: '', token: SECRET }));
-    const { baseElement } = mount({ ...ON, tokens: [{ ...ON.tokens[0], token: SECRET } as never] }, { addToken });
+    // A token reaching the renderer would have to arrive on a state object or a copy result.
+    const connectClient = vi.fn(async () => ({ tokenId: 'n', copiedAt: '', token: SECRET }));
+    const { baseElement } = mount({ ...ON, tokens: [{ ...ON.tokens[0], token: SECRET } as never] }, { connectClient });
     await screen.findByText('Agents can connect');
     await userEvent.click(screen.getByRole('button', { name: 'Add Agent' }));
     await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), 'Cursor');
     await userEvent.click(screen.getByRole('button', { name: 'Add' }));
-    await waitFor(() => expect(addToken).toHaveBeenCalled());
+    await waitFor(() => expect(connectClient).toHaveBeenCalled());
     expect(baseElement.innerHTML).not.toContain(SECRET);
   });
 

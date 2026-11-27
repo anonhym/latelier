@@ -28,8 +28,10 @@ export const AGENT_ACCESS_OFF: AgentAccessState = {
   bridgeInstalled: false,
   bridgePath: '',
   claudeCodeCommand: '',
+  snippetTemplates: { 'claude-code-cli': '', 'claude-code': '', 'claude-desktop': '', cursor: '' },
   platformCaveat: null,
   privilege: {},
+  connectionRequests: [],
 };
 
 export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
@@ -78,8 +80,6 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       requestEnable: async () => ({ enabled: false }),
       disable: async () => ({ enabled: false as const }),
       setShared: async ({ shared }) => ({ shared }),
-      addToken: async ({ name }) => ({ id: 'agent-token-1', name, createdAt: '2026-11-19T00:00:00.000Z' }),
-      regenerateToken: async ({ id }) => ({ id, name: 'Agent', createdAt: '2026-11-19T00:00:00.000Z' }),
       revokeToken: async () => ({ ok: true as const }),
       removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
@@ -87,6 +87,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       listSessions: async () => [],
       endSession: async () => ({ ok: true as const }),
       onCall: () => () => {},
+      dismissRequest: async () => ({ ok: true as const }),
+      connectClient: async () => ({ tokenId: 'agent-token-1', copiedAt: '2026-11-19T00:00:00.000Z' }),
+      copySetup: async ({ id }) => ({ tokenId: id, copiedAt: '2026-11-19T00:00:00.000Z' }),
+      renameToken: async ({ id, name }) => ({ id, name, createdAt: '2026-11-19T00:00:00.000Z' }),
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),
@@ -469,8 +473,6 @@ function makePermissiveStub(): IpcApi {
       requestEnable: async () => ({ enabled: false }),
       disable: async () => ({ enabled: false as const }),
       setShared: async ({ shared }) => ({ shared }),
-      addToken: async ({ name }) => ({ id: 'agent-token-1', name, createdAt: '2026-11-19T00:00:00.000Z' }),
-      regenerateToken: async ({ id }) => ({ id, name: 'Agent', createdAt: '2026-11-19T00:00:00.000Z' }),
       revokeToken: async () => ({ ok: true as const }),
       removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
@@ -478,6 +480,10 @@ function makePermissiveStub(): IpcApi {
       listSessions: async () => [],
       endSession: async () => ({ ok: true as const }),
       onCall: () => () => {},
+      dismissRequest: async () => ({ ok: true as const }),
+      connectClient: async () => ({ tokenId: 'agent-token-1', copiedAt: '2026-11-19T00:00:00.000Z' }),
+      copySetup: async ({ id }) => ({ tokenId: id, copiedAt: '2026-11-19T00:00:00.000Z' }),
+      renameToken: async ({ id, name }) => ({ id, name, createdAt: '2026-11-19T00:00:00.000Z' }),
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),

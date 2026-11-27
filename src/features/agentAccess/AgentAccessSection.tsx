@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Code, Group, List, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
+import { Button, Code, Group, List, NativeSelect, Stack, Switch, Table, Text, TextInput } from '@mantine/core';
 import { api, getErrorMessage } from '../../api/atelier';
 import { notify } from '../../theme/notifications';
 import { relativeTime } from '../../utils/relativeTime';
@@ -7,7 +7,8 @@ import { AGENT_ACCESS_COPY as COPY, readCountText } from './agentAccessCopy';
 import { useAgentAccessState } from './useAgentAccessState';
 import { stopSharingWithAgents } from './useShareWithAgents';
 import { useConnections } from '../../state/connections';
-import type { ConnectionSummary } from '@shared/types';
+import type { AgentCopyResult, ConnectionSummary, SnippetClient } from '@shared/types';
+import { AGENT_CLIENT_OPTIONS, DEFAULT_AGENT_CLIENT, isAgentClient } from './agentClients';
 
 const NAME_MAX = 64;
 
@@ -18,6 +19,7 @@ export function AgentAccessSection() {
   const [busy, setBusy] = React.useState(false);
   const [adding, setAdding] = React.useState(false);
   const [name, setName] = React.useState('');
+  const [client, setClient] = React.useState<SnippetClient>(DEFAULT_AGENT_CLIENT);
 
   if (!state) return <Text size="xs" c="dimmed">Loading…</Text>;
 
@@ -39,10 +41,16 @@ export function AgentAccessSection() {
   const trimmed = name.trim();
   const submitName = () =>
     run(async () => {
-      await api.agentAccess.addToken({ name: trimmed });
-      setName('');
-      setAdding(false);
+      const result = await api.agentAccess.connectClient({ name: trimmed, client });
+      if (copied(result)) {
+        setName('');
+        setAdding(false);
+      }
     }, 'Could not add the Agent.');
+  const copySetup = (id: string) =>
+    run(async () => {
+      copied(await api.agentAccess.copySetup({ id, client }));
+    }, 'Could not copy the setup.');
 
   const tokens = [...state.tokens].sort((a, b) => a.name.localeCompare(b.name));
   const shared = connections.filter((c) => c.shareWithAgents).sort((a, b) => a.name.localeCompare(b.name));
@@ -105,6 +113,17 @@ export function AgentAccessSection() {
             </Button>
           )}
         </Group>
+        <NativeSelect
+          size="xs"
+          label={COPY.clientLabel}
+          data={[...AGENT_CLIENT_OPTIONS]}
+          value={client}
+          disabled={busy}
+          onChange={(e) => {
+            const next = e.currentTarget.value;
+            if (isAgentClient(next)) setClient(next);
+          }}
+        />
         {adding && (
           <form
             onSubmit={(e) => {
@@ -162,10 +181,10 @@ export function AgentAccessSection() {
                         variant="default"
                         size="compact-xs"
                         disabled={busy}
-                        aria-label={`Regenerate ${t.name}`}
-                        onClick={() => void run(() => api.agentAccess.regenerateToken({ id: t.id }), 'Could not regenerate the token.')}
+                        aria-label={`${COPY.copySetup}: ${t.name}`}
+                        onClick={() => void copySetup(t.id)}
                       >
-                        Regenerate
+                        {COPY.copySetup}
                       </Button>
                       <Button
                         variant="default"
@@ -205,6 +224,13 @@ export function AgentAccessSection() {
       )}
     </>
   );
+}
+
+/** Says the setup is on the clipboard once main's write returned; a cancelled confirm says nothing. */
+function copied(result: AgentCopyResult): boolean {
+  if ('cancelled' in result) return false;
+  notify.success(COPY.setupCopied);
+  return true;
 }
 
 /** Every Connection an Agent could reach, in one place, so what is exposed is never a hunt through menus (X27 §12.1). */
@@ -247,7 +273,7 @@ function SharedConnections({ shared, enabled }: { shared: ConnectionSummary[]; e
   );
 }
 
-/** The Claude Code CLI path, step by step (X27 §12.1). The command shown holds a placeholder; the real one, with the token, is copied from main's token window only. */
+/** The Claude Code CLI path, step by step (X27 §12.1). The command shown holds a placeholder; the real one, with the token, is only ever copied to the clipboard by main. */
 function ClaudeCodeSetup({ command }: { command: string }) {
   const [turnOn, addAgent, paste, check, ask] = COPY.claudeCodeSteps;
   const code = { userSelect: 'text', wordBreak: 'break-all', whiteSpace: 'pre-wrap' } as const;

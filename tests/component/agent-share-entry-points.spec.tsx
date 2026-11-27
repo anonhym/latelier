@@ -181,7 +181,7 @@ describe('Settings: Shared Connections (X27 §12.1)', () => {
     const setup = await screen.findByTestId('agent-claude-code-setup');
     expect(within(setup).getByText('Set up Claude Code')).toBeTruthy();
     expect(within(setup).getByTestId('agent-claude-code-command').textContent).toBe(command);
-    expect(within(setup).getByText(/Copy Claude Code command/)).toBeTruthy();
+    expect(within(setup).getByText(/Choose "Claude Code \(command\)" as the client and add an Agent/)).toBeTruthy();
     expect(within(setup).getByText('claude mcp list')).toBeTruthy();
     expect(within(setup).getByText(/--scope user makes it available in every project/)).toBeTruthy();
     expect(within(setup).getByText('To remove it: claude mcp remove latelier')).toBeTruthy();

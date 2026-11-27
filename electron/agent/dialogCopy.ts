@@ -1,7 +1,6 @@
 import type { PrivilegeResult } from '@shared/types';
 import { privilegeText } from './privilegeVerdict.ts';
 import { displayName } from './safeText.ts';
-import { SNIPPET_CLIENTS } from './snippets.ts';
 
 /** The shape of an Electron `showMessageBox` call, without importing Electron into a testable module. */
 export interface AgentMessageBox {
@@ -87,30 +86,45 @@ export function notOpenBox(connectionName: string): AgentMessageBox {
   };
 }
 
-/** Button 0 is Done, so Escape ends the loop; 1..n copy a client's configuration. */
-export const TOKEN_DONE = 0;
+/** Button 1 of a copy confirm copies; 0 (Cancel, and Escape) does nothing. */
+export const COPY_CONFIRMED = 1;
 
-export function tokenBox(
-  agentName: string,
-  token: string,
-  kind: 'added' | 'regenerated',
-  /** What the last copy button did, shown above the token; null before any was pressed. */
-  note: string | null,
-): AgentMessageBox {
-  const lines = [
-    note,
-    kind === 'regenerated' ? 'The previous token for this Agent no longer works.' : null,
-    'Copy this token now: it is shown only once, and L\'Atelier keeps only a hash of it.',
-    'Claude Code: copy the command, paste it into a terminal and run it. Other Agents: copy their configuration into their MCP settings.',
-    token,
-  ];
+/**
+ * X27 §16.8: one question before a new Agent's setup, with its token, goes
+ * on the clipboard. The token itself is never shown.
+ */
+export function connectClientBox(agentName: string, clientLabel: string): AgentMessageBox {
+  const agent = displayName(agentName);
   return {
     type: 'info',
-    buttons: ['Done', ...SNIPPET_CLIENTS.map((c) => c.button)],
-    defaultId: TOKEN_DONE,
-    cancelId: TOKEN_DONE,
-    title: kind === 'added' ? 'Agent added' : 'Token regenerated',
-    message: kind === 'added' ? `Token for "${displayName(agentName)}"` : `New token for "${displayName(agentName)}"`,
-    detail: lines.filter((l): l is string => l !== null).join('\n\n'),
+    buttons: ['Cancel', 'Copy setup'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Copy setup',
+    message: `Copy the setup for ${clientLabel}?`,
+    detail: `It contains a new Agent Token named “${agent}”. Paste it into ${clientLabel} straight away.`,
+  };
+}
+
+/**
+ * Copying an existing Agent's setup regenerates its token, because only a
+ * hash is stored: the confirm says so, and that its live sessions end.
+ */
+export function copySetupBox(agentName: string, clientLabel: string, liveSessions: number): AgentMessageBox {
+  const agent = displayName(agentName);
+  let regenerated = 'Copying it regenerates the token: a setup that holds the old one stops working.';
+  if (liveSessions === 1) regenerated += ' This Agent’s live session ends.';
+  else if (liveSessions > 1) regenerated += ` This Agent’s ${liveSessions} live sessions end.`;
+  return {
+    type: 'warning',
+    buttons: ['Cancel', 'Copy setup'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Copy setup',
+    message: `Copy the ${clientLabel} setup for “${agent}”?`,
+    detail: [
+      "It contains this Agent's token. Anything that can read your clipboard can use it until you revoke or regenerate it.",
+      regenerated,
+    ].join('\n\n'),
   };
 }
