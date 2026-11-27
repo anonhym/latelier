@@ -379,12 +379,12 @@ describe('every shortcut is in the cheat sheet', () => {
     expect(keys.get('view.documents')).toEqual(['Go to documents', '⌥1']);
     expect(keys.get('view.aggregation')).toEqual(['Go to aggregation', '⌥2']);
     expect(keys.get('view.structure')).toEqual(['Go to schema & indexes', '⌥3']);
+    expect(keys.get('view.agents.toggle')).toEqual(['Toggle Agents sidebar', '⌘⇧A']);
 
     const rows = STATIC_SHORTCUTS.flatMap((s) => s.items.map((i) => `${i.keys} ${i.title}`));
     expect(rows).toContain('⌘↓ From the filter, move to the first result row');
     expect(rows).toContain('Esc From the results, back to the filter');
     expect(rows).toContain('Esc Close the Inspector');
-    expect(rows).toContain('⌘⇧A Switch the sidebar between Databases and Agents');
   });
 
   it('offers Copy query as… for the three targets, beside the Run menu', async () => {
