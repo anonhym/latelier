@@ -204,6 +204,20 @@ const api: IpcApi = {
     renameToken: (input) => call(IPC_CHANNELS.agentAccessRenameToken, input),
   },
 
+  agentProposals: {
+    list: (input) => call(IPC_CHANNELS.agentProposalsList, input),
+    check: (input) => call(IPC_CHANNELS.agentProposalsCheck, input),
+    accept: (input) => call(IPC_CHANNELS.agentProposalsAccept, input),
+    later: (input) => call(IPC_CHANNELS.agentProposalsLater, input),
+    reopen: (input) => call(IPC_CHANNELS.agentProposalsReopen, input),
+    decline: (input) => call(IPC_CHANNELS.agentProposalsDecline, input),
+    onEvent: (cb) => {
+      const listener = (_evt: unknown, event: unknown) => cb(event as Parameters<typeof cb>[0]);
+      ipcRenderer.on(IPC_CHANNELS.agentProposalsEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.agentProposalsEvent, listener);
+    },
+  },
+
   secrets: {
     setPlaintextFallback: (enabled) =>
       call(IPC_CHANNELS.secretsSetPlaintextFallback, { enabled }),

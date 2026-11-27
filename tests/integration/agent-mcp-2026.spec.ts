@@ -14,7 +14,7 @@ import {
   type ElicitAnswer,
 } from '../helpers/agentSocket';
 import { MAX_MESSAGE_BYTES } from '../../electron/agent/AgentSession';
-import { SERVER_INSTRUCTIONS } from '../../electron/agent/tools';
+import { AGENT_TOOLS, SERVER_INSTRUCTIONS } from '../../electron/agent/tools';
 import { defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
 const MODERN = '2026-07-28';
@@ -126,9 +126,19 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       expect(modern.client.getNegotiatedProtocolVersion()).toBe(MODERN);
       expect(legacy.client.getNegotiatedProtocolVersion()).not.toBe(MODERN);
       const modernTools = (await modern.client.listTools()).tools;
-      expect(modernTools).toHaveLength(12);
+      expect(modernTools).toHaveLength(14);
       expect(modernTools).toEqual((await legacy.client.listTools()).tools);
       expect(modern.client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
+      // X28 §4: the one tool that writes says so, in both eras; every other one reads only.
+      expect(modernTools.find((t) => t.name === 'propose_reference_rule')!.annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+      for (const tool of modernTools.filter((t) => t.name !== 'propose_reference_rule')) {
+        expect(tool.annotations, tool.name).toEqual({ readOnlyHint: true, openWorldHint: false });
+      }
     });
 
     it('returns the same tool result in both eras', async () => {
@@ -179,7 +189,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       s.write(oversized());
       expect(await ended).toBe('');
       expect(s.destroyed || s.readableEnded).toBe(true);
-      expect((await other.client.listTools()).tools).toHaveLength(12);
+      expect((await other.client.listTools()).tools).toHaveLength(14);
     });
 
     it.each([
@@ -192,7 +202,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       await a.client.listTools();
       a.socket.write(oversized());
       await a.closed;
-      expect((await other.client.listTools()).tools).toHaveLength(12);
+      expect((await other.client.listTools()).tools).toHaveLength(14);
     });
   });
 
@@ -417,6 +427,8 @@ describe('X29 pause on a real Connection', () => {
       ['explain_aggregate', { ...on, pipeline: [{ $match: { n: 1 } }] }],
       ['list_references', { connectionId: f.connectionId }],
       ['suggest_references', on],
+      // The same token in both eras: the second call is a repeat and answers the same id (X28 §4.1 step 6).
+      ['propose_reference_rule', { connectionId: f.connectionId, sourceDb: f.dbName, sourceCollection: 'orders', sourceField: 'g', targetDb: f.dbName, targetCollection: 'groups', reason: 'g names a group' }],
     ];
     // The last line carries the duration, the envelope tag is random per call, and explain output carries the server's own timings. None is the era's doing.
     const stable = (result: { content?: unknown; isError?: boolean }) => ({
@@ -424,13 +436,20 @@ describe('X29 pause on a real Connection', () => {
       text: textOf(result).split('\n').slice(0, -1).join('\n').replaceAll(/untrusted-data-[0-9a-f]{32}/g, 'untrusted-data-TAG').replace(/"(executionTimeMillis\w*|millis|works|advanced|needTime|saveState|restoreState)":\s*\d+/g, '"$1":0'),
     });
     try {
-      expect(calls).toHaveLength(12);
+      expect(calls).toHaveLength(13);
       for (const [name, args] of calls) {
         const legacy = stable(await f.call(name, args));
         const current = stable(await modern.client.callTool({ name, arguments: args }));
         expect(legacy.isError, name).toBe(false);
         expect(current, name).toEqual(legacy);
       }
+      // get_proposal needs the id the proposal call returned.
+      const proposalId = f.h.proposals.list({ limit: 1 })[0]!.id;
+      calls.push(['get_proposal', { proposalId }]);
+      const legacy = stable(await f.call('get_proposal', { proposalId }));
+      expect(legacy).toEqual({ isError: false, text: JSON.stringify({ proposalId, status: 'pending' }) });
+      expect(stable(await modern.client.callTool({ name: 'get_proposal', arguments: { proposalId } }))).toEqual(legacy);
+      expect(calls.map(([name]) => name)).toEqual(AGENT_TOOLS.map((t) => t.name));
     } finally {
       await modern.close();
     }

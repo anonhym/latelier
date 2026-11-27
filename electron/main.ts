@@ -100,6 +100,9 @@ import { AgentAccessService } from './services/AgentAccessService.ts';
 import { BridgeInstaller } from './agent/bridgeInstall.ts';
 import { bundledBridgePath, installedBridgePath } from './agent/bridgePaths.ts';
 import { registerAgentAccessChannels } from './ipc/handlers/agentAccess.ts';
+import { registerAgentProposalsChannels } from './ipc/handlers/agentProposals.ts';
+import { AgentProposalService } from './services/AgentProposalService.ts';
+import { AgentProposalRepo } from './db/repositories/AgentProposalRepo.ts';
 import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
 import { AgentSessionRepo } from './db/repositories/AgentSessionRepo.ts';
 import { AgentTokenRepo } from './db/repositories/AgentTokenRepo.ts';
@@ -869,6 +872,20 @@ app.whenReady().then(() => {
   // Before Agent Access: the relation tools read the same rules the user's editor does (X27 §16.7).
   const refsRepo = new ReferenceRulesRepo(db);
   const refsSvc = new ReferenceRulesService(refsRepo, pool);
+  // Agent Proposals (X28): the tools file them, the user's click accepts one through `refsSvc`.
+  const agentProposalRepo = new AgentProposalRepo(db, cipher, log);
+  const agentProposalSvc = new AgentProposalService({
+    repo: agentProposalRepo,
+    refs: refsSvc,
+    rulesRepo: refsRepo,
+    connections: connRepo,
+    pool,
+    appState,
+    log,
+    emit: (event) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentProposalsEvent, event);
+    },
+  });
   agentSvc = new AgentAccessService({
     appState,
     tokenRepo: new AgentTokenRepo(db),
@@ -891,6 +908,7 @@ app.whenReady().then(() => {
       clearClipboard: () => clipboard.clear(),
     },
     refs: refsSvc,
+    proposals: agentProposalSvc,
     // The state holds no token; the renderer learns of every change from here.
     emit: (state) => {
       if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessStateEvent, state);
@@ -934,6 +952,7 @@ app.whenReady().then(() => {
     auditRepo,
     agentReadLogRepo,
     agentSessionRepo,
+    agentProposalRepo,
     checkpoint: () => {
       if (!truncateWal(checkpointDb)) checkpointLog.warn('maintenance', 'wal checkpoint was blocked');
     },
@@ -987,6 +1006,7 @@ app.whenReady().then(() => {
     return result.response === 1;
   }, () => ({ columnKeyProtected: columnKey.protected }));
   registerAgentAccessChannels(router, agentSvc);
+  registerAgentProposalsChannels(router, agentProposalSvc);
   registerTabsChannels(router, tabsSvc);
   // Same window-lookup + `saveFilters` pattern as `app.ts`'s `saveFile`,
   // kept as a closure here rather than an import into query.ts so that file

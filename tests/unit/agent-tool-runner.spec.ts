@@ -7,6 +7,16 @@ import type { AgentReadLogEntry } from '../../electron/db/repositories/AgentRead
 import { AGENT_TOOLS } from '../../electron/agent/tools';
 import { AgentToolError, defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
+/** No test here files or reads a Proposal: a call that reaches one is a bug in the test. */
+const NO_PROPOSALS = {
+  propose: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+  statusFor: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+};
+
 const session: AgentSessionIdentity = {
   sessionId: 's',
   tokenId: 't',
@@ -33,6 +43,7 @@ function runner(rows: AgentReadLogEntry[]) {
     connections: { findById: () => null },
     log: { warn: () => undefined, error: () => undefined },
     refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
   });
 }
 
@@ -108,6 +119,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       connections: { findById: () => (opts.name === null ? null : { id: CONNECTION, name: opts.name ?? 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
       refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
       onRowWritten: (row) => {
         summaries.push(row);
         written.push(row.outcome);
@@ -250,6 +262,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       connections: { findById: () => ({ id: CONNECTION, name: 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
       refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
     });
     const reply = await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'none' });
     expect(reply.kind).toBe('result');
@@ -258,9 +271,10 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
 });
 
 describe('AgentToolRunner tool context', () => {
-  it('hands a tool the Reference Rules it was built with', async () => {
+  it('hands a tool the Reference Rules and the Proposals it was built with', async () => {
     const refs = { effective: () => [] };
-    let seen: unknown = null;
+    const proposals = { ...NO_PROPOSALS };
+    let seen: { refs: unknown; proposals: unknown } | null = null;
     const r = new AgentToolRunner({
       gate: { checkToken: () => 'ok' } as unknown as AgentGate,
       tools: [
@@ -268,8 +282,9 @@ describe('AgentToolRunner tool context', () => {
           name: 'probe',
           description: 'probe',
           inputSchema: z.strictObject({}),
+          annotations: { readOnlyHint: true, openWorldHint: false },
           run: (_input, ctx) => {
-            seen = ctx.refs;
+            seen = { refs: ctx.refs, proposals: ctx.proposals };
             return { text: 'x', count: 0 };
           },
         },
@@ -279,8 +294,152 @@ describe('AgentToolRunner tool context', () => {
       connections: { findById: () => null },
       log: { warn: () => undefined, error: () => undefined },
       refs,
+      proposals,
     });
     await r.call(session, 'probe', {}, new AbortController().signal);
-    expect(seen).toBe(refs);
+    expect(seen).toEqual({ refs, proposals });
+    expect(seen!.refs).toBe(refs);
+    expect(seen!.proposals).toBe(proposals);
+  });
+
+  it('refuses a Proposal ACCESS_OFF once the token is no longer valid, and never reaches the Proposals', async () => {
+    const rows: AgentReadLogEntry[] = [];
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ACCESS_OFF', assertConnection: () => undefined } as unknown as AgentGate,
+      tools: AGENT_TOOLS,
+      readLog: { insert: (row) => (rows.push(row), 'id') },
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => null },
+      log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
+    });
+    const args = {
+      connectionId: '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11',
+      sourceDb: 'shop',
+      sourceCollection: 'orders',
+      sourceField: 'customerId',
+      targetDb: 'shop',
+      targetCollection: 'customers',
+      reason: 'ids match',
+    };
+    for (const [name, input] of [['propose_reference_rule', args], ['get_proposal', { proposalId: '9b2f5c0e-8c1d-4b8e-9a39-1c3f9d2e7a10' }]] as const) {
+      const reply = await r.call(session, name, input, new AbortController().signal);
+      expect(reply).toMatchObject({ kind: 'result', closeSession: true, result: { isError: true } });
+    }
+    expect(rows.map((row) => row.outcome)).toEqual(['ACCESS_OFF', 'ACCESS_OFF']);
+  });
+
+  it("logs a Proposal under its source namespace, which the call names as sourceDb and sourceCollection", async () => {
+    const CONNECTION = '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11';
+    const rows: AgentReadLogEntry[] = [];
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ok', assertConnection: () => undefined } as unknown as AgentGate,
+      tools: AGENT_TOOLS,
+      readLog: { insert: (row) => (rows.push(row), 'id') },
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => ({ id: CONNECTION, name: 'prod' }) },
+      log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: { ...NO_PROPOSALS, propose: () => ({ id: '9b2f5c0e-8c1d-4b8e-9a39-1c3f9d2e7a10' }) },
+    });
+    const args = {
+      connectionId: CONNECTION,
+      sourceDb: 'shop',
+      sourceCollection: 'orders',
+      sourceField: 'customerId',
+      targetDb: 'shop',
+      targetCollection: 'customers',
+      reason: 'ids match',
+    };
+    await r.call(session, 'propose_reference_rule', args, new AbortController().signal);
+    expect(rows[0]).toMatchObject({ tool: 'propose_reference_rule', outcome: 'ok', database: 'shop', collection: 'orders', connectionName: 'prod' });
+  });
+});
+
+describe('AgentToolRunner committing a tool write with its row', () => {
+  function writing(opts: { tool: (log: string[]) => { text: string; count: number; commit?: () => void; afterCommit?: () => void }; insert?: () => string; withTransaction?: boolean }) {
+    const events: string[] = [];
+    const warned: unknown[] = [];
+    const readLog = {
+      insert: () => {
+        events.push('insert');
+        return opts.insert ? opts.insert() : 'row';
+      },
+      ...(opts.withTransaction === false
+        ? {}
+        : {
+            transaction: <T>(fn: () => T): T => {
+              events.push('begin');
+              try {
+                const out = fn();
+                events.push('commit');
+                return out;
+              } catch (err) {
+                events.push('rollback');
+                throw err;
+              }
+            },
+          }),
+    };
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ok' } as unknown as AgentGate,
+      tools: [{ name: 'write', description: 'write', inputSchema: z.strictObject({}), annotations: { readOnlyHint: false, openWorldHint: false }, run: () => opts.tool(events) }],
+      readLog,
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => null },
+      log: { warn: (_s: string, _m: string, ctx?: unknown) => void warned.push(ctx), error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
+    });
+    return { events, warned, call: () => r.call(session, 'write', {}, new AbortController().signal) };
+  }
+  const plan = (log: string[]) => ({ text: 'done', count: 1, commit: () => void log.push('write'), afterCommit: () => void log.push('announce') });
+
+  it('runs the write and the row in one transaction, and announces only once it committed', async () => {
+    const w = writing({ tool: plan });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'commit', 'announce']);
+    expect(reply).toMatchObject({ kind: 'result', result: { content: [{ text: expect.stringMatching(/^done\n/) }] } });
+  });
+
+  it('rolls the write back and announces nothing when the row cannot be written', async () => {
+    const w = writing({
+      tool: plan,
+      insert: () => {
+        throw new Error('disk I/O error');
+      },
+    });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'rollback']);
+    expect(reply).toMatchObject({ kind: 'result', result: { isError: true, content: [{ text: expect.stringMatching(/^DB_ERROR: /) }] } });
+  });
+
+  it('opens no transaction for a call that writes nothing', async () => {
+    const w = writing({ tool: () => ({ text: 'read', count: 0 }) });
+    await w.call();
+    expect(w.events).toEqual(['insert']);
+  });
+
+  it('still writes and answers when the log has no transaction to offer', async () => {
+    const w = writing({ tool: plan, withTransaction: false });
+    await w.call();
+    expect(w.events).toEqual(['write', 'insert', 'announce']);
+  });
+
+  it('logs an announcement that fails, by its class only, and still answers: the write already committed', async () => {
+    const w = writing({
+      tool: (log) => ({
+        ...plan(log),
+        afterCommit: () => {
+          throw new TypeError('renderer gone: secret detail');
+        },
+      }),
+    });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'commit']);
+    expect(w.warned).toEqual([{ errName: 'TypeError' }]);
+    expect(reply).toMatchObject({ kind: 'result', result: { content: [{ text: expect.stringMatching(/^done\n/) }] } });
+    expect((reply as { result: { isError?: boolean } }).result.isError).toBeUndefined();
   });
 });

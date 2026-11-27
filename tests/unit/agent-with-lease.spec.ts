@@ -4,6 +4,16 @@ import { AgentToolError } from '../../electron/agent/errorMap';
 import type { ToolContext } from '../../electron/agent/tools';
 import type { AgentGate, AgentSessionIdentity } from '../../electron/agent/AgentGate';
 
+/** No test here files or reads a Proposal: a call that reaches one is a bug in the test. */
+const NO_PROPOSALS = {
+  propose: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+  statusFor: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+};
+
 const session: AgentSessionIdentity = { sessionId: 's', tokenId: 't', tokenHash: 'h', tokenName: 'n', clientName: null, clientVersion: null };
 
 function context(state: { revoked: boolean; released: number }): ToolContext {
@@ -20,7 +30,7 @@ function context(state: { revoked: boolean; released: number }): ToolContext {
       },
     }),
   };
-  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] } };
+  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] }, proposals: NO_PROPOSALS };
 }
 
 describe('withLease', () => {

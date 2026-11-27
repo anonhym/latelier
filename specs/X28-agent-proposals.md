@@ -68,7 +68,7 @@ A new append-only migration (the next free number, after [X27 §16.2](./X27-agen
 | `connection_id`, `connection_name` | the name copied at write time |
 | `source_db`, `source_collection`, `source_field` | |
 | `target_db`, `target_collection`, `target_field` | |
-| `pair_key` | X26 §4's key: `connectionId\|srcDb.srcColl.srcField->tgtDb.tgtColl.tgtField` |
+| `pair_key` | X26 §4's key, from X26's own `pairKey` (`src/utils/referenceDiscovery.ts`): `connectionId\|` then the six names as a JSON array, `["srcDb","srcColl","srcField","tgtDb","tgtColl","tgtField"]`; a key over 1,024 characters is `connectionId\|#` and a hash of that array. Not dotted text: a Collection `a.b` with field `c` and a Collection `a` with field `b.c` are different pairs |
 | `created_at`, `decided_at`, `expires_at` | ISO-8601 |
 | `rule_id` | the created rule, once accepted |
 | `saved_for` | `TEXT CHECK (saved_for IN ('connection','family'))`, once accepted |
@@ -118,7 +118,7 @@ X27 §8 says every tool is `readOnlyHint: true`. `propose_reference_rule` is the
 - **Checks, in order**, each refusing with a §9.4 code:
   1. The three gates and the token (X27 §2): `ACCESS_OFF`, `NOT_SHARED`, `NOT_OPEN`. Like every tool that names a Connection, a call on a shared, closed Connection may first pause and ask the user to open it ([X29 §4](./X29-agent-access-mcp-2026.md)).
   2. Both namespaces against X27 §7.4: `NAMESPACE_DENIED`.
-  3. Both field paths: 1 to 256 characters, dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. Source and target the same field of the same collection: `INVALID_INPUT`.
+  3. Both field paths: 1 to 255 characters, what a saved Reference Rule holds, in dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. A database, collection or field name, or the reason, holding a control, format (bidi or zero-width) or line or paragraph separator character: `INVALID_INPUT`, since each is shown to the user. The reason is plain text that may span lines, so a line feed or a tab in it is allowed; every other such character is refused there too. Source and target the same field of the same collection: `INVALID_INPUT`. Database and collection names are 1 to 255 characters too.
   4. The pair key is on the Never list: the new code `PROPOSAL_DECLINED`, "The user declined this relation. Do not propose it again."
   5. The source field already has an effective rule: the new code `ALREADY_CONFIGURED`, naming no rule.
   6. This token already backs an open Proposal for the same pair: nothing is written, and the call returns that Proposal's id. This comes before the cap, so a retry whose first response was lost always recovers its id.
@@ -144,6 +144,7 @@ Every surface that shows a Proposal shows the same parts:
 - Who proposed it: each backer's name and client ("laptop-claude · claude-code") and when, first backer first.
 - Each backer's reason, labelled "In {Agent}'s words", in a quoted style, as plain text. It is never rendered as Markdown or HTML, and nothing in it is a link.
 - **The check.** Shown after the user opens the Proposal, never on the Agent's call. Main samples up to three source documents that have the field (`{ [sourceField]: { $exists: true } }`, `limit: 3`) and looks each value up in the target (`limit: 1`, `maxTimeMS` 2,000). It reads on the user's own client, and only while the Connection is open; otherwise it reads "Open {connection} to check this relation". It reports "3 of 3 sampled orders resolve", "1 of 3 …" or "No sampled order has `customerId`". It is read-only and never changes the Proposal.
+  - `agentProposals:check` answers one of two shapes. `{ kind: 'not-open', connectionName }` when the Connection is not open: main reads its status first and asks for no client, so a closed Connection is never connected; the same answer comes back when the Connection closes while the check is reading, since each read is asked for only while it is still open. Otherwise `{ kind: 'sampled', sampled, resolved, sourceCollection, sourceField, targetCollection, targetField }`, `sampled` being the source documents read (0 to 3) and `resolved` how many found a target. A source value that is an array resolves when any element does; a null one never resolves.
 
 ## 6. Deciding
 
@@ -174,7 +175,7 @@ Through the 5-file contract, with a `registerAgentProposalsChannels` call in `el
 - `agentProposals:check` `{ id }` → the §5 check result
 - `agentProposals:accept` `{ id, savedFor: 'connection' | 'family' }`
 - `agentProposals:later`, `agentProposals:reopen`, `agentProposals:decline` `{ id }`
-- `agentProposals:event` (push): a Proposal was added or changed status
+- `agentProposals:changed-event` (push, `{ id, status }`): a Proposal was added, joined by another Agent, or changed status. The renderer lists again. Push channels end in `-event`, like `agentAccess:state-event`.
 
 No channel takes a secret. `agentProposals:accept` adds no power the renderer lacked, since `refs:create` already accepts any pair.
 
@@ -196,7 +197,7 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 **Unit**
 
-- `agent-proposal-input.spec.ts`: field path rules (empty segment, `$` prefix, numeric segment, 256 characters), same-field refusal, reason length.
+- `agent-proposal-input.spec.ts`: field path rules (empty segment, `$` prefix, numeric segment, 255 characters), unsafe characters in a name and the reason (a line feed and a tab allowed in the reason only), same-field refusal, reason length.
 - `agent-proposal-lifecycle.spec.ts`: each transition in §3, expiry with an injected clock, obsolete on an effective rule, deleted Connection.
 - `pair-key.spec.ts` (extend X26's): the Proposal's key equals X26's for the same pair.
 

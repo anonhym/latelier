@@ -1,6 +1,11 @@
 // IPC contract shared by main and renderer. Runtime-free.
 
 import type {
+  AgentProposal,
+  AgentProposalCheck,
+  AgentProposalEvent,
+  AgentProposalSavedFor,
+  AgentProposalsQuery,
   AgentAccessState,
   AgentCallRow,
   AgentCallSummary,
@@ -395,6 +400,28 @@ export interface IpcApi {
     renameToken: (input: { id: string; name: string }) => Promise<AgentTokenInfo>;
   };
 
+  /**
+   * Agent Proposals (X28). An Agent files a Reference Rule; only `accept`, on
+   * the user's click, creates it, from the stored pair. Everything a Proposal
+   * holds that came from an Agent (names, reasons) is untrusted text.
+   */
+  agentProposals: {
+    /** Newest first, keyset-paged on `(createdAt, id)`; expiry and the obsolete rule are applied first. Reasons decrypted in main. */
+    list: (input: AgentProposalsQuery) => Promise<AgentProposal[]>;
+    /** Samples up to three source documents on the user's own client, only while the Connection is open; never connects it. */
+    check: (input: { id: string }) => Promise<AgentProposalCheck>;
+    /** Creates the rule for the Connection or its Family. Refused (CONFLICT) once the Proposal is not open or a rule covers its source field. */
+    accept: (input: { id: string; savedFor: AgentProposalSavedFor }) => Promise<{ ruleId: string; savedFor: AgentProposalSavedFor }>;
+    /** Not now: pending becomes later. */
+    later: (input: { id: string }) => Promise<{ ok: true }>;
+    /** later becomes pending. */
+    reopen: (input: { id: string }) => Promise<{ ok: true }>;
+    /** Never for this pair: declined, and the pair joins X26's Never list. */
+    decline: (input: { id: string }) => Promise<{ ok: true }>;
+    /** Main pushes each Proposal added or changed; returns the unsubscribe. */
+    onEvent: (cb: (event: AgentProposalEvent) => void) => () => void;
+  };
+
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
   docs: {
     openExternal: (input: { url: string }) => Promise<{ opened: true }>;
@@ -765,6 +792,13 @@ export const IPC_CHANNELS = {
   agentAccessConnectClient:   'agentAccess:connect-client',
   agentAccessCopySetup:       'agentAccess:copy-setup',
   agentAccessRenameToken:     'agentAccess:rename-token',
+  agentProposalsList:         'agentProposals:list',
+  agentProposalsCheck:        'agentProposals:check',
+  agentProposalsAccept:       'agentProposals:accept',
+  agentProposalsLater:        'agentProposals:later',
+  agentProposalsReopen:       'agentProposals:reopen',
+  agentProposalsDecline:      'agentProposals:decline',
+  agentProposalsEvent:        'agentProposals:changed-event',
 
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',

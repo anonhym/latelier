@@ -115,12 +115,24 @@ describe('the NOT_OPEN message', () => {
   });
 });
 
+describe('the Proposal refusals (X28 §4.1)', () => {
+  it('tells the Agent a declined pair is final', () => {
+    expect(defaultAgentMessage('PROPOSAL_DECLINED')).toBe('The user declined this relation. Do not propose it again.');
+  });
+  it('names no rule when the source field is already covered', () => {
+    expect(defaultAgentMessage('ALREADY_CONFIGURED')).toBe('A Reference Rule already covers this source field.');
+  });
+  it('states the cap of open Proposals', () => {
+    expect(defaultAgentMessage('PROPOSAL_LIMIT')).toBe('This Agent already has 20 open Proposals. Wait until the user decides some of them.');
+  });
+});
+
 describe('the code list', () => {
-  it('is the eleven stable codes and every one has a default message', () => {
+  it('is the fourteen stable codes and every one has a default message', () => {
     expect([...AGENT_ERROR_CODES].sort((a, b) => a.localeCompare(b))).toEqual(
       [
-        'ACCESS_OFF', 'BUSY', 'CANCELLED', 'DB_ERROR', 'INVALID_INPUT', 'JS_NOT_ALLOWED',
-        'NAMESPACE_DENIED', 'NOT_OPEN', 'NOT_SHARED', 'STAGE_NOT_ALLOWED', 'TIMEOUT',
+        'ACCESS_OFF', 'ALREADY_CONFIGURED', 'BUSY', 'CANCELLED', 'DB_ERROR', 'INVALID_INPUT', 'JS_NOT_ALLOWED',
+        'NAMESPACE_DENIED', 'NOT_OPEN', 'NOT_SHARED', 'PROPOSAL_DECLINED', 'PROPOSAL_LIMIT', 'STAGE_NOT_ALLOWED', 'TIMEOUT',
       ],
     );
     for (const code of AGENT_ERROR_CODES) expect(defaultAgentMessage(code).length).toBeGreaterThan(5);

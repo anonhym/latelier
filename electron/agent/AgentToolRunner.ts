@@ -12,7 +12,7 @@ import {
 } from './errorMap.ts';
 import { metaLine } from './envelope.ts';
 import { openConnectionMessage, type OpenConnectionAnswer } from './openConnectionPause.ts';
-import type { AgentReferenceRules, AgentTool, ToolOutcome } from './tools.ts';
+import type { AgentProposals, AgentReferenceRules, AgentTool, ToolOutcome } from './tools.ts';
 
 export interface AgentCallResult {
   [key: string]: unknown;
@@ -23,12 +23,15 @@ export interface AgentCallResult {
 export interface AgentToolRunnerDeps {
   gate: AgentGate;
   tools: readonly AgentTool[];
-  readLog: { insert(entry: AgentReadLogEntry): string };
+  /** `transaction`, when given, holds a tool's own write and its row together. */
+  readLog: { insert(entry: AgentReadLogEntry): string; transaction?<T>(fn: () => T): T };
   tokens: { touchLastUsed(id: string, at: string): void };
   connections: { findById(id: string): { id: string; name: string } | null };
   log: Pick<Logger, 'warn' | 'error'>;
   /** The Reference Rules the relation tools read (X27 §16.7). */
   refs: AgentReferenceRules;
+  /** The Proposals the X28 tools file and read. */
+  proposals: AgentProposals;
   /**
    * Called once per Agent Read Log row written, with the row as stored minus
    * its request: for the read counts and the live call feed. One object, so a
@@ -125,7 +128,9 @@ export class AgentToolRunner {
       const input = tool.inputSchema.parse(rawArgs ?? {});
       // Declined, cancelled or garbled: the user did not open it, so the gate is not run again.
       if (ask.answer === 'refused' && takesConnection(input)) throw new AgentToolError('NOT_OPEN', NOT_OPEN_DECLINED_MESSAGE);
-      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs });
+      const ran = tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs, proposals: this.deps.proposals });
+      // A synchronous tool is not awaited: from its checks to its row nothing else runs, so a write it plans cannot be raced.
+      outcome = ran instanceof Promise ? await ran : ran;
     } catch (err) {
       failure = toAgentError(err);
       if (failure.code === 'DB_ERROR') {
@@ -171,8 +176,13 @@ export class AgentToolRunner {
       truncated: failure ? false : outcome!.truncated === true,
     };
     let rowId: string;
+    const commit = failure ? undefined : outcome!.commit;
+    const write = (): string => {
+      commit?.();
+      return this.deps.readLog.insert({ ...summary, outcome: rowOutcome, requestJson: requestJsonOf(rawArgs) });
+    };
     try {
-      rowId = this.deps.readLog.insert({ ...summary, outcome: rowOutcome, requestJson: requestJsonOf(rawArgs) });
+      rowId = commit !== undefined && this.deps.readLog.transaction ? this.deps.readLog.transaction(write) : write();
     } catch (err) {
       // Fail closed: a read the user cannot see afterwards does not happen.
       this.deps.log.error('agent', 'could not write the Agent Read Log row', {
@@ -182,6 +192,7 @@ export class AgentToolRunner {
       return { kind: 'result', result: { isError: true, content: [{ type: 'text', text: errorText(refused) }] }, closeSession };
     }
     this.deps.onRowWritten?.({ id: rowId, ...summary });
+    if (!failure) this.announce(outcome!);
 
     if (question !== null) return { kind: 'ask', message: question };
     if (failure) {
@@ -196,6 +207,15 @@ export class AgentToolRunner {
       estimate: outcome!.estimate,
     });
     return { kind: 'result', result: { content: [{ type: 'text', text: `${text}\n${meta}` }] }, closeSession };
+  }
+
+  /** What a committed write announces. It cannot undo the write, so a failure is logged and the call still answers. */
+  private announce(outcome: ToolOutcome): void {
+    try {
+      outcome.afterCommit?.();
+    } catch (err) {
+      this.deps.log.warn('agent', 'could not announce a tool write', { errName: err instanceof Error ? err.name : typeof err });
+    }
   }
 
   /**
@@ -219,8 +239,9 @@ export class AgentToolRunner {
     return {
       connectionId,
       connectionName: found?.name ?? null,
-      database: stringField(rawArgs, 'database'),
-      collection: stringField(rawArgs, 'collection'),
+      // A Proposal names its source namespace, which is the one its row and any Connection request show.
+      database: stringField(rawArgs, 'database') ?? stringField(rawArgs, 'sourceDb'),
+      collection: stringField(rawArgs, 'collection') ?? stringField(rawArgs, 'sourceCollection'),
     };
   }
 }

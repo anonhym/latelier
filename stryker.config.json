@@ -186,6 +186,8 @@
     "electron/agent/openConnectionPause.ts",
     "electron/agent/folderDisplay.ts",
     "electron/agent/callQuery.ts",
-    "electron/agent/connectionRequests.ts"
+    "electron/agent/connectionRequests.ts",
+    "electron/agent/proposalInput.ts",
+    "electron/agent/proposalLifecycle.ts"
   ]
 }

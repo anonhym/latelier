@@ -28,10 +28,22 @@ export class AppStateService {
   }
 
   set<T>(key: string, value: T): void {
+    this.setDeferred(key, value)();
+  }
+
+  /**
+   * Writes the row now, inside whatever transaction the caller holds, and
+   * returns what makes the value visible in-process: the cache and the
+   * listeners. The caller runs it once that transaction committed, so a
+   * rollback leaves the cache as the database is.
+   */
+  setDeferred<T>(key: string, value: T): () => void {
     this.repo.set(key, value);
-    this.cache.set(key, value);
-    this.loaded.add(key);
-    this.emit(key, value);
+    return () => {
+      this.cache.set(key, value);
+      this.loaded.add(key);
+      this.emit(key, value);
+    };
   }
 
   delete(key: string): void {

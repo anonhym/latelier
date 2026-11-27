@@ -12,7 +12,7 @@ describe('migration 021: Agent sessions', () => {
   const names = () =>
     (tmp.db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','index')").all() as { name: string }[]).map((r) => r.name);
 
-  it('creates the sessions table and its indexes, and records version 21', () => {
+  it('creates the sessions table and its indexes, and leaves the version at the latest', () => {
     expect(names()).toEqual(
       expect.arrayContaining([
         'agent_sessions',
@@ -22,7 +22,7 @@ describe('migration 021: Agent sessions', () => {
         'idx_agent_read_log_conn',
       ]),
     );
-    expect((tmp.db.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(21);
+    expect((tmp.db.prepare('SELECT version FROM schema_version').get() as { version: number }).version).toBe(22);
   });
 
   it('adds a nullable session_id to the read log', () => {

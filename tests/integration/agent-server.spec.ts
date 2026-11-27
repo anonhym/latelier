@@ -94,6 +94,7 @@ describe('Agent server', () => {
           clearClipboard: () => undefined,
         },
         refs: h.refs,
+        proposals: h.proposals,
         emit: () => undefined,
         emitCall: () => undefined,
       });
@@ -512,9 +513,12 @@ describe('Agent server', () => {
         'explain_aggregate',
         'list_references',
         'suggest_references',
+        'propose_reference_rule',
+        'get_proposal',
       ]);
       for (const tool of tools) {
-        expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
+        // X28 §4: filing a Proposal writes app state, never a database; every other tool reads only.
+        expect(tool.annotations).toMatchObject({ readOnlyHint: tool.name !== 'propose_reference_rule', openWorldHint: false });
         expect(tool.inputSchema).toMatchObject({ type: 'object', additionalProperties: false });
         // A client that has an outputSchema shows the model structuredContent and drops the text with the data.
         expect(Object.keys(tool)).not.toContain('outputSchema');
