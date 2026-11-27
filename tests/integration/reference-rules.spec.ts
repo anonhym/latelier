@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { Double, Int32, Long, ObjectId } from 'bson';
-import type { Document } from 'mongodb';
+import { MongoClient, MongoServerError, type CommandStartedEvent, type Db, type Document } from 'mongodb';
 import { MongoPool } from '../../electron/mongo/MongoPool';
 import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
 import { ReferenceRulesService } from '../../electron/services/ReferenceRulesService';
-import { NotFoundError } from '../../electron/errors';
+import { NotFoundError, SystemError } from '../../electron/errors';
+import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS, STATS_TIMEOUT_MS } from '../../electron/mongo/timeouts';
 import { createTempDb, type TempDb } from '../helpers/db';
 import { getSharedMongoUri, makeConnection, makeReader } from '../helpers/mongo';
 
@@ -767,5 +768,119 @@ describe('ReferenceRulesService', () => {
       targetField: '$where',
     });
     await expect(svc.resolve({ ruleId: rule.id, valueEjson: '"return true"' })).rejects.toThrow(/target field/);
+  });
+
+  // Every read the service sends is bounded, and a failed read is reported
+  // rather than answered as if the database were empty. The pool's own client
+  // does not monitor commands, so these route `readDb` to one that does.
+  describe('bounded reads and reported failures', () => {
+    let monitored: MongoClient;
+    let commands: CommandStartedEvent[] = [];
+
+    beforeAll(async () => {
+      monitored = new MongoClient(getSharedMongoUri(), { monitorCommands: true });
+      await monitored.connect();
+      monitored.on('commandStarted', (event) => commands.push(event));
+    });
+
+    afterAll(async () => {
+      await monitored.close();
+    });
+
+    beforeEach(() => {
+      commands = [];
+      vi.spyOn(pool, 'readDb').mockImplementation(async (_id, name) => monitored.db(name));
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function sent(commandName: string): Document[] {
+      return commands.filter((c) => c.commandName === commandName).map((c) => c.command);
+    }
+
+    async function seed(docs: Document[]): Promise<void> {
+      const db = (await pool.write(CONN_ID).client()).db(DB_NAME);
+      await db.collection('items').deleteMany({});
+      await db.collection('items').insertMany(docs);
+    }
+
+    function itemRule(projection?: string[]) {
+      return svc.create({
+        owner: { connectionId: CONN_ID },
+        sourceDb: DB_NAME,
+        sourceCollection: 'orders',
+        sourceField: 'item_code',
+        targetDb: DB_NAME,
+        targetCollection: 'items',
+        targetField: 'code',
+        ...(projection ? { projection } : {}),
+      });
+    }
+
+    it('bounds the lookup of a single value with the interactive timeout', async () => {
+      await seed([{ code: 'a', name: 'A' }]);
+      const rule = itemRule();
+
+      const result = await svc.resolve({ ruleId: rule.id, valueEjson: '"a"' });
+
+      expect(result.found).toBe(true);
+      const finds = sent('find');
+      expect(finds).toHaveLength(1);
+      expect(finds[0]).toMatchObject({ find: 'items', maxTimeMS: QUERY_TIMEOUT_MS });
+    });
+
+    it('bounds both lookups of an array whose projection leaves out the target field', async () => {
+      await seed([{ code: 'a', name: 'A' }, { code: 'b', name: 'B' }]);
+      const rule = itemRule(['name']);
+
+      const result = await svc.resolve({ ruleId: rule.id, valueEjson: '["b","a"]' });
+
+      expect(names(result)).toEqual(['B', 'A']);
+      const finds = sent('find');
+      expect(finds).toHaveLength(2);
+      for (const find of finds) expect(find).toMatchObject({ find: 'items', maxTimeMS: QUERY_TIMEOUT_MS });
+    });
+
+    it('bounds the sample and the collection list autodetect reads', async () => {
+      await seed([{ code: 'a', name: 'A' }]);
+      const db = (await pool.write(CONN_ID).client()).db(DB_NAME);
+      await db.collection('orders').deleteMany({});
+      await db.collection('orders').insertOne({ item_id: 'a' });
+
+      const candidates = await svc.autodetect({ connectionId: CONN_ID, dbName: DB_NAME, collection: 'orders' });
+
+      expect(candidates.map((c) => c.targetCollection)).toEqual(['items']);
+      expect(sent('find')).toEqual([expect.objectContaining({ find: 'orders', limit: 25, maxTimeMS: PROBE_TIMEOUT_MS })]);
+      expect(sent('listCollections')).toEqual([expect.objectContaining({ nameOnly: true, maxTimeMS: STATS_TIMEOUT_MS })]);
+    });
+
+    it('reports a database it could not reach instead of finding no candidates', async () => {
+      vi.mocked(pool.readDb).mockRejectedValue(new SystemError('DB_ERROR', 'failed to connect'));
+
+      await expect(
+        svc.autodetect({ connectionId: CONN_ID, dbName: DB_NAME, collection: 'orders', sampleDocs: [{ item_id: 'a' }] }),
+      ).rejects.toMatchObject({ code: 'DB_ERROR', message: 'failed to connect' });
+    });
+
+    it.each([
+      ['the collection list', 'listCollections'],
+      ['the sample', 'find'],
+    ] as const)('reports a server error from %s as a classified error', async (_what, failing) => {
+      const real = monitored.db(DB_NAME);
+      const refused = new MongoServerError({ message: 'not authorized', code: 13, codeName: 'Unauthorized' });
+      const failingCursor = { limit: () => failingCursor, toArray: () => Promise.reject(refused) };
+      const db = {
+        collection: (name: string) => (failing === 'find' ? { find: () => failingCursor } : real.collection(name)),
+        listCollections: (...args: Parameters<Db['listCollections']>) =>
+          failing === 'listCollections' ? failingCursor : real.listCollections(...args),
+      } as unknown as Db;
+      vi.mocked(pool.readDb).mockResolvedValue(db);
+
+      await expect(
+        svc.autodetect({ connectionId: CONN_ID, dbName: DB_NAME, collection: 'orders' }),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED', message: 'not authorized' });
+    });
   });
 });

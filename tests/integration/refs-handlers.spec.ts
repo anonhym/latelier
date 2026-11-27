@@ -506,16 +506,18 @@ describe('refs:* channels via router', () => {
       expect(env.data[0]).toMatchObject({ sourceField: 'customer_id', alreadyConfigured: true });
     });
 
-    // specs/X05-document-references.md section 9: autodetect fails open, so a
-    // pool failure (an unknown connection included) is an empty list and the
-    // user keeps the manual "New rule" path.
-    it('returns an empty list, not an error, for an unknown connection', async () => {
+    // specs/X05-document-references.md section 9: autodetect reports a pool
+    // failure (an unknown connection included) instead of an empty list, which
+    // would read as "no candidates". The manual "New rule" path is unaffected.
+    it('reports an unknown connection as an error, not an empty list', async () => {
       const env = await shim.invoke(IPC_CHANNELS.refsAutodetect, {
         ...auto,
         connectionId: 'no-such-conn',
         sampleDocs: [{ customer_id: 'x' }],
       });
-      expect(env).toEqual({ ok: true, data: [] });
+      expect(env.ok).toBe(false);
+      if (env.ok) return;
+      expect(env.error.code).toBe('NOT_FOUND');
     });
 
     it.each([
