@@ -7,6 +7,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { MongoClient } from 'mongodb';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { displayFolder } from '../../electron/agent/folderDisplay';
 import { assertBridgeBuiltOnCi, bridgeBinaryPresent } from '../helpers/bridgeBinary';
 import { isCi } from '../helpers/ci';
 import { baseConnInput, startMemoryServer, stopAllMemoryServers, withApp } from '../helpers/e2eApp';
@@ -193,6 +194,49 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
       expect(textOf(refused)).not.toContain('x27-marker');
     } finally {
       await client.close();
+    }
+
+    // X27 §16.3: a bridge started in a known folder records it, and the renderer reads the session and its calls back.
+    const projectDir = path.join(userDataDir, 'agent-project');
+    fs.mkdirSync(projectDir);
+    const inFolder = new Client({ name: 'x27-folder', version: '1.0' });
+    await inFolder.connect(
+      new StdioClientTransport({
+        command: server.command,
+        args: server.args,
+        env: { ...bridgeEnv, HOME: userDataDir, USERPROFILE: userDataDir, APPDATA: userDataDir },
+        cwd: projectDir,
+        stderr: 'pipe',
+      }),
+    );
+    try {
+      await inFolder.callTool({ name: 'list_connections', arguments: {} });
+      // Main shows home as ~, with its own home directory; the OS may report the folder resolved.
+      const mainHome = await app.evaluate(() => (process.platform === 'win32' ? process.env.USERPROFILE : process.env.HOME) ?? '');
+      const shown = [projectDir, fs.realpathSync.native(projectDir)].map((d) => displayFolder(d, mainHome, process.platform));
+      type SessionRow = { id: string; folder: string | null; clientName: string | null; endedAt: string | null };
+      const sessions = await win.evaluate(() =>
+        (window as unknown as { atelier: { agentAccess: { listSessions: (q: unknown) => Promise<SessionRow[]> } } }).atelier.agentAccess.listSessions({
+          includeEnded: false,
+          limit: 10,
+        }),
+      );
+      const mine = sessions.find((s) => s.clientName === 'x27-folder');
+      expect(mine).toBeDefined();
+      expect(shown).toContain(mine!.folder);
+      expect(mine!.endedAt).toBeNull();
+      const calls = await win.evaluate(
+        (sessionId) =>
+          (window as unknown as { atelier: { agentAccess: { listCalls: (q: unknown) => Promise<Array<{ tool: string; sessionId: string }>> } } }).atelier.agentAccess.listCalls({
+            sessionId,
+            outcome: 'all',
+            limit: 10,
+          }),
+        mine!.id,
+      );
+      expect(calls.map((c) => [c.tool, c.sessionId])).toEqual([['list_connections', mine!.id]]);
+    } finally {
+      await inFolder.close();
     }
 
     // X29: a 2026-07-28 client on a shared Connection that is closed is asked to open it, and gets the documents
