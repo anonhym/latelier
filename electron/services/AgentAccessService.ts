@@ -235,8 +235,6 @@ export class AgentAccessService {
     this.emitTimer = null;
     if (this.requestSweep) clearInterval(this.requestSweep);
     this.requestSweep = null;
-    // At quit, a setup main copied is not left on the clipboard (X27 §16.8).
-    await this.clearCopiedSetup();
     // First, so the quit teardown aborts every in-flight Agent read before anything else closes.
     this.gate.revokeAll();
     this.enqueue(() => this.server.stop('app-quit'));
@@ -245,6 +243,8 @@ export class AgentAccessService {
     this.gate.dispose();
     this.deps.pool.off('connection-identity-changed', this.onIdentityChanged);
     this.deps.pool.off('status', this.onPoolStatus);
+    // Last, at quit, a setup main copied is not left on the clipboard (X27 §16.8). Reading it awaits, and no Agent read may run on through that; a failure is logged, never thrown.
+    await this.clearCopiedSetup();
   }
 
   /** Resolves when every queued start or stop has finished. Tests use it to await the live switch. */
