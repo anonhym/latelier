@@ -346,6 +346,31 @@ describe('Agent sessions (X27 §16.2–§16.4)', () => {
     });
   });
 
+  describe('when the end cannot be written', () => {
+    it('leaves the open row out of the session list, live or not, so it agrees with the live set', async () => {
+      const started = await start({
+        makeSessionRepo: (real) =>
+          Object.assign(Object.create(real) as typeof real, {
+            close: () => {
+              throw new Error('disk full');
+            },
+          }),
+      });
+      await agentFor(started.socketPath, started.token);
+      const gone = await agentFor(started.socketPath, started.token);
+      await until(() => h!.svc.getState().sessions.length === 2);
+      await gone.close();
+      await until(() => h!.svc.getState().sessions.length === 1);
+      // The row is still open in the database: the end was never written.
+      expect(sessionRows().filter((r) => r.ended_at === null)).toHaveLength(2);
+      const liveIds = h!.svc.getState().sessions.map((s) => s.id);
+      expect(h!.svc.listSessions({ includeEnded: false, limit: 10 }).map((r) => r.id)).toEqual(liveIds);
+      expect(h!.svc.listSessions({ includeEnded: true, limit: 10 }).map((r) => r.id)).toEqual(liveIds);
+      expect(liveIds).toHaveLength(1);
+      expect(vi.mocked(h!.log.error)).toHaveBeenCalledWith('agent', 'could not record the end of an Agent session', { errName: 'Error' });
+    });
+  });
+
   describe('when the row cannot be written', () => {
     const failing: AgentHarnessOptions = {
       makeSessionRepo: (real) =>

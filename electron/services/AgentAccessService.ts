@@ -241,9 +241,17 @@ export class AgentAccessService {
     return this.deps.readLogRepo.listCalls(query);
   }
 
-  /** Stored sessions, newest first, with the folder in display form. The raw path never leaves main. */
+  /**
+   * Stored sessions, newest first, with the folder in display form. The raw path never leaves main.
+   * An open row the server no longer holds is left out: its end could not be written, and showing
+   * it as live would disagree with `getState`. The next launch closes it as `unknown`.
+   */
   listSessions(query: AgentSessionsQuery): AgentSessionRow[] {
-    return this.deps.sessionRepo.list(query).map((row) => ({ ...row, folder: this.displayFolder(row.folder) }));
+    const live = new Set(this.server.liveSessions().map((s) => s.id));
+    return this.deps.sessionRepo
+      .list(query)
+      .filter((row) => row.endedAt !== null || live.has(row.id))
+      .map((row) => ({ ...row, folder: this.displayFolder(row.folder) }));
   }
 
   /** Ends one live session at the user's request. Throws NotFoundError when it is not live. */
