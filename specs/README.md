@@ -112,8 +112,10 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X24](./X24-family-export.md) | Family Export: write a Family's shared configuration and Apply it to any Family | main + renderer |
 | [X25](./X25-cross-connection-paste.md) | Cross-Connection Paste warning: Copy Origin and an inline strip on query surfaces | renderer |
 | [X26](./X26-reference-discovery.md) | Reference discovery: suggest a Reference Rule when a copied value is found in another Collection | renderer |
-| [X27](./X27-agent-access.md) | Agent Access: read-only MCP access to shared Connections through a local socket and stdio bridge | main + renderer + build |
+| [X27](./X27-agent-access.md) | Agent Access: read-only MCP access to shared Connections through a local socket and stdio bridge — *§16 amendment: sessions, Connection requests, log reading, relation tools* | main + renderer + build |
+| [X28](./X28-agent-proposals.md) | Agent Proposals: an Agent proposes a Reference Rule, the user accepts, sets aside or declines it | main + renderer |
 | [X29](./X29-agent-access-mcp-2026.md) | Agent Access on MCP 2026-07-28: protocol negotiation and a pause for a closed Connection | main + build |
+| [X30](./X30-agents-mode.md) | Agents mode: a sidebar for Agents and their sessions, Home, session pages, toasts | renderer + main |
 
 ### Plans
 
