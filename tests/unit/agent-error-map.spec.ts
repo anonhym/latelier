@@ -101,6 +101,14 @@ describe('errorText', () => {
   });
 });
 
+describe('the NOT_OPEN message', () => {
+  it("tells the Agent the user was asked to open it, and to try again after they do", () => {
+    expect(defaultAgentMessage('NOT_OPEN')).toBe(
+      "This Connection is not open. L'Atelier has asked the user to open it; try again after they do.",
+    );
+  });
+});
+
 describe('the code list', () => {
   it('is the eleven stable codes and every one has a default message', () => {
     expect([...AGENT_ERROR_CODES].sort((a, b) => a.localeCompare(b))).toEqual(
