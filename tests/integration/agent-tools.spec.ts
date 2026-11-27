@@ -176,6 +176,10 @@ describe('Agent read tools', () => {
       await f.call('find', f.on('orders'));
       await f.call('count', f.on('orders'));
       await f.call('aggregate', { ...f.on('orders'), pipeline: [{ $match: {} }] });
+      // The relation tools too: suggest_references must never go through autodetect's readDb.
+      expect((await f.call('list_references', { connectionId: f.connectionId })).isError).toBeUndefined();
+      expect((await f.call('suggest_references', f.on('orders'))).isError).toBeUndefined();
+      expect(f.rows().slice(-2).map((r) => [r.tool, r.outcome])).toEqual([['list_references', 'ok'], ['suggest_references', 'ok']]);
       expect(f.recentQueries()).toBe(before);
       expect(readClient).not.toHaveBeenCalled();
       expect(readDb).not.toHaveBeenCalled();
