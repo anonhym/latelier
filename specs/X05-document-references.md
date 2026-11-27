@@ -228,9 +228,21 @@ current `lastRun.documents`.
   error. The drawer shows "No matching document."
 - Target DB / collection auth failure → `MONGO_ERROR` propagates,
   drawer shows it in place.
-- `refs:autodetect` fails open (empty array) when the pool or
-  `listCollections` errors — user still gets the manual "New rule"
-  path.
+- `refs:autodetect` reports a failure instead of returning an empty
+  array. An unknown Connection is `NOT_FOUND`, a Connection that cannot
+  connect is `DB_ERROR`, and a failed sample or `listCollections` is
+  classified like any Mongo error (`UNAUTHORIZED`, `TIMEOUT`, …). An
+  empty array would tell the user the sample has no reference-like
+  fields when the database was never read. The editor shows the error
+  in its banner, and the manual "New rule" path still works.
+- Every read is bounded by `maxTimeMS` from `electron/mongo/timeouts.ts`:
+  - `refs:resolve` uses `QUERY_TIMEOUT_MS` (30s) on its `findOne` and on
+    both `find`s of an array lookup;
+  - `refs:autodetect` uses `PROBE_TIMEOUT_MS` (5s) on its 25-document
+    sample and `STATS_TIMEOUT_MS` (3s) on `listCollections`.
+
+  An unresponsive server surfaces as `TIMEOUT` instead of holding the
+  IPC handler and a pool connection.
 
 ## 10. Test cases
 
@@ -249,6 +261,9 @@ current `lastRun.documents`.
   - resolve against ObjectId key, string key, missing-doc, projection
   - malformed EJSON → VALIDATION
   - autodetect resolves candidates against live collections
+  - every resolve and autodetect read sends its `maxTimeMS`
+  - autodetect rejects, never returns `[]`, when the pool, the sample
+    or `listCollections` fails
 
 ### Component
 - `reference-chip.spec.tsx` — chip fires click with anchor rect,

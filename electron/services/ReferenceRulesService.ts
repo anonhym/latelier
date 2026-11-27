@@ -19,6 +19,7 @@ import { ejsonEncode, parseEjsonField } from '../mongo/ejson.ts';
 import type { MongoPool } from '../mongo/MongoPool.ts';
 import { matchKey, pairInSourceOrder, valuesAtPath } from './referencePairing.ts';
 import { EXACT_BSON } from '../mongo/undo.ts';
+import { PROBE_TIMEOUT_MS, QUERY_TIMEOUT_MS, STATS_TIMEOUT_MS } from '../mongo/timeouts.ts';
 import { ownSet } from '../ownProperty.ts';
 import type {
   ReferenceRuleInsert,
@@ -271,7 +272,7 @@ export class ReferenceRulesService {
           return { ruleId: input.ruleId, found: false, documents: [], durationMs: Date.now() - t0 };
         }
         const filter = { [rule.targetField]: { $in: value } } as Record<string, unknown>;
-        const docs = await coll.find(filter, { ...EXACT_BSON, projection }).toArray();
+        const docs = await coll.find(filter, { ...EXACT_BSON, projection, maxTimeMS: QUERY_TIMEOUT_MS }).toArray();
         // The pairing reads each document's targetField. When the user's
         // projection leaves it out, read it in a second query that only pairs
         // and is never shown, so a projection that overlaps the path cannot
@@ -279,7 +280,7 @@ export class ReferenceRulesService {
         let keyDocs: unknown[] = docs;
         if (projection && !projectionCovers(rule.projection, rule.targetField)) {
           const keyed = await coll
-            .find(filter, { ...EXACT_BSON, projection: { [rule.targetField]: 1 } })
+            .find(filter, { ...EXACT_BSON, projection: { [rule.targetField]: 1 }, maxTimeMS: QUERY_TIMEOUT_MS })
             .toArray();
           const keyedById = new Map(keyed.map((k) => [matchKey(k._id), k]));
           keyDocs = docs.map((d) => keyedById.get(matchKey(d._id)));
@@ -298,7 +299,7 @@ export class ReferenceRulesService {
       }
       const doc = await coll.findOne(
         { [rule.targetField]: value } as Record<string, unknown>,
-        { ...EXACT_BSON, projection },
+        { ...EXACT_BSON, projection, maxTimeMS: QUERY_TIMEOUT_MS },
       );
       return {
         ruleId: input.ruleId,
@@ -334,23 +335,24 @@ export class ReferenceRulesService {
         .map((r) => [r.sourceField, r]),
     );
 
-    let db;
-    try {
-      db = await this.pool.readDb(input.connectionId, input.dbName);
-    } catch {
-      return [];
-    }
-
+    // A failure is reported, not turned into "no candidates": an empty list
+    // would tell the user the sample has no reference-like fields when the
+    // database was never read. The editor shows the error, and its manual
+    // "New rule" path does not depend on this call.
+    const db = await this.pool.readDb(input.connectionId, input.dbName);
     const needSample = !input.sampleDocs || input.sampleDocs.length === 0;
-    let docsPromise: Promise<unknown[]> = Promise.resolve(input.sampleDocs ?? []);
-    if (needSample) {
-      docsPromise = db.collection(input.collection).find({}).limit(25).toArray()
-        .catch(() => [] as unknown[]);
+    let docs: unknown[];
+    let cols: Array<{ name: string }>;
+    try {
+      [docs, cols] = await Promise.all([
+        needSample
+          ? db.collection(input.collection).find({}, { maxTimeMS: PROBE_TIMEOUT_MS }).limit(25).toArray()
+          : Promise.resolve(input.sampleDocs ?? []),
+        db.listCollections({}, { nameOnly: true, maxTimeMS: STATS_TIMEOUT_MS }).toArray(),
+      ]);
+    } catch (err) {
+      throw classifyMongoOpError(err);
     }
-    const collsPromise = db.listCollections({}, { nameOnly: true }).toArray()
-      .catch(() => [] as Array<{ name: string }>);
-
-    const [docs, cols] = await Promise.all([docsPromise, collsPromise]);
     if (cols.length === 0) return [];
     const collectionNames = new Set(cols.map((c) => c.name));
 
