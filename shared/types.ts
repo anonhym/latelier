@@ -1897,6 +1897,34 @@ export interface AgentSessionsQuery {
   limit: number;
 }
 
+/**
+ * A Connection request (X27 §16.6): an Agent asked for a shared Connection
+ * that is not open. One per (session, Connection), in main's memory only.
+ * Token, client, folder, database, collection and tool came from the Agent's
+ * side: text only, never markup or a link.
+ */
+export interface AgentConnectionRequest {
+  sessionId: string;
+  tokenName: string | null;
+  clientName: string | null;
+  /** The session's folder in display form, or null. Reported by the bridge, not proven. */
+  folder: string | null;
+  connectionId: string;
+  connectionName: string;
+  firstAt: string;
+  lastAt: string;
+  /** Calls on the pair; a paused call that ends refused counts once. */
+  count: number;
+  lastTool: string;
+  database: string | null;
+  collection: string | null;
+  /** `waiting`: the last call is paused in the Agent's host until the user opens it (X29 §4). `refused`: it was refused NOT_OPEN. */
+  lastOutcome: 'refused' | 'waiting';
+}
+
+/** The MCP clients a setup can be copied for (X27 §16.8). */
+export type SnippetClient = 'claude-code-cli' | 'claude-code' | 'claude-desktop' | 'cursor';
+
 export interface AgentAccessState {
   enabled: boolean;
   /** The socket or pipe path, for troubleshooting; empty while the server is not listening. */
