@@ -56,6 +56,7 @@ import { useProjectionDraft } from './useProjectionDraft';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { requestAgentsPage } from '../../features/agents/agentsNav';
+import { AgentProposalStrip } from '../../features/agents/AgentProposalStrip';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import type {
   BuilderState,
@@ -1519,6 +1520,7 @@ function QueryBarInner({
         surfaces={['filter', 'sort', 'projection']}
       />
       <ReferenceDiscoveryStrip tabId={meta.tabId} />
+      <AgentProposalStrip tabId={meta.tabId} connectionId={meta.connectionId} dbName={meta.dbName} collection={meta.collection} />
 
       {expandOpen && (
         <QueryExpandModal
