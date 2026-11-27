@@ -283,6 +283,15 @@ describe('reachedConnections', () => {
     ).toEqual([{ connectionId: 'b', label: 'Shop (prod) · refused, not open', tone: 'warn' }]);
   });
 
+  it('keeps the first of two refusals at the same instant, the newer in a newest-first list', () => {
+    expect(
+      reachedConnections([
+        callRow({ connectionId: 'b', connectionName: 'Shop (prod)', outcome: 'NOT_OPEN', ts: '2026-11-27T10:00:00.000Z' }),
+        callRow({ connectionId: 'b', connectionName: 'Shop (prod)', outcome: 'BUSY', ts: '2026-11-27T10:00:00.000Z' }),
+      ]),
+    ).toEqual([{ connectionId: 'b', label: 'Shop (prod) · refused, not open', tone: 'warn' }]);
+  });
+
   it('reads one only asked about as asked to open, names a nameless one, skips calls with no Connection, sorts by label', () => {
     expect(
       reachedConnections([
