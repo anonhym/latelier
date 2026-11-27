@@ -2,6 +2,7 @@ import type { RecentQueryRepo } from '../db/repositories/RecentQueryRepo.ts';
 import type { RecentFieldValueRepo } from '../db/repositories/RecentFieldValueRepo.ts';
 import type { AuditRepo } from '../db/repositories/AuditRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
+import type { AgentSessionRepo } from '../db/repositories/AgentSessionRepo.ts';
 import type { AppStateService } from './AppStateService.ts';
 
 const MAINTENANCE_KEY = 'maintenance.lastRunAt';
@@ -9,18 +10,22 @@ const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RECENT_RETENTION_DAYS = 30;
 const AUDIT_RETENTION_DAYS = 90;
 const AGENT_READ_LOG_RETENTION_DAYS = 90;
+/** Ended sessions go with the log they group (X27 §16.2); a live one never does. */
+const AGENT_SESSION_RETENTION_DAYS = 90;
 
 export class MaintenanceService {
   private recentRepo: RecentQueryRepo;
   private recentFieldValueRepo: RecentFieldValueRepo;
   private auditRepo: AuditRepo;
   private agentReadLogRepo: AgentReadLogRepo;
+  private agentSessionRepo: Pick<AgentSessionRepo, 'deleteEndedOlderThan'>;
   private checkpoint: () => void;
   constructor(deps: {
     recentRepo: RecentQueryRepo;
     recentFieldValueRepo: RecentFieldValueRepo;
     auditRepo: AuditRepo;
     agentReadLogRepo: AgentReadLogRepo;
+    agentSessionRepo: Pick<AgentSessionRepo, 'deleteEndedOlderThan'>;
     /** Flushes purged pages out of the WAL; owns reporting a blocked checkpoint. */
     checkpoint: () => void;
   }) {
@@ -28,6 +33,7 @@ export class MaintenanceService {
     this.recentFieldValueRepo = deps.recentFieldValueRepo;
     this.auditRepo = deps.auditRepo;
     this.agentReadLogRepo = deps.agentReadLogRepo;
+    this.agentSessionRepo = deps.agentSessionRepo;
     this.checkpoint = deps.checkpoint;
   }
 
@@ -50,5 +56,6 @@ export class MaintenanceService {
     this.recentFieldValueRepo.deleteOlderThan(RECENT_RETENTION_DAYS);
     this.auditRepo.deleteOlderThan(AUDIT_RETENTION_DAYS);
     this.agentReadLogRepo.deleteOlderThan(AGENT_READ_LOG_RETENTION_DAYS);
+    this.agentSessionRepo.deleteEndedOlderThan(AGENT_SESSION_RETENTION_DAYS);
   }
 }

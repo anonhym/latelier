@@ -2,9 +2,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
+import type { AgentSessionEndReason } from '@shared/types';
+import { NotFoundError } from '../errors.ts';
 import type { Logger } from '../log.ts';
 import { ensurePrivateDir, writePrivateFile } from '../utils/privateFs.ts';
-import { AgentSession } from './AgentSession.ts';
+import { AgentSession, type AgentSessionSnapshot, type AgentSessionStore } from './AgentSession.ts';
+import { cleanFolder } from './folderDisplay.ts';
 import type { AgentSessionIdentity } from './AgentGate.ts';
 import type { AgentToolRunner } from './AgentToolRunner.ts';
 import type { AgentTool } from './tools.ts';
@@ -21,11 +24,22 @@ export interface AgentServerDeps {
     list(): Array<{ id: string; name: string; token_hash: string }>;
   };
   log: Pick<Logger, 'info' | 'warn' | 'error'>;
+  /** Where each counted session's row is written and closed (X27 §16.2). */
+  sessions: AgentSessionStore;
+  /** Whether Agent Access is on: a session the runner ends after its token check failed ended for this reason or because its token went away. */
+  accessOn: () => boolean;
+  now?: () => Date;
   platform?: NodeJS.Platform;
   tmpdir?: string;
   uid?: string | number;
   /** Defaults to `$XDG_RUNTIME_DIR`. */
   xdgRuntimeDir?: string | null;
+}
+
+/** A counted session opened, or a counted session closed (its `endReason` is set). */
+export interface AgentSessionEvent {
+  kind: 'opened' | 'closed';
+  session: AgentSession;
 }
 
 /**
@@ -39,7 +53,7 @@ export class AgentServer {
   private endpoint: ResolvedEndpoint | null = null;
   private sessions = new Set<AgentSession>();
   private pending = new Set<net.Socket>();
-  private onSessionsChanged: (() => void) | null = null;
+  private onSessionsChanged: ((event: AgentSessionEvent) => void) | null = null;
 
   constructor(deps: AgentServerDeps) {
     this.deps = deps;
@@ -57,9 +71,30 @@ export class AgentServer {
     return count;
   }
 
-  /** Called whenever a session opens or closes. */
-  setSessionsListener(fn: (() => void) | null): void {
+  /** Called when a session is counted (its row written) and when a counted session closes. */
+  setSessionsListener(fn: ((event: AgentSessionEvent) => void) | null): void {
     this.onSessionsChanged = fn;
+  }
+
+  /** The counted, live sessions, oldest first. */
+  liveSessions(): AgentSessionSnapshot[] {
+    const out: AgentSessionSnapshot[] = [];
+    for (const session of this.sessions) {
+      const snapshot = session.snapshot();
+      if (snapshot) out.push(snapshot);
+    }
+    return out;
+  }
+
+  /** Ends one live session at the user's request. */
+  endSession(sessionId: string): void {
+    for (const session of this.sessions) {
+      if (session.isActive && session.identity.sessionId === sessionId) {
+        session.close('user-ended');
+        return;
+      }
+    }
+    throw new NotFoundError(`agent session ${sessionId} is not live`);
   }
 
   /**
@@ -120,13 +155,13 @@ export class AgentServer {
     return true;
   }
 
-  /** Closes the listener and every session, and removes the socket and endpoint files. */
-  async stop(): Promise<void> {
+  /** Closes the listener and every session, recording why, and removes the socket and endpoint files. */
+  async stop(reason: AgentSessionEndReason): Promise<void> {
     const listener = this.listener;
     const endpoint = this.endpoint;
     this.listener = null;
     this.endpoint = null;
-    for (const session of [...this.sessions]) session.destroy();
+    for (const session of [...this.sessions]) session.destroy(reason);
     for (const socket of this.pending) socket.destroy();
     if (listener) await new Promise<void>((resolve) => listener.close(() => resolve()));
     if (endpoint?.kind === 'unix') fs.rmSync(endpoint.path, { force: true });
@@ -136,7 +171,7 @@ export class AgentServer {
   /** Ends every live session that authenticated with this token (revoked or regenerated). */
   closeSessionsForToken(tokenId: string): void {
     for (const session of [...this.sessions]) {
-      if (session.identity.tokenId === tokenId) session.close();
+      if (session.identity.tokenId === tokenId) session.close('token-revoked');
     }
   }
 
@@ -166,19 +201,25 @@ export class AgentServer {
       clientName: null,
       clientVersion: null,
     };
+    // Display-only and reported, not proven: cleaned here, never logged.
+    const folder = outcome.folder === null ? null : cleanFolder(outcome.folder);
     const session = new AgentSession({
       socket,
       identity,
       runner: this.deps.runner,
       tools: this.deps.tools,
       log: this.deps.log,
-      onActive: () => {
+      store: this.deps.sessions,
+      folder: folder === '' ? null : folder,
+      refusedReason: () => (this.deps.accessOn() ? 'token-revoked' : 'access-off'),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
+      onActive: (s) => {
         // Not under the key `token`: the logger redacts any value filed under that name, so the Agent's name would never show.
         this.deps.log.info('agent', 'session opened', { agentName: row.name });
-        this.onSessionsChanged?.();
+        this.onSessionsChanged?.({ kind: 'opened', session: s });
       },
       onClosed: (s) => {
-        if (this.sessions.delete(s) && s.isActive) this.onSessionsChanged?.();
+        if (this.sessions.delete(s) && s.isActive) this.onSessionsChanged?.({ kind: 'closed', session: s });
       },
     });
     // Counted in presence only once it is active: a client's discovery probe opens and closes a session of its own.
@@ -187,7 +228,7 @@ export class AgentServer {
       await session.start();
     } catch (err) {
       this.deps.log.error('agent', 'session failed to start', { errName: err instanceof Error ? err.name : typeof err });
-      session.destroy();
+      session.destroy('unknown');
     }
   }
 

@@ -12,6 +12,15 @@ import { AgentServer } from '../../electron/agent/AgentServer';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
 import { AgentAccessService } from '../../electron/services/AgentAccessService';
 
+/** A server whose sessions never reach the database: these tests only start and stop the listener. */
+const NO_SESSION_STORE = {
+  insert: () => {
+    throw new Error('no session expected');
+  },
+  setClientInfoOnce: () => false,
+  close: () => false,
+};
+
 const posix = process.platform !== 'win32';
 
 describe('Agent server', () => {
@@ -70,14 +79,17 @@ describe('Agent server', () => {
         appState: h.appState,
         tokenRepo: h.tokenRepo,
         readLogRepo: h.readLogRepo,
+        sessionRepo: h.sessionRepo,
         connRepo: h.connRepo,
         pool: h.pool,
         userData: h.tmp.dir,
         log: h.log,
         bridge: h.bridge,
         platform: process.platform,
+        homedir: '/home/nobody',
         dialogs: { showMessageBox: async () => ({ response: 0 }), writeClipboard: async () => undefined },
         emit: () => undefined,
+        emitCall: () => undefined,
       });
       expect(h.appState.get(AGENT_ACCESS_KEY)).not.toBe(true);
       launch.init();
@@ -564,6 +576,8 @@ describe('Agent server', () => {
         tools: [],
         tokens: { list: () => [] },
         log,
+        sessions: NO_SESSION_STORE,
+        accessOn: () => true,
         platform: process.platform,
         tmpdir,
         uid: process.getuid!(),
@@ -581,7 +595,7 @@ describe('Agent server', () => {
         expect(server.socketPath!.startsWith(dir)).toBe(true);
         expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
       } finally {
-        await server.stop();
+        await server.stop('app-quit');
       }
     });
 
@@ -637,7 +651,16 @@ describe('Agent server', () => {
       const userData = fs.mkdtempSync(path.join('/tmp', 'win-'));
       dirs.push(userData);
       const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
-      const server = new AgentServer({ userData, runner: {} as never, tools: [], tokens: { list: () => [] }, log, platform: 'win32' });
+      const server = new AgentServer({
+        userData,
+        runner: {} as never,
+        tools: [],
+        tokens: { list: () => [] },
+        log,
+        sessions: NO_SESSION_STORE,
+        accessOn: () => true,
+        platform: 'win32',
+      });
       return { server, endpoint: path.join(userData, 'agent', 'endpoint') };
     }
 
@@ -645,7 +668,7 @@ describe('Agent server', () => {
       const { server, endpoint } = winServer();
       await server.start();
       const first = fs.readFileSync(endpoint, 'utf8');
-      await server.stop();
+      await server.stop('app-quit');
       // A leftover from the last run, naming a valid pipe, must not be reused.
       fs.writeFileSync(endpoint, first);
       await server.start();
@@ -656,7 +679,7 @@ describe('Agent server', () => {
       expect(FakePipeServer.paths).toEqual([first.trim(), second.trim()]);
       expect(server.socketPath).toBe(second.trim());
       if (posix) expect(fs.statSync(endpoint).mode & 0o777).toBe(0o600);
-      await server.stop();
+      await server.stop('app-quit');
     });
 
     it('clears a stale endpoint file before it listens, not only when it writes the new one', async () => {
@@ -669,7 +692,7 @@ describe('Agent server', () => {
       };
       await server.start();
       expect(presentAtListen).toBe(false);
-      await server.stop();
+      await server.stop('app-quit');
     });
 
     it('removes a stale endpoint file when listening fails, and rethrows', async () => {
@@ -689,7 +712,7 @@ describe('Agent server', () => {
       FakePipeServer.failListen = false;
       expect(await server.start()).toBe(true);
       expect(fs.existsSync(endpoint)).toBe(true);
-      await server.stop();
+      await server.stop('app-quit');
     });
   });
 });

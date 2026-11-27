@@ -731,6 +731,7 @@ export const IPC_CHANNELS = {
   agentAccessRevokeToken:     'agentAccess:revoke-token',
   agentAccessRemoveBridge:    'agentAccess:remove-bridge',
   agentAccessStateEvent:      'agentAccess:state-event',
+  agentAccessCallEvent:       'agentAccess:call-event',
 
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',

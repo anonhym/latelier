@@ -101,6 +101,7 @@ import { BridgeInstaller } from './agent/bridgeInstall.ts';
 import { bundledBridgePath, installedBridgePath } from './agent/bridgePaths.ts';
 import { registerAgentAccessChannels } from './ipc/handlers/agentAccess.ts';
 import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
+import { AgentSessionRepo } from './db/repositories/AgentSessionRepo.ts';
 import { AgentTokenRepo } from './db/repositories/AgentTokenRepo.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
@@ -845,7 +846,8 @@ app.whenReady().then(() => {
   const auditSvc = new AuditService(auditRepo, pool, new UndoStore(), log);
   // Agent Access (X27). The switch is main-only; the server starts here when it
   // is already on and follows `AGENT_ACCESS_KEY` from then on.
-  const agentReadLogRepo = new AgentReadLogRepo(db, cipher);
+  const agentReadLogRepo = new AgentReadLogRepo(db, cipher, log);
+  const agentSessionRepo = new AgentSessionRepo(db, cipher, log);
   const bridgeInstaller = new BridgeInstaller({
     sourcePath: bundledBridgePath({
       platform: process.platform,
@@ -867,12 +869,14 @@ app.whenReady().then(() => {
     appState,
     tokenRepo: new AgentTokenRepo(db),
     readLogRepo: agentReadLogRepo,
+    sessionRepo: agentSessionRepo,
     connRepo,
     pool,
     userData: userDataDir,
     log,
     bridge: bridgeInstaller,
     platform: process.platform,
+    homedir: os.homedir(),
     dialogs: {
       // The same window-or-none pattern as the quit question: a dialog that is
       // main's own, which a compromised renderer cannot answer or skip.
@@ -883,6 +887,10 @@ app.whenReady().then(() => {
     // The state holds no token; the renderer learns of every change from here.
     emit: (state) => {
       if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessStateEvent, state);
+    },
+    // One summary per new Agent Read Log row; never the request.
+    emitCall: (row) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessCallEvent, row);
     },
   });
   agentSvc.init();
@@ -918,6 +926,7 @@ app.whenReady().then(() => {
     recentFieldValueRepo,
     auditRepo,
     agentReadLogRepo,
+    agentSessionRepo,
     checkpoint: () => {
       if (!truncateWal(checkpointDb)) checkpointLog.warn('maintenance', 'wal checkpoint was blocked');
     },
