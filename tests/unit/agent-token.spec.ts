@@ -7,6 +7,11 @@ import {
   matchHash,
   parseHandshake,
 } from '../../electron/agent/token';
+import {
+  SESSION_RECORD_FAILED_CODE,
+  SESSION_RECORD_FAILED_PREFIX,
+  sessionRecordFailedLine,
+} from '../../electron/agent/handshake';
 
 describe('generateToken', () => {
   it('is 43 base64url characters and different every time', () => {
@@ -70,12 +75,34 @@ describe('matchHash', () => {
 describe('parseHandshake', () => {
   const line = (o: unknown) => JSON.stringify(o);
 
-  it('accepts a token and protocol 1', () => {
+  it('accepts a token and protocol 1, which has no folder', () => {
     expect(parseHandshake(line({ agentToken: 'abc_DEF-123', protocol: 1 }))).toEqual({
       ok: true,
       token: 'abc_DEF-123',
       protocol: 1,
+      folder: null,
     });
+  });
+
+  it('accepts protocol 2 with the folder the bridge reported, as sent', () => {
+    expect(parseHandshake(line({ agentToken: 'abc', protocol: 2, folder: '/Users/ann/Projects/shop\u0007' }))).toEqual({
+      ok: true,
+      token: 'abc',
+      protocol: 2,
+      folder: '/Users/ann/Projects/shop\u0007',
+    });
+  });
+
+  it('accepts protocol 2 without a folder: the OS may not report one', () => {
+    expect(parseHandshake(line({ agentToken: 'abc', protocol: 2 }))).toEqual({ ok: true, token: 'abc', protocol: 2, folder: null });
+  });
+
+  it.each([5, null, true, ['/a'], { path: '/a' }])('treats a folder of %j as absent, not as a malformed handshake', (folder) => {
+    expect(parseHandshake(line({ agentToken: 'abc', protocol: 2, folder }))).toEqual({ ok: true, token: 'abc', protocol: 2, folder: null });
+  });
+
+  it('ignores a folder on a protocol 1 line: that protocol never had one', () => {
+    expect(parseHandshake(line({ agentToken: 'abc', protocol: 1, folder: '/a' }))).toMatchObject({ ok: true, folder: null });
   });
 
   it.each([
@@ -104,7 +131,7 @@ describe('parseHandshake', () => {
     expect(parseHandshake(line({ agentToken: token, protocol: 1 }))).toMatchObject({ ok: true, token });
   });
 
-  it.each([0, 2, -1, 99])('names protocol %s as unsupported', (protocol) => {
+  it.each([0, 3, -1, 99])('names protocol %s as unsupported', (protocol) => {
     expect(parseHandshake(line({ agentToken: 'abc', protocol }))).toEqual({
       ok: false,
       reason: 'unsupported-protocol',
@@ -117,6 +144,10 @@ describe('parseHandshake', () => {
     expect(parseHandshake(padded)).toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it('the cap is 4,096: room for a token and an escaped 1,024-byte folder', () => {
+    expect(HANDSHAKE_MAX_BYTES).toBe(4096);
+  });
+
   it('accepts a line of exactly the handshake cap', () => {
     const base = line({ agentToken: 'abc', protocol: 1, pad: '' });
     const exact = line({ agentToken: 'abc', protocol: 1, pad: 'x'.repeat(HANDSHAKE_MAX_BYTES - base.length) });
@@ -127,10 +158,33 @@ describe('parseHandshake', () => {
   it('never echoes the input, valid or not', () => {
     const secret = 'SuperSecretTokenValue123';
     const results = [
-      parseHandshake(line({ agentToken: secret, protocol: 2 })),
+      parseHandshake(line({ agentToken: secret, protocol: 3 })),
       parseHandshake(`{"agentToken":"${secret}"`),
       parseHandshake(line({ agentToken: `${secret} `, protocol: 1 })),
     ];
     for (const r of results) expect(JSON.stringify(r)).not.toContain(secret);
+  });
+});
+
+describe('sessionRecordFailedLine', () => {
+  it('starts with the exact 24 bytes the bridge matches at a line start', () => {
+    // The cross-language contract with `RECORD_FAILED_PREFIX` in bridge/src/relay.rs.
+    expect(SESSION_RECORD_FAILED_PREFIX).toBe('{"error":{"code":-32003,');
+    expect(Buffer.byteLength(SESSION_RECORD_FAILED_PREFIX)).toBe(24);
+    expect(sessionRecordFailedLine(7).startsWith(SESSION_RECORD_FAILED_PREFIX)).toBe(true);
+  });
+
+  it('is the fixed JSON-RPC error line: error first, the request id last, one newline', () => {
+    expect(sessionRecordFailedLine(7)).toBe(
+      '{"error":{"code":-32003,"message":"L\'Atelier could not record this session"},"jsonrpc":"2.0","id":7}\n',
+    );
+    expect(sessionRecordFailedLine('a"b')).toBe(
+      '{"error":{"code":-32003,"message":"L\'Atelier could not record this session"},"jsonrpc":"2.0","id":"a\\"b"}\n',
+    );
+    expect(JSON.parse(sessionRecordFailedLine('req-1'))).toEqual({
+      jsonrpc: '2.0',
+      id: 'req-1',
+      error: { code: SESSION_RECORD_FAILED_CODE, message: "L'Atelier could not record this session" },
+    });
   });
 });

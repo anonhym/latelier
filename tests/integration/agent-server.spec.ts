@@ -167,7 +167,7 @@ describe('Agent server', () => {
       const s = await openSocket(socketPath);
       sockets.push(s);
       const reading = readUntilClosed(s);
-      s.write(handshakeLine(token, 2));
+      s.write(handshakeLine(token, 3));
       expect(JSON.parse((await reading).trim()).error).toEqual({ code: -32002, message: 'Agent protocol not supported' });
     });
 
@@ -184,22 +184,22 @@ describe('Agent server', () => {
       expect(JSON.parse((await reading).trim()).error.code).toBe(-32001);
     });
 
-    it('refuses a first line longer than 512 bytes, with or without a newline', async () => {
+    it('refuses a first line longer than 4,096 bytes, with or without a newline', async () => {
       const { socketPath, token } = await start();
       for (const tail of ['\n', '']) {
         const s = await openSocket(socketPath);
         sockets.push(s);
         const reading = readUntilClosed(s);
-        s.write(`${JSON.stringify({ agentToken: token, protocol: 1, pad: 'x'.repeat(600) })}${tail}`);
+        s.write(`${JSON.stringify({ agentToken: token, protocol: 1, pad: 'x'.repeat(4_200) })}${tail}`);
         expect(JSON.parse((await reading).trim()).error.code).toBe(-32001);
       }
     });
 
-    it('accepts a line of exactly 512 bytes', async () => {
+    it('accepts a line of exactly 4,096 bytes', async () => {
       const { socketPath, token } = await start();
       const base = JSON.stringify({ agentToken: token, protocol: 1, pad: '' });
-      const line = JSON.stringify({ agentToken: token, protocol: 1, pad: 'x'.repeat(512 - base.length) });
-      expect(Buffer.byteLength(line)).toBe(512);
+      const line = JSON.stringify({ agentToken: token, protocol: 1, pad: 'x'.repeat(4096 - base.length) });
+      expect(Buffer.byteLength(line)).toBe(4096);
       const s = await openSocket(socketPath);
       sockets.push(s);
       s.write(`${line}\n`);

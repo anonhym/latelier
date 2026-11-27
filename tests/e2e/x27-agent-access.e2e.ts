@@ -228,12 +228,12 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
     }
 
     // A bridge speaking another protocol is refused with a JSON-RPC error line, and the socket closes.
-    // The bridge always sends 1, so this speaks the socket directly.
+    // The bridge always sends 2, so this speaks the socket directly.
     const raw = net.connect(on.socketPath);
     await once(raw, 'connect');
     let received = '';
     raw.on('data', (c: Buffer) => (received += c.toString('utf8')));
-    raw.write(`${JSON.stringify({ agentToken: token, protocol: 2 })}\n`);
+    raw.write(`${JSON.stringify({ agentToken: token, protocol: 3 })}\n`);
     await once(raw, 'close');
     expect((JSON.parse(received.trim()) as { error: { code: number } }).error.code).toBe(-32002);
     expect(received).not.toContain(token);
