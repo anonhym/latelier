@@ -14,6 +14,13 @@
     "break": 90
   },
   "mutate": [
+    "src/features/agents/agentsPage.ts",
+    "src/features/agents/agentsTime.ts",
+    "src/features/agents/connectPanel.ts",
+    "src/features/agents/homeModel.ts",
+    "src/features/agents/needsYou.ts",
+    "src/features/agents/sidebarModel.ts",
+    "src/features/agents/tabOrder.ts",
     "src/pages/Workspace/helperLine.ts",
     "src/pages/Workspace/kindChange.ts",
     "src/pages/Workspace/objectIdDate.ts",
