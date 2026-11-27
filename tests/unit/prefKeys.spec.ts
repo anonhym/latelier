@@ -26,6 +26,7 @@ const VALID: Record<string, unknown> = {
   'whatsNew.lastSeenVersion': '0.20.0',
   'update.toastShownFor': '0.20.0',
   'refs.discovery.never': ['conn|["shop","orders","customerId","shop","customers","_id"]'],
+  'sidebar.mode': 'agents',
   [CONN_KEY]: true,
 };
 
@@ -117,6 +118,15 @@ describe('prefKeys', () => {
   it('the default result view accepts each view the tab can show', () => {
     for (const v of ['Table', 'Tree', 'JSON']) {
       expect(prefSetSchema('ui.workspace.defaultView')?.safeParse(v).success).toBe(true);
+    }
+  });
+
+  it('the sidebar mode accepts the two modes and nothing else', () => {
+    const schema = prefSetSchema('sidebar.mode');
+    expect(schema?.safeParse('databases').success).toBe(true);
+    expect(schema?.safeParse('agents').success).toBe(true);
+    for (const bad of ['Agents', 'navigator', '', null, true, 1]) {
+      expect(schema?.safeParse(bad).success).toBe(false);
     }
   });
 
