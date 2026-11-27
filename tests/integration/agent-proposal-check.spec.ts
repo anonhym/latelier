@@ -129,6 +129,44 @@ describe('the Proposal check', () => {
     expect(f.m.pool.status(f.connectionId).status).toBe('disconnected');
   });
 
+  it('asks for no target lookup once the Connection closed after the source read, and never reconnects', async () => {
+    await seed();
+    const id = await proposal('orders', 'customerId');
+    const real = await f.m.pool.readClient(f.connectionId);
+    const lookups = vi.fn();
+    // The source read hands its documents back, then the Connection closes before the first target lookup.
+    const client = {
+      db: (dbName: string) => ({
+        collection: (name: string) => {
+          const col = real.db(dbName).collection(name);
+          if (name === 'orders') {
+            return {
+              find: (query: object, options: object) => ({
+                toArray: async () => {
+                  const docs = await col.find(query, options).toArray();
+                  await f.m.pool.disconnect(f.connectionId);
+                  return docs;
+                },
+              }),
+            };
+          }
+          return {
+            findOne: (...args: Parameters<typeof col.findOne>) => {
+              lookups();
+              return col.findOne(...args);
+            },
+          };
+        },
+      }),
+    };
+    vi.spyOn(f.m.pool, 'readClient').mockResolvedValue(client as never);
+    const connect = vi.spyOn(f.m.pool, 'connect');
+    expect(await f.h.proposals.check(id)).toEqual({ kind: 'not-open', connectionName: 'prod' });
+    expect(lookups).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(f.m.pool.status(f.connectionId).status).toBe('disconnected');
+  });
+
   it('refuses an unknown Proposal', async () => {
     await seed();
     await expect(f.h.proposals.check('0f0e0d0c-0b0a-4908-8706-050403020100')).rejects.toMatchObject({ code: 'NOT_FOUND' });
