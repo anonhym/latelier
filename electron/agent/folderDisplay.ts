@@ -8,12 +8,14 @@
 /** The longest folder main keeps, in UTF-16 code units. */
 export const MAX_FOLDER_CHARS = 1024;
 
-// Unicode control characters (Cc): C0, DEL and C1. Nothing a path should carry into a label.
-const CONTROL_CHARS = /\p{Cc}/gu;
+// Control (Cc) and format (Cf: bidi overrides and isolates, zero-width characters) code points, and the
+// line and paragraph separators. Each could forge a line in a label or reorder what the user reads around
+// it; none belongs in a path anyone typed.
+const UNSAFE_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
-/** Control characters stripped, then cut to 1,024 characters without splitting a surrogate pair. */
+/** Control, format and line-breaking characters stripped, then cut to 1,024 characters without splitting a surrogate pair. */
 export function cleanFolder(raw: string): string {
-  const stripped = raw.replace(CONTROL_CHARS, '');
+  const stripped = raw.replace(UNSAFE_CHARS, '');
   // NaN on a shorter string, which then slices whole.
   const last = stripped.charCodeAt(MAX_FOLDER_CHARS - 1);
   // A high surrogate in the last kept slot would be half a character.

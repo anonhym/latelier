@@ -6,10 +6,23 @@ describe('cleanFolder', () => {
     expect(cleanFolder('/Users/ann/Projects/shop-api')).toBe('/Users/ann/Projects/shop-api');
   });
 
-  it('strips C0, DEL and C1 control characters, and nothing else', () => {
+  it('strips C0, DEL and C1 control characters', () => {
     expect(cleanFolder('/a\u0000b\u0007c\nd\re\tf\u001bg\u007fh\u0085i\u009fj')).toBe('/abcdefghij');
-    // Format and separator characters are not Cc: they stay, and the renderer shows them as text.
-    expect(cleanFolder('/a\u200bb\u2028c é 東京')).toBe('/a\u200bb\u2028c é 東京');
+  });
+
+  it('strips bidi controls, zero-width and other format characters', () => {
+    // Overrides, embeddings, isolates and marks: each could reorder the label around it.
+    expect(cleanFolder('/a\u202eb\u202dc\u202ad\u202ce\u2066f\u2067g\u2068h\u2069i\u200ej\u200fk\u061cl')).toBe('/abcdefghijkl');
+    // Zero-width space, joiners, word joiner, BOM, soft hyphen.
+    expect(cleanFolder('/a\u200bb\u200cc\u200dd\u2060e\ufefff\u00adg')).toBe('/abcdefg');
+  });
+
+  it('strips the line and paragraph separators', () => {
+    expect(cleanFolder('/a\u2028b\u2029c')).toBe('/abc');
+  });
+
+  it('keeps ordinary spaces and non-ASCII text, which a folder name may hold', () => {
+    expect(cleanFolder('/My Projects/café 東京 😀/\u00a0x')).toBe('/My Projects/café 東京 😀/\u00a0x');
   });
 
   it('cuts to 1,024 characters', () => {
@@ -18,8 +31,9 @@ describe('cleanFolder', () => {
     expect(cleanFolder('x'.repeat(1025))).toBe('x'.repeat(1024));
   });
 
-  it('cuts after stripping, so control characters do not use up the length', () => {
+  it('cuts after stripping, so stripped characters do not use up the length', () => {
     expect(cleanFolder(`${'\u0001'.repeat(50)}${'y'.repeat(1024)}`)).toBe('y'.repeat(1024));
+    expect(cleanFolder(`${'\u202e'.repeat(50)}${'y'.repeat(1024)}`)).toBe('y'.repeat(1024));
   });
 
   it('never splits a surrogate pair at the cut', () => {
