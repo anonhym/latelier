@@ -184,12 +184,12 @@ const isTestInstance = !!testUserDataDir;
 // Storage, caches) in the real ~/Library/Application Support/L'Atelier.
 if (testUserDataDir) app.setPath('userData', testUserDataDir);
 
-if (!isTestInstance) {
-  const gotLock = app.requestSingleInstanceLock();
-  if (!gotLock) {
-    app.quit();
-  }
-}
+// A second instance must never reach the boot body: it would open the first
+// one's database and, among other things, close that instance's live Agent
+// sessions as crash leftovers. `app.quit()` is asynchronous and lets `ready`
+// fire first, so exit at once, and the boot body checks the flag as well.
+const isSecondInstance = !isTestInstance && !app.requestSingleInstanceLock();
+if (isSecondInstance) app.exit(0);
 
 // E2E runs headless-style. macOS has no xvfb-equivalent (Electron renders via
 // Quartz, not X11), so "headless" here means: never show the window (see
@@ -710,6 +710,7 @@ function loadColumnKey(database: Database, crypto: SafeStorageLike, logger: Logg
 // Boot sequence --------------------------------------------------------------
 
 app.whenReady().then(() => {
+  if (isSecondInstance) return;
   const userDataDir = resolveUserDataDir();
   // `app.isPackaged` rather than NODE_ENV: nothing in the build sets NODE_ENV,
   // and Electron does not set it for a packaged app, so a NODE_ENV test reads
