@@ -76,6 +76,8 @@ import { needsYouCount } from '../features/agents/needsYou';
 import { onAgentsPageRequest, takeAgentsPageRequest } from '../features/agents/agentsNav';
 import { AgentsSidebar } from '../features/agents/AgentsSidebar';
 import { AgentsTab } from '../features/agents/AgentsTab';
+import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
+import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -97,11 +99,11 @@ function WorkspaceInner() {
   const T = themeVars;
   const navigate = useNavigate();
   const location = useLocation();
-  const tabs = useWorkspaceTabs();
   // Agents mode (X30 §2–§4): the sidebar's mode, and the one renderer-only Agents tab.
   const [sidebarMode, setSidebarMode] = useSidebarMode();
   const agentsTab = useAgentsTab();
   const agentsFocused = agentsTab.open && agentsTab.focused;
+  const tabs = useStoredTabsFront(useWorkspaceTabs(), agentsTab.unfocus);
   const {
     connections,
     loading: connectionsLoading,
@@ -352,9 +354,16 @@ function WorkspaceInner() {
   // Connection, while Agent Access is off and nothing is shared yet, pointing at
   // the sidebar's Agents switch, so only while the sidebar is drawn.
   const agentAccess = useAgentAccessState();
+  // Home's per-Connection Agent activity, read once the Agents tab first opens
+  // and kept for the run, so coming back to Home never re-reads the log.
+  const [agentsSeen, setAgentsSeen] = React.useState(false);
+  if (agentsTab.open && !agentsSeen) setAgentsSeen(true);
+  const connectionIds = React.useMemo(() => connections.map((c) => c.id), [connections]);
+  const connectionActivity = useConnectionActivity(connectionIds, agentsSeen);
   const agentsShareHint = useFeatureHint(
     'agents.share',
     activeCollection !== null &&
+      !agentsFocused &&
       !sidebarCollapsed &&
       focusedConnection?.status === 'connected' &&
       agentAccess !== null &&
@@ -571,11 +580,6 @@ function WorkspaceInner() {
     (page: AgentsPage) => changeSidebarMode('agents', { page }),
     [changeSidebarMode],
   );
-  // A stored tab coming forward by any path (strip, navigator, palette, ⌘1–9) steps the Agents tab back.
-  const storedActiveId = tabs.activeId;
-  React.useEffect(() => {
-    if (storedActiveId) agentsTabRef.current.unfocus();
-  }, [storedActiveId, agentsTabRef]);
   // X30 §12: the Agents pages and the mode, from the palette.
   useRegisterCommands(
     [
@@ -1468,7 +1472,10 @@ function WorkspaceInner() {
       const origin = e.target instanceof HTMLElement ? e.target : null;
       // ⌥1–⌥3 (W01 §14.11): the code, since Option-digit types a character on
       // a Mac. Left alone in a text field, where that character is the point.
+      // The Agents tab in front hides the stored one: its view keys are not this page's.
+      const agentsFront = agentsTabRef.current.open && agentsTabRef.current.focused;
       if (e.altKey && !mod && !e.shiftKey && /^Digit[123]$/.test(e.code)) {
+        if (agentsFront) return;
         const a = activeCollectionRef.current;
         if (!a || origin?.closest('[role="dialog"], [role="alertdialog"], input, textarea, select, [contenteditable="true"]')) return;
         e.preventDefault();
@@ -1517,6 +1524,7 @@ function WorkspaceInner() {
         if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
         if (e.shiftKey) {
           // ⌘⇧B: the Query Builder, on Documents only (W01 §14.11).
+          if (agentsFront) return;
           const a = activeCollectionRef.current;
           if (!a || (a.state.activeView ?? 'documents') !== 'documents') return;
           e.preventDefault();
@@ -1957,6 +1965,9 @@ function WorkspaceInner() {
       connections={connections}
       onNavigate={agentsTab.show}
       openConnection={openConnection}
+      connectDrafts={agentsTab.connectDrafts}
+      onConnectAction={agentsTab.connectAction}
+      activity={connectionActivity}
     />
   ) : null;
 

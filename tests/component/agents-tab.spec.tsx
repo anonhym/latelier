@@ -2,10 +2,12 @@
 // always last, counted last by ⌘1–⌘9 and ⌘⌥←/→, closed by ⌘W without
 // leaving the mode, and it never moves the stored tabs' focus.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '../helpers/render';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '../helpers/render';
 import { collectionTabFixture, uninstallAtelierMock } from '../helpers/atelierMock';
 import { agentState, mountAgentsWorkspace, token } from '../helpers/agentsWorkspace';
+import { requestAgentsPage, takeAgentsPageRequest } from '../../src/features/agents/agentsNav';
 import type { IpcApi } from '@shared/ipc';
+import type { WorkspaceTab } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
@@ -127,4 +129,109 @@ describe('the Agents tab', () => {
     await waitFor(() => expect(screen.getByTestId('agents-tab').getAttribute('aria-selected')).toBe('true'));
     expect(calls).toEqual([]);
   });
+
+  it('focused at quit, the next launch has no Agents tab and the last focused stored tab in front', async () => {
+    const rows = storedRows();
+    mountAgentsWorkspace({ tabs: rows.list(), overrides: { tabs: rows.api } });
+    fireEvent.click(within(await strip()).getByRole('tab', { name: /orders/ }));
+    fireEvent.click(await agentsSegment());
+    await waitFor(() => expect(screen.getByTestId('agents-tab').getAttribute('aria-selected')).toBe('true'));
+    // Quit with the Agents tab in front, and launch again on what was stored.
+    cleanup();
+    mountAgentsWorkspace({ tabs: rows.list(), overrides: { tabs: rows.api } });
+    await waitFor(() => expect(within(screen.getByRole('tablist', { name: 'Open tabs' })).getByRole('tab', { name: /orders/ }).getAttribute('aria-selected')).toBe('true'));
+    expect(screen.queryByTestId('agents-tab')).toBeNull();
+  });
+
+  it('a page asked for before the stored tabs load stays in front once they do', async () => {
+    let release!: () => void;
+    const loaded = new Promise<void>((r) => (release = r));
+    requestAgentsPage({ kind: 'setup' });
+    mountAgentsWorkspace({
+      tabs: TABS,
+      overrides: {
+        tabs: {
+          list: async () => {
+            await loaded;
+            return TABS;
+          },
+        },
+      },
+    });
+    // The list resolves after the request was taken: the stored tab's focus arriving must not step it back.
+    await act(async () => release());
+    await within(await strip()).findByRole('tab', { name: /users/ });
+    await screen.findByTestId('agents-setup-capabilities');
+    expect(screen.getByTestId('agents-tab').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('agents-setup-capabilities')).toBeTruthy();
+    expect(takeAgentsPageRequest()).toBeNull();
+  });
+
+  it('closing the stored tab behind it keeps the Agents tab in front', async () => {
+    const rows = storedRows();
+    mountAgentsWorkspace({ tabs: rows.list(), overrides: { tabs: rows.api } });
+    await within(await strip()).findByRole('tab', { name: /users/ });
+    fireEvent.click(await agentsSegment());
+    await screen.findByTestId('agents-tab');
+    const users = within(await strip()).getByRole('tab', { name: /users/ });
+    fireEvent.click(within(users).getByRole('button', { name: /^Close / }));
+    await waitFor(() => expect(within(screen.getByRole('tablist', { name: 'Open tabs' })).queryByRole('tab', { name: /users/ })).toBeNull());
+    expect(screen.getByTestId('agents-tab').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('agents-tab-panel')).toBeTruthy();
+  });
+
+  it('⌥1–⌥3 and ⌘⇧B leave the hidden stored tab alone', async () => {
+    const { api } = await mountWithAgentsTab();
+    await new Promise((r) => setTimeout(r, 300));
+    const update = vi.spyOn(api.tabs, 'update');
+    fireEvent.keyDown(window, { key: '∑', code: 'Digit2', altKey: true });
+    fireEvent.keyDown(window, { key: 'B', metaKey: true, shiftKey: true });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(JSON.stringify(update.mock.calls)).not.toMatch(/activeView|builderCollapsed/);
+    expect(screen.getByTestId('agents-tab').getAttribute('aria-selected')).toBe('true');
+  });
 });
+
+describe("Home's Agent activity", () => {
+  it('is read once for the run, not again each time Home comes back', async () => {
+    const listCalls = vi.fn(async () => []);
+    mountAgentsWorkspace({ tabs: TABS, state: agentState({ tokens: [token('t-a', 'laptop-claude')] }), overrides: { agentAccess: { listCalls } } });
+    await within(await strip()).findByRole('tab', { name: /users/ });
+    fireEvent.click(await agentsSegment());
+    await screen.findByTestId('agents-connection-row');
+    await waitFor(() => expect(listCalls).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(await strip()).getByRole('tab', { name: /orders/ }));
+    await waitFor(() => expect(screen.queryByTestId('agents-tab-panel')).toBeNull());
+    fireEvent.click(screen.getByTestId('agents-tab'));
+    await screen.findByTestId('agents-connection-row');
+    // By label: a role query over Home trips a jsdom CSS-clone bug on its tinted rows.
+    fireEvent.click(screen.getByLabelText('Setup & capabilities'));
+    await screen.findByTestId('agents-setup-capabilities');
+    fireEvent.click(screen.getByTestId('agents-sidebar-home'));
+    await screen.findByTestId('agents-connection-row');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(listCalls).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Stored tabs that remember focus and closes, as main does across a quit. */
+function storedRows() {
+  let rows: WorkspaceTab[] = TABS.map((t) => ({ ...t }));
+  const focus = (id: string) => (rows = rows.map((t) => ({ ...t, isActive: t.id === id })));
+  return {
+    list: () => rows,
+    api: {
+      list: async () => rows,
+      setActive: async (id: string) => {
+        focus(id);
+        return { id };
+      },
+      close: async (id: string) => {
+        const wasActive = rows.find((t) => t.id === id)?.isActive;
+        rows = rows.filter((t) => t.id !== id);
+        if (wasActive && rows[0]) focus(rows[0].id);
+        return { newActiveId: rows.find((t) => t.isActive)?.id ?? null };
+      },
+    },
+  };
+}

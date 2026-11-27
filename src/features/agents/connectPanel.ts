@@ -95,3 +95,37 @@ export function firstSessionOf(
   const mine = sessions.filter((s) => s.tokenId === tokenId).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   return mine[0] ?? null;
 }
+
+/**
+ * The panels of this run, kept above the Agents tab so leaving the panel (for
+ * Home, another page or a stored tab) and coming back finds it as it was. A
+ * new Agent's panel is under `NEW_AGENT`; once its first copy makes the
+ * token, it moves under that token's id, and a later Connect an Agent starts
+ * a fresh one.
+ */
+export type ConnectDrafts = ReadonlyMap<string, ConnectPanelState>;
+
+export const NEW_AGENT = '\u0000new';
+
+/** The panel for `tokenId` (an existing Agent) or for a new Agent. */
+export function connectDraft(drafts: ConnectDrafts, tokenId: string | undefined, client: SnippetClient): ConnectPanelState {
+  return drafts.get(tokenId ?? NEW_AGENT) ?? initialConnectPanel(client, tokenId ?? null);
+}
+
+/** Applies `action` to one panel; `created` names the token a new Agent's first copy made. */
+export function stepConnectDrafts(
+  drafts: ConnectDrafts,
+  tokenId: string | undefined,
+  action: ConnectPanelAction,
+  client: SnippetClient,
+): { drafts: ConnectDrafts; created: string | null } {
+  const next = connectPanelReducer(connectDraft(drafts, tokenId, client), action);
+  const out = new Map(drafts);
+  if (tokenId === undefined && next.tokenId !== null) {
+    out.delete(NEW_AGENT);
+    out.set(next.tokenId, next);
+    return { drafts: out, created: next.tokenId };
+  }
+  out.set(tokenId ?? NEW_AGENT, next);
+  return { drafts: out, created: null };
+}

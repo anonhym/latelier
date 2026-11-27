@@ -12,11 +12,12 @@ import {
   AGENT_NAME_MAX,
   canCopy,
   clipboardClearAt,
-  connectPanelReducer,
+  connectDraft,
   copyRequest,
   copyStepDone,
   firstSessionOf,
-  initialConnectPanel,
+  type ConnectDrafts,
+  type ConnectPanelAction,
 } from './connectPanel';
 import { PASTE_WHERE, TOKEN_PLACEHOLDER } from './connectCopy';
 import { announceCopied, clientLabel } from './useAgentTokenActions';
@@ -157,16 +158,20 @@ function SnippetBlock({ text }: { text: string }) {
 export function ConnectAgentPanel({
   state,
   tokenId,
+  drafts,
+  onAction,
   onNavigate,
 }: {
   state: AgentAccessState;
   /** An existing Agent to copy the setup for again; none for a new one. */
   tokenId?: string;
+  /** The panels of this run, held above the tab so they outlive this mount. */
+  drafts: ConnectDrafts;
+  onAction: (tokenId: string | undefined, action: ConnectPanelAction) => void;
   onNavigate: (page: AgentsPage) => void;
 }) {
-  const [panel, dispatch] = React.useReducer(connectPanelReducer, undefined, () =>
-    initialConnectPanel(DEFAULT_AGENT_CLIENT, tokenId ?? null),
-  );
+  const panel = connectDraft(drafts, tokenId, DEFAULT_AGENT_CLIENT);
+  const dispatch = (action: ConnectPanelAction) => onAction(tokenId, action);
   const token = panel.tokenId ? state.tokens.find((t) => t.id === panel.tokenId) : undefined;
   const name = token?.name ?? panel.name.trim();
   const label = clientLabel(panel.client);

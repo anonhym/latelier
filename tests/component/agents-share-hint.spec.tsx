@@ -114,6 +114,19 @@ describe('agents.share hint', () => {
     );
   });
 
+  it('stays hidden while the Agents tab is in front, and comes back behind it undismissed', async () => {
+    const prefs = mount();
+    await waitFor(() => screen.getByRole('dialog', { name: TITLE }), { timeout: 3000 });
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Sidebar mode' })).getByRole('tab', { name: /Agents/ }));
+    await screen.findByTestId('agents-tab-panel');
+    await waitFor(() => expect(hint()).toBeNull());
+    await settle();
+    expect(hint()).toBeNull();
+    expect(prefs.set).not.toHaveBeenCalledWith(HINTS_KEY, expect.objectContaining({ dismissedIds: expect.arrayContaining(['agents.share']) }));
+    fireEvent.click(within(screen.getByRole('tablist', { name: 'Open tabs' })).getByRole('tab', { name: /users/ }));
+    await waitFor(() => screen.getByRole('dialog', { name: TITLE }), { timeout: 3000 });
+  });
+
   it('stays hidden while Agent Access is on', async () => {
     mount({ state: { ...AGENT_ACCESS_OFF, enabled: true } });
     await screen.findByRole('tablist', { name: 'Sidebar mode' });

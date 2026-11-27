@@ -1,10 +1,12 @@
 // Agents Home (X30 §5.1, §8): the status line, the checklist ticked from real
 // state, Needs you, and the Connections table with its Shared switch.
+import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import { connectionFixture, installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { agentState, liveSession } from '../helpers/agentsWorkspace';
 import { AgentsHome } from '../../src/features/agents/AgentsHome';
+import { useConnectionActivity } from '../../src/features/agents/useConnectionActivity';
 import { NEEDS_YOU_EMPTY } from '../../src/features/agents/NeedsYouList';
 import type { IpcApi } from '@shared/ipc';
 import type { AgentAccessState, AgentCallSummary, AgentConnectionRequest, AgentSessionRow, ConnectionSummary } from '@shared/types';
@@ -61,6 +63,15 @@ const call = (over: Partial<AgentCallSummary>): AgentCallSummary => ({
   ...over,
 });
 
+/** Home as the Workspace draws it: the activity is read above it, for the run. */
+function HomeWithActivity(props: Omit<React.ComponentProps<typeof AgentsHome>, 'activity'>) {
+  const activity = useConnectionActivity(
+    React.useMemo(() => props.connections.map((c) => c.id), [props.connections]),
+    true,
+  );
+  return <AgentsHome {...props} activity={activity} />;
+}
+
 function mount(
   opts: {
     state?: AgentAccessState;
@@ -88,13 +99,13 @@ function mount(
   const onNavigate = vi.fn();
   const openConnection = vi.fn();
   const props = { connections: opts.connections ?? CONNECTIONS, onNavigate, openConnection };
-  const view = render(<AgentsHome state={opts.state ?? agentState()} {...props} />);
+  const view = render(<HomeWithActivity state={opts.state ?? agentState()} {...props} />);
   return {
     api,
     onNavigate,
     openConnection,
     listCalls,
-    rerender: (state: AgentAccessState) => view.rerender(<AgentsHome state={state} {...props} />),
+    rerender: (state: AgentAccessState) => view.rerender(<HomeWithActivity state={state} {...props} />),
     pushCall: (row: AgentCallSummary) => act(() => callListeners.forEach((cb) => cb(row))),
   };
 }

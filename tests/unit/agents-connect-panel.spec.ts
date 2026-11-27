@@ -3,12 +3,15 @@ import {
   AGENT_NAME_MAX,
   canCopy,
   clipboardClearAt,
+  connectDraft,
   connectPanelReducer as reduce,
   copyRequest,
   copyStepDone,
   firstSessionOf,
   initialConnectPanel,
   nameValid,
+  NEW_AGENT,
+  stepConnectDrafts,
 } from '../../src/features/agents/connectPanel';
 import type { AgentSessionInfo } from '@shared/types';
 
@@ -115,5 +118,48 @@ describe('firstSessionOf', () => {
     expect(firstSessionOf(sessions, 'tok-1')?.id).toBe('early');
     expect(firstSessionOf(sessions, 'tok-3')).toBeNull();
     expect(firstSessionOf(sessions, null)).toBeNull();
+  });
+});
+
+describe('the Connect panels of a run', () => {
+  const done = (tokenId: string) => ({ type: 'copyDone' as const, result: { tokenId, copiedAt: '2026-11-27T11:00:00.000Z' }, client: 'cursor' as const });
+
+  it('a new Agent starts empty on the default client; an existing one starts on its token', () => {
+    expect(connectDraft(new Map(), undefined, 'cursor')).toEqual(initialConnectPanel('cursor'));
+    expect(connectDraft(new Map(), 't1', 'cursor')).toEqual(initialConnectPanel('cursor', 't1'));
+  });
+
+  it('keeps each panel under its key, a new one under NEW_AGENT', () => {
+    const { drafts, created } = stepConnectDrafts(new Map(), undefined, { type: 'name', name: 'Draft' }, 'cursor');
+    expect(created).toBeNull();
+    expect([...drafts.keys()]).toEqual([NEW_AGENT]);
+    expect(connectDraft(drafts, undefined, 'claude-code').name).toBe('Draft');
+    const other = stepConnectDrafts(drafts, 't9', { type: 'client', client: 'claude-desktop' }, 'cursor');
+    expect(other.created).toBeNull();
+    expect(connectDraft(other.drafts, 't9', 'cursor').client).toBe('claude-desktop');
+    expect(connectDraft(other.drafts, undefined, 'cursor').name).toBe('Draft');
+  });
+
+  it("moves a new Agent's panel under its token on the first copy, and the next Connect starts fresh", () => {
+    const named = stepConnectDrafts(new Map(), undefined, { type: 'name', name: 'Laptop' }, 'cursor').drafts;
+    const { drafts, created } = stepConnectDrafts(named, undefined, done('tok-1'), 'cursor');
+    expect(created).toBe('tok-1');
+    expect(drafts.has(NEW_AGENT)).toBe(false);
+    expect(connectDraft(drafts, 'tok-1', 'cursor')).toMatchObject({ name: 'Laptop', tokenId: 'tok-1', copiedClient: 'cursor' });
+    expect(connectDraft(drafts, undefined, 'cursor')).toEqual(initialConnectPanel('cursor'));
+    // The original map is left as it was.
+    expect(named.has(NEW_AGENT)).toBe(true);
+  });
+
+  it('a copy again for an existing Agent creates nothing', () => {
+    const { created, drafts } = stepConnectDrafts(new Map(), 't1', done('t1'), 'cursor');
+    expect(created).toBeNull();
+    expect([...drafts.keys()]).toEqual(['t1']);
+  });
+
+  it('a cancelled first copy leaves the new panel where it was', () => {
+    const { created, drafts } = stepConnectDrafts(new Map(), undefined, { type: 'copyDone', result: { cancelled: true }, client: 'cursor' }, 'cursor');
+    expect(created).toBeNull();
+    expect([...drafts.keys()]).toEqual([NEW_AGENT]);
   });
 });

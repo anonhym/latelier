@@ -8,11 +8,10 @@ import type { AgentAccessState, ConnectionSummary } from '@shared/types';
 import { AGENT_ACCESS_COPY, privilegeText } from '../agentAccess/agentAccessCopy';
 import { shareWithAgents, stopSharingWithAgents } from '../agentAccess/useShareWithAgents';
 import type { AgentsPage } from './agentsPage';
-import { connectionRows, homeStatusLine, privilegePill, setupSteps, showSetup, type ConnectionRow, type SetupStep, type StatusTone } from './homeModel';
+import { connectionRows, homeStatusLine, privilegePill, setupSteps, showSetup, type ConnectionActivity, type ConnectionRow, type SetupStep, type StatusTone } from './homeModel';
 import { needsYouItems } from './needsYou';
 import { NeedsYouList } from './NeedsYouList';
 import { useAnySessionEver } from './useAnySessionEver';
-import { useConnectionActivity } from './useConnectionActivity';
 import { useNow } from './useNow';
 
 const T = themeVars;
@@ -200,18 +199,20 @@ function ConnectionTableRow({
 export function AgentsHome({
   state,
   connections,
+  activity,
   onNavigate,
   openConnection,
 }: {
   state: AgentAccessState;
   connections: ConnectionSummary[];
+  /** Last Agent call and recent callers per Connection, kept above the tab for the run. */
+  activity: ReadonlyMap<string, ConnectionActivity>;
   onNavigate: (page: AgentsPage) => void;
   openConnection: (id: string) => void;
 }) {
   const now = useNow();
   const tableRef = React.useRef<HTMLElement>(null);
   const anySessionEver = useAnySessionEver(state.sessions.length);
-  const activity = useConnectionActivity(React.useMemo(() => connections.map((c) => c.id), [connections]));
 
   const steps = setupSteps({
     enabled: state.enabled,

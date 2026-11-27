@@ -1,11 +1,14 @@
 // Connect an Agent (X30 §6): "copied" only once main resolves, a cancel leaves
 // step 1, a second Copy regenerates the same Agent, "Connected" on its first
 // session, and never a token in the DOM.
+import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { agentState, liveSession, token } from '../helpers/agentsWorkspace';
 import { ConnectAgentPanel } from '../../src/features/agents/ConnectAgentPanel';
+import { useAgentsTab } from '../../src/features/agents/useAgentsTab';
+import type { AgentsPage } from '../../src/features/agents/agentsPage';
 import type { AgentAccessState, AgentCopyResult } from '@shared/types';
 
 afterEach(() => {
@@ -22,19 +25,36 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/**
+ * The panel as the Agents tab draws it: its state lives in `useAgentsTab`,
+ * above the panel, and `shown` false stands for any page or tab in front of it.
+ */
+function Tab({ state, tokenId, shown, onNavigate }: { state: AgentAccessState; tokenId?: string; shown: boolean; onNavigate: (p: AgentsPage) => void }) {
+  const tab = useAgentsTab();
+  const { show } = tab;
+  React.useEffect(() => show(tokenId ? { kind: 'connect', tokenId } : { kind: 'connect' }), [show, tokenId]);
+  if (!shown || !tab.open || tab.page.kind !== 'connect') return null;
+  return <ConnectAgentPanel state={state} tokenId={tab.page.tokenId} drafts={tab.connectDrafts} onAction={tab.connectAction} onNavigate={onNavigate} />;
+}
+
 function mount(state: AgentAccessState = agentState(), tokenId?: string) {
   const connect = deferred<AgentCopyResult>();
   const connectClient = vi.fn(() => connect.promise);
   const copySetup = vi.fn(async ({ id }: { id: string }) => ({ tokenId: id, copiedAt: '2026-11-27T11:30:00.000Z' }));
   installAtelierMock({ agentAccess: { connectClient, copySetup } });
   const onNavigate = vi.fn();
-  const view = render(<ConnectAgentPanel state={state} tokenId={tokenId} onNavigate={onNavigate} />);
+  let current = state;
+  const view = render(<Tab state={state} tokenId={tokenId} shown onNavigate={onNavigate} />);
   return {
     connect,
     connectClient,
     copySetup,
     onNavigate,
-    rerender: (next: AgentAccessState) => view.rerender(<ConnectAgentPanel state={next} tokenId={tokenId} onNavigate={onNavigate} />),
+    rerender: (next: AgentAccessState) => {
+      current = next;
+      view.rerender(<Tab state={next} tokenId={tokenId} shown onNavigate={onNavigate} />);
+    },
+    setShown: (shown: boolean) => view.rerender(<Tab state={current} tokenId={tokenId} shown={shown} onNavigate={onNavigate} />),
   };
 }
 
@@ -92,6 +112,32 @@ describe('the Connect an Agent panel', () => {
     fireEvent.click(copyButton());
     await waitFor(() => expect(copySetup).toHaveBeenCalledWith({ id: 'tok-1', client: 'claude-desktop' }));
     expect(connectClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the panel across leaving and coming back: a second Copy regenerates, never a second Agent', async () => {
+    const { connect, connectClient, copySetup, setShown } = mount();
+    fireEvent.change(nameInput(), { target: { value: 'Work laptop' } });
+    chooseClient('Cursor');
+    fireEvent.click(copyButton());
+    const copiedAt = new Date(2026, 10, 27, 11, 2).toISOString();
+    await act(async () => connect.resolve({ tokenId: 'tok-1', copiedAt }));
+    await screen.findByTestId('connect-copied');
+    setShown(false);
+    expect(screen.queryByTestId('connect-agent-panel')).toBeNull();
+    setShown(true);
+    expect(screen.getByTestId('connect-copied').textContent).toContain('Copied to your clipboard at 11:02');
+    expect(nameInput().readOnly).toBe(true);
+    fireEvent.click(copyButton());
+    await waitFor(() => expect(copySetup).toHaveBeenCalledWith({ id: 'tok-1', client: 'cursor' }));
+    expect(connectClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a typed name across leaving before any copy', () => {
+    const { setShown } = mount();
+    fireEvent.change(nameInput(), { target: { value: 'Draft' } });
+    setShown(false);
+    setShown(true);
+    expect(nameInput().value).toBe('Draft');
   });
 
   it('turns to Connected on the first session with that token, with a link to it', async () => {
