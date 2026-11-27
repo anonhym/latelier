@@ -1925,6 +1925,9 @@ export interface AgentConnectionRequest {
 /** The MCP clients a setup can be copied for (X27 §16.8). */
 export type SnippetClient = 'claude-code-cli' | 'claude-code' | 'claude-desktop' | 'cursor';
 
+/** What copying a setup answers: the token it holds and when the clipboard write returned, or a cancelled confirm. Never the token. */
+export type AgentCopyResult = { tokenId: string; copiedAt: string } | { cancelled: true };
+
 export interface AgentAccessState {
   enabled: boolean;
   /** The socket or pipe path, for troubleshooting; empty while the server is not listening. */
@@ -1940,7 +1943,11 @@ export interface AgentAccessState {
   bridgePath: string;
   /** The `claude mcp add` command for this bridge, with a placeholder where the token goes. Never holds a token. */
   claudeCodeCommand: string;
+  /** Each client's setup with `YOUR_TOKEN` where the token goes. Never holds a token. */
+  snippetTemplates: Record<SnippetClient, string>;
   platformCaveat: 'windows-pipe' | null;
   /** Last privilege result per Connection id, this app run only; display only, never consulted before sharing. */
   privilege: Record<string, PrivilegeResult>;
+  /** Shared Connections an Agent asked for while they were closed, newest first (X27 §16.6). */
+  connectionRequests: AgentConnectionRequest[];
 }

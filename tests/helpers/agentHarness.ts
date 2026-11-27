@@ -10,6 +10,9 @@ import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRep
 import { AgentSessionRepo } from '../../electron/db/repositories/AgentSessionRepo';
 import { AgentTokenRepo } from '../../electron/db/repositories/AgentTokenRepo';
 import { ConnectionRepo, inputToRow } from '../../electron/db/repositories/ConnectionRepo';
+import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
+import { ReferenceRulesService } from '../../electron/services/ReferenceRulesService';
+import type { MongoPool } from '../../electron/mongo/MongoPool';
 import { AppStateService } from '../../electron/services/AppStateService';
 import { AgentAccessService, type AgentAccessPool } from '../../electron/services/AgentAccessService';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
@@ -34,6 +37,8 @@ export interface AgentHarnessOptions {
   beforeService?: (ctx: { tmp: TempDb; sessionRepo: AgentSessionRepo; readLogRepo: AgentReadLogRepo }) => void;
   /** The home directory the service shortens folders with. Default `/Users/spec`. */
   homedir?: string;
+  /** The service's clock for Connection requests and copies. Default the real one. */
+  now?: () => number;
 }
 
 /** A pool that only reports the statuses a test sets, and emits `status` like the real one. */
@@ -96,6 +101,16 @@ export interface AgentHarness {
   clipboard: string[];
   /** Makes every clipboard write fail. */
   clipboardFails: boolean;
+  /** What the clipboard holds now: the last write, or what a test put there as the user. */
+  clipboardText: string;
+  /** How many times the service cleared the clipboard. */
+  clipboardClears: number;
+  /** Makes reading the clipboard fail. */
+  clipboardReadFails: boolean;
+  /** When set, a clipboard write waits for it before it returns. */
+  clipboardHold: Promise<void> | null;
+  /** The real Reference Rules the relation tools read, on the harness database. */
+  refs: ReferenceRulesService;
   answers: number[];
   bridge: FakeBridge;
   /** Runs when a message box opens, before it is answered. */
@@ -156,6 +171,8 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
   const answers: number[] = [];
   const bridge = new FakeBridge();
   const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  // `effective` reads only SQLite: the pool is never reached, so none is given.
+  const refs = new ReferenceRulesService(new ReferenceRulesRepo(tmp.db), null as unknown as MongoPool);
   const svc = new AgentAccessService({
     appState,
     tokenRepo,
@@ -176,10 +193,22 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
         return { response: answers.shift() ?? 0 };
       },
       writeClipboard: async (text) => {
+        if (harness.clipboardHold) await harness.clipboardHold;
         if (harness.clipboardFails) throw new Error('clipboard unavailable');
         clipboard.push(text);
+        harness.clipboardText = text;
+      },
+      readClipboard: async () => {
+        if (harness.clipboardReadFails) throw new Error('clipboard unreadable');
+        return harness.clipboardText;
+      },
+      clearClipboard: () => {
+        harness.clipboardClears += 1;
+        harness.clipboardText = '';
       },
     },
+    refs,
+    ...(options.now ? { now: options.now } : {}),
     emit: (state) => void states.push(state),
     emitCall: (row) => void calls.push(row),
   });
@@ -200,6 +229,11 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     boxes,
     clipboard,
     clipboardFails: false,
+    clipboardText: '',
+    clipboardClears: 0,
+    clipboardReadFails: false,
+    clipboardHold: null,
+    refs,
     answers,
     bridge,
     onBox: null,

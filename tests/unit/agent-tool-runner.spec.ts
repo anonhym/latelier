@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import type { AgentCallSummary } from '@shared/types';
 import { AgentToolRunner, requestJsonOf } from '../../electron/agent/AgentToolRunner';
 import type { AgentGate, AgentSessionIdentity } from '../../electron/agent/AgentGate';
@@ -31,6 +32,7 @@ function runner(rows: AgentReadLogEntry[]) {
     tokens: { touchLastUsed: () => undefined },
     connections: { findById: () => null },
     log: { warn: () => undefined, error: () => undefined },
+    refs: { effective: () => [] },
   });
 }
 
@@ -98,6 +100,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       tokens: { touchLastUsed: () => undefined },
       connections: { findById: () => (opts.name === null ? null : { id: CONNECTION, name: opts.name ?? 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
       onRowWritten: (row) => {
         summaries.push(row);
         written.push(row.outcome);
@@ -211,9 +214,38 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       tokens: { touchLastUsed: () => undefined },
       connections: { findById: () => ({ id: CONNECTION, name: 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
     });
     const reply = await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'none' });
     expect(reply.kind).toBe('result');
     expect(rows.map((row) => row.outcome)).toEqual(['NOT_SHARED']);
+  });
+});
+
+describe('AgentToolRunner tool context', () => {
+  it('hands a tool the Reference Rules it was built with', async () => {
+    const refs = { effective: () => [] };
+    let seen: unknown = null;
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ok' } as unknown as AgentGate,
+      tools: [
+        {
+          name: 'probe',
+          description: 'probe',
+          inputSchema: z.strictObject({}),
+          run: (_input, ctx) => {
+            seen = ctx.refs;
+            return { text: 'x', count: 0 };
+          },
+        },
+      ],
+      readLog: { insert: () => 'id' },
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => null },
+      log: { warn: () => undefined, error: () => undefined },
+      refs,
+    });
+    await r.call(session, 'probe', {}, new AbortController().signal);
+    expect(seen).toBe(refs);
   });
 });

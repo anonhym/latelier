@@ -2,6 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { Binary, BSONRegExp, Decimal128, Int32, Long, MaxKey, MinKey, ObjectId, Timestamp, UUID } from 'bson';
 import { createReadFixture, docsIn, envelopeBody, type ReadFixture } from '../helpers/agentFixture';
 import { metaOf, outsideEnvelope, textOf } from '../helpers/agentSocket';
+import { FamilyRepo } from '../../electron/db/repositories/FamilyRepo';
+import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
+import { RowSummaryRepo } from '../../electron/db/repositories/RowSummaryRepo';
+import { FamilyService } from '../../electron/services/FamilyService';
 
 const ID = '507f1f77bcf86cd799439011';
 
@@ -402,6 +406,174 @@ describe('Agent read tools', () => {
       const r = await f.call('aggregate', { ...f.on('orders'), pipeline: [{ $group: { _id: '$x', v: { $badAccumulatorQuux: 1 } } }] });
       expect(textOf(r)).toMatch(/^DB_ERROR: The database returned an error\. \(server code \d+\)$/);
       expect(textOf(r)).not.toContain('badAccumulator');
+    });
+  });
+});
+
+describe('Agent relation tools (X27 §16.7)', () => {
+  let f: ReadFixture;
+  let rulesIn: (text: string) => Array<Record<string, unknown>>;
+
+  beforeAll(async () => {
+    f = await createReadFixture();
+    rulesIn = (text) => JSON.parse(envelopeBody(text)) as Array<Record<string, unknown>>;
+    const own = { connectionId: f.connectionId };
+    const rule = (sourceDb: string, sourceCollection: string, sourceField: string, targetDb: string, targetCollection: string, enabled = true) =>
+      f.h.refs.create({ owner: own, sourceDb, sourceCollection, sourceField, targetDb, targetCollection, enabled });
+    rule(f.dbName, 'orders', 'customer_id', f.dbName, 'customers');
+    rule(f.dbName, 'orders', 'old_id', f.dbName, 'archive', false);
+    rule(f.dbName, 'invoices', 'order_id', f.dbName, 'orders');
+    rule('crm', 'leads', 'owner_id', 'crm', 'users');
+    rule('admin', 'orders', 'user_id', f.dbName, 'users');
+    rule(f.dbName, 'orders', 'role_id', 'Local', 'roles');
+    rule(f.dbName, 'system.views', 'x_id', f.dbName, 'xs');
+    rule(f.dbName, 'orders', 'job_id', f.dbName, 'system.jobs');
+    // A Family's rule reaches its members unless one overrides it.
+    const familyRepo = new FamilyRepo(f.h.tmp.db);
+    const families = new FamilyService(familyRepo, new ReferenceRulesRepo(f.h.tmp.db), new RowSummaryRepo(f.h.tmp.db));
+    const familyId = families.create({ name: 'Shop', memberIds: [f.connectionId] }).id;
+    f.h.refs.create({ owner: { familyId }, sourceDb: f.dbName, sourceCollection: 'orders', sourceField: 'item_id', targetDb: f.dbName, targetCollection: 'items' });
+
+    await f.db.collection('refs_orders').insertMany(
+      Array.from({ length: 30 }, (_, i) => ({ _id: i, customer_id: i, item_id: i, ...(i === 29 ? { late_id: 1 } : {}), user_id: i, n: i })) as never,
+    );
+    await f.db.collection('customers').insertOne({ _id: 1 } as never);
+    await f.db.collection('items').insertOne({ _id: 1 } as never);
+    await f.db.collection('lates').insertOne({ _id: 1 } as never);
+    f.h.refs.create({ owner: own, sourceDb: f.dbName, sourceCollection: 'refs_orders', sourceField: 'customer_id', targetDb: f.dbName, targetCollection: 'customers' });
+  });
+
+  afterAll(async () => {
+    await f.cleanup();
+  });
+
+  afterEach(() => {
+    f.m.commands.length = 0;
+  });
+
+  describe('list_references', () => {
+    it("lists the Connection's own and its Family's rules, without the §7.4 namespaces, inside the envelope", async () => {
+      const r = await f.call('list_references', { connectionId: f.connectionId });
+      expect(r.isError).toBeUndefined();
+      const rules = rulesIn(textOf(r));
+      expect(rules.map((x) => `${x.sourceDb}.${x.sourceCollection}.${x.sourceField}`).sort((a, b) => a.localeCompare(b))).toEqual(
+        [
+          'crm.leads.owner_id',
+          `${f.dbName}.invoices.order_id`,
+          `${f.dbName}.orders.customer_id`,
+          `${f.dbName}.orders.item_id`,
+          `${f.dbName}.orders.old_id`,
+          `${f.dbName}.refs_orders.customer_id`,
+        ].sort((a, b) => a.localeCompare(b)),
+      );
+      expect(rules.find((x) => x.sourceField === 'old_id')).toEqual({
+        sourceDb: f.dbName,
+        sourceCollection: 'orders',
+        sourceField: 'old_id',
+        targetDb: f.dbName,
+        targetCollection: 'archive',
+        targetField: '_id',
+        enabled: false,
+      });
+      expect(metaOf(r)).toMatchObject({ count: 6, truncated: false });
+      // No Mongo call: the rules live in the app.
+      expect(f.m.commands).toEqual([]);
+      expect(f.rows().at(-1)).toMatchObject({ tool: 'list_references', outcome: 'ok', doc_count: 6, connection_id: f.connectionId });
+    });
+
+    it('narrows to a database, and to one collection of it', async () => {
+      const inDb = rulesIn(textOf(await f.call('list_references', { connectionId: f.connectionId, database: 'crm' })));
+      expect(inDb.map((x) => x.sourceField)).toEqual(['owner_id']);
+      const inColl = rulesIn(textOf(await f.call('list_references', { connectionId: f.connectionId, database: f.dbName, collection: 'orders' })));
+      expect(inColl.map((x) => x.sourceField).sort((a, b) => String(a).localeCompare(String(b)))).toEqual(['customer_id', 'item_id', 'old_id']);
+      const byColl = rulesIn(textOf(await f.call('list_references', { connectionId: f.connectionId, collection: 'leads' })));
+      expect(byColl.map((x) => x.sourceField)).toEqual(['owner_id']);
+    });
+
+    it('refuses a §7.4 namespace it is asked for by name', async () => {
+      for (const args of [{ database: 'admin' }, { database: 'LOCAL' }, { collection: 'system.views' }]) {
+        expect(textOf(await f.call('list_references', { connectionId: f.connectionId, ...args }))).toMatch(/^NAMESPACE_DENIED: /);
+      }
+    });
+
+    it('refuses unknown fields and an id that is not shared', async () => {
+      expect(textOf(await f.call('list_references', { connectionId: f.connectionId, limit: 5 }))).toMatch(/^INVALID_INPUT: /);
+      expect(textOf(await f.call('list_references', { connectionId: '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11' }))).toMatch(/^NOT_SHARED: /);
+    });
+  });
+
+  describe('suggest_references', () => {
+    it('suggests fields whose stem names a collection, through the agent client with §6.4 limits', async () => {
+      const r = await f.call('suggest_references', f.on('refs_orders'));
+      expect(r.isError).toBeUndefined();
+      expect(rulesIn(textOf(r))).toEqual([
+        { sourceField: 'customer_id', targetDb: f.dbName, targetCollection: 'customers', targetField: '_id', alreadyConfigured: true },
+        { sourceField: 'item_id', targetDb: f.dbName, targetCollection: 'items', targetField: '_id', alreadyConfigured: false },
+      ]);
+      expect(textOf(r)).toContain('Suggested from 25 sampled documents (up to 25 requested): 2 candidates');
+      const sent = f.m.commands.filter((c) => c.name === 'find' || c.name === 'listCollections');
+      expect(sent.map((c) => c.name).sort((a, b) => a.localeCompare(b))).toEqual(['find', 'listCollections']);
+      for (const c of sent) expect(c.command).toMatchObject({ comment: 'latelier-agent', maxTimeMS: 10_000 });
+      expect(sent.find((c) => c.name === 'find')!.command).toMatchObject({ limit: 25 });
+      expect(f.rows().at(-1)).toMatchObject({ tool: 'suggest_references', outcome: 'ok', doc_count: 25 });
+    });
+
+    it('reads up to sampleSize documents, at most 200', async () => {
+      const r = await f.call('suggest_references', { ...f.on('refs_orders'), sampleSize: 200 });
+      expect(rulesIn(textOf(r)).map((c) => c.sourceField)).toEqual(['customer_id', 'item_id', 'late_id']);
+      expect(textOf(await f.call('suggest_references', { ...f.on('refs_orders'), sampleSize: 201 }))).toMatch(/^INVALID_INPUT: /);
+      expect(textOf(await f.call('suggest_references', { ...f.on('refs_orders'), sampleSize: 0 }))).toMatch(/^INVALID_INPUT: /);
+    });
+
+    it('refuses a §7.4 namespace before reading anything', async () => {
+      for (const args of [{ ...f.on('x'), database: 'config' }, { ...f.on('system.views') }]) {
+        expect(textOf(await f.call('suggest_references', args))).toMatch(/^NAMESPACE_DENIED: /);
+      }
+      expect(f.m.commands.filter((c) => c.command.comment === 'latelier-agent')).toEqual([]);
+    });
+
+    it('returns an empty list, not an error, for a collection with no reference-like fields', async () => {
+      const r = await f.call('suggest_references', f.on('orders'));
+      expect(r.isError).toBeUndefined();
+      expect(rulesIn(textOf(r))).toEqual([]);
+    });
+  });
+
+  describe('on a shared Connection that is closed', () => {
+    let closed: ReadFixture;
+
+    beforeAll(async () => {
+      closed = await createReadFixture({ connect: false });
+    });
+
+    afterAll(async () => {
+      await closed.cleanup();
+    });
+
+    it('both refuse NOT_OPEN, and the pool never starts connecting it', async () => {
+      const statuses: string[] = [];
+      const listener = (rt: { id: string; status: string }) => {
+        if (rt.id === closed.connectionId) statuses.push(rt.status);
+      };
+      closed.m.pool.on('status', listener);
+      try {
+        for (const [tool, args] of [
+          ['list_references', { connectionId: closed.connectionId }],
+          ['suggest_references', closed.on('refs_orders')],
+        ] as const) {
+          expect(textOf(await closed.call(tool, args))).toBe(
+            "NOT_OPEN: This Connection is not open. L'Atelier has asked the user to open it; try again after they do.",
+          );
+        }
+      } finally {
+        closed.m.pool.off('status', listener);
+      }
+      expect(statuses).toEqual([]);
+      expect(closed.m.pool.status(closed.connectionId).status).toBe('disconnected');
+      expect(closed.rows().map((r) => r.outcome)).toEqual(['NOT_OPEN', 'NOT_OPEN']);
+      expect(closed.h.svc.getState().connectionRequests).toEqual([
+        expect.objectContaining({ connectionId: closed.connectionId, count: 2, lastTool: 'suggest_references', lastOutcome: 'refused' }),
+      ]);
     });
   });
 });

@@ -35,7 +35,7 @@ function context(options: FakeOptions): ToolContext {
       release: () => undefined,
     }),
   };
-  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined } };
+  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] } };
 }
 
 const names = (count: number, prefix = 'db'): string[] => Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(6, '0')}`);

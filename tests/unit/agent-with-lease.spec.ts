@@ -20,7 +20,7 @@ function context(state: { revoked: boolean; released: number }): ToolContext {
       },
     }),
   };
-  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined } };
+  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] } };
 }
 
 describe('withLease', () => {

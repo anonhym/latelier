@@ -3,6 +3,7 @@ import type { MongoClient } from 'mongodb';
 import type {
   AgentAccessState,
   AgentCallRow,
+  AgentCopyResult,
   AgentCallSummary,
   AgentCallsQuery,
   AgentSessionEndReason,
@@ -12,20 +13,31 @@ import type {
   AgentTokenInfo,
   ConnectionRuntime,
   PrivilegeResult,
+  SnippetClient,
 } from '@shared/types';
 import { AGENT_ACCESS_KEY } from '../ipc/prefKeys.ts';
 import type { Logger } from '../log.ts';
-import { ConflictError, NotFoundError, ValidationError } from '../errors.ts';
+import { ConflictError, NotFoundError, SystemError, ValidationError } from '../errors.ts';
 import { classifyMongoOpError } from '../mongo/errors.ts';
-import { enableAndShareBox, enableBox, notOpenBox, shareBox, tokenBox, TOKEN_DONE, type AgentMessageBox } from '../agent/dialogCopy.ts';
+import {
+  connectClientBox,
+  COPY_CONFIRMED,
+  copySetupBox,
+  enableAndShareBox,
+  enableBox,
+  notOpenBox,
+  shareBox,
+  type AgentMessageBox,
+} from '../agent/dialogCopy.ts';
 import type { BridgeHandle } from '../agent/bridgeInstall.ts';
 import { failedVerdict, privilegeVerdict } from '../agent/privilegeVerdict.ts';
-import { claudeCodeCommandTemplate, configSnippet, SNIPPET_CLIENTS } from '../agent/snippets.ts';
+import { claudeCodeCommandTemplate, configSnippet, snippetLabel, snippetTemplates } from '../agent/snippets.ts';
+import { ConnectionRequests } from '../agent/connectionRequests.ts';
 import { AgentGate, type AgentPool } from '../agent/AgentGate.ts';
 import { AgentServer, type AgentSessionEvent } from '../agent/AgentServer.ts';
 import { displayFolder } from '../agent/folderDisplay.ts';
 import { AgentToolRunner } from '../agent/AgentToolRunner.ts';
-import { AGENT_TOOLS } from '../agent/tools.ts';
+import { AGENT_TOOLS, type AgentReferenceRules } from '../agent/tools.ts';
 import { generateToken, hashToken } from '../agent/token.ts';
 import type { AgentTokenRepo, AgentTokenRow } from '../db/repositories/AgentTokenRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
@@ -51,6 +63,9 @@ export interface AgentAccessPool extends AgentPool {
 export interface AgentDialogs {
   showMessageBox(options: AgentMessageBox): Promise<{ response: number }>;
   writeClipboard(text: string): Promise<void>;
+  /** Main only: the renderer is never allowed to read the clipboard. */
+  readClipboard(): Promise<string>;
+  clearClipboard(): void;
 }
 
 export interface AgentAccessDeps {
@@ -71,6 +86,10 @@ export interface AgentAccessDeps {
   emit: (state: AgentAccessState) => void;
   /** Pushes one new Agent Read Log row, without its request, to the renderer. */
   emitCall: (row: AgentCallSummary) => void;
+  /** The Reference Rules the relation tools read. */
+  refs: AgentReferenceRules;
+  /** The clock Connection requests and copies are timed by. */
+  now?: () => number;
 }
 
 /** A live session's counts, this run only; the stored rows answer for ended ones. */
@@ -82,6 +101,12 @@ interface SessionStats {
 
 /** Read counts are pushed at most this often: a burst of tool calls is one update. */
 const READ_COUNT_EMIT_MS = 250;
+
+/** A copied setup holds a token: main clears it this long after the copy if it is still there (X27 §16.8). */
+export const CLIPBOARD_CLEAR_MS = 5 * 60 * 1000;
+
+/** How often quiet Connection requests are looked for; each one lives 30 minutes past its last refusal. */
+const REQUEST_SWEEP_MS = 60 * 1000;
 
 function toInfo(row: AgentTokenRow): AgentTokenInfo {
   return {
@@ -114,18 +139,29 @@ export class AgentAccessService {
   private sharing = new Map<string, Promise<{ shared: boolean; privilege?: PrivilegeResult }>>();
   private emitTimer: NodeJS.Timeout | null = null;
   private stopped = false;
+  private requests: ConnectionRequests;
+  private requestSweep: NodeJS.Timeout | null = null;
+  /** The text main last put on the clipboard, until it is cleared or replaced. */
+  private copied: { text: string; timer: NodeJS.Timeout } | null = null;
   /** Serialises start and stop, so a quick off-on never races two listeners. */
   private chain: Promise<void> = Promise.resolve();
   /** An edit that points a Connection elsewhere ended its share (`ConnectionService.update` cleared the flag); a delete ends it too. */
   private onIdentityChanged = (connectionId: string): void => {
     this.gate.revokeConnection(connectionId);
     this.privilegeByConnection.delete(connectionId);
+    this.requests.endConnection(connectionId);
     // Not `emitState`: a delete announces itself before the row goes, and the coalesced push reads it after.
     this.scheduleEmit();
   };
 
+  /** A Connection the user opened ends every request for it: there is nothing left to ask. */
+  private onPoolStatus = (runtime: { id: string; status: ConnectionRuntime['status'] }): void => {
+    if (runtime.status === 'connected' && this.requests.endConnection(runtime.id)) this.emitState();
+  };
+
   constructor(deps: AgentAccessDeps) {
     this.deps = deps;
+    this.requests = new ConnectionRequests(() => this.now());
     // A session still open in the table was left by a run that crashed or was killed: nothing serves it now.
     const orphans = deps.sessionRepo.closeOrphans(new Date().toISOString());
     if (orphans > 0) deps.log.info('agent', 'closed Agent sessions left open by the last run', { count: orphans });
@@ -143,6 +179,7 @@ export class AgentAccessService {
       tokens: deps.tokenRepo,
       connections: deps.connRepo,
       log: deps.log,
+      refs: deps.refs,
       onRowWritten: (row) => this.onRowWritten(row),
     });
     this.server = new AgentServer({
@@ -156,6 +193,7 @@ export class AgentAccessService {
     });
     this.server.setSessionsListener((event) => this.onSessionEvent(event));
     deps.pool.on('connection-identity-changed', this.onIdentityChanged);
+    deps.pool.on('status', this.onPoolStatus);
   }
 
   isEnabled(): boolean {
@@ -165,6 +203,10 @@ export class AgentAccessService {
   /** Starts the server when the switch is already on, and follows it from then on. */
   init(): void {
     if (this.unsubscribe) return;
+    this.requestSweep ??= setInterval(() => {
+      if (this.requests.expire()) this.emitState();
+    }, REQUEST_SWEEP_MS);
+    this.requestSweep.unref();
     this.unsubscribe = this.deps.appState.subscribe<boolean>(AGENT_ACCESS_KEY, (value) => {
       if (value !== true) {
         // Right now, not when the queue gets to it: no read may finish after the user said stop.
@@ -191,6 +233,10 @@ export class AgentAccessService {
     this.stopped = true;
     if (this.emitTimer) clearTimeout(this.emitTimer);
     this.emitTimer = null;
+    if (this.requestSweep) clearInterval(this.requestSweep);
+    this.requestSweep = null;
+    // At quit, a setup main copied is not left on the clipboard (X27 §16.8).
+    await this.clearCopiedSetup();
     // First, so the quit teardown aborts every in-flight Agent read before anything else closes.
     this.gate.revokeAll();
     this.enqueue(() => this.server.stop('app-quit'));
@@ -198,6 +244,7 @@ export class AgentAccessService {
     await this.gate.close();
     this.gate.dispose();
     this.deps.pool.off('connection-identity-changed', this.onIdentityChanged);
+    this.deps.pool.off('status', this.onPoolStatus);
   }
 
   /** Resolves when every queued start or stop has finished. Tests use it to await the live switch. */
@@ -305,11 +352,16 @@ export class AgentAccessService {
     if (!this.deps.connRepo.setShared(connectionId, shared)) {
       throw new NotFoundError(`connection ${connectionId} not found`);
     }
-    if (!shared) this.gate.revokeConnection(connectionId);
+    if (!shared) {
+      this.gate.revokeConnection(connectionId);
+      this.requests.endConnection(connectionId);
+    }
   }
 
   /** What the renderer is shown. No token, no hash: only names, times and counts. */
   getState(): AgentAccessState {
+    // The sweep runs once a minute; a state read between two sweeps is never stale either.
+    this.requests.expire();
     const sessions = this.liveSessions();
     const shared = new Set(this.deps.connRepo.listShared().map((c) => c.id));
     const privilege: Record<string, PrivilegeResult> = {};
@@ -326,6 +378,8 @@ export class AgentAccessService {
       bridgeInstalled: this.deps.bridge.isInstalled(),
       bridgePath: this.deps.bridge.installedPath,
       claudeCodeCommand: claudeCodeCommandTemplate(this.deps.bridge.installedPath, this.deps.platform),
+      snippetTemplates: snippetTemplates(this.deps.bridge.installedPath, this.deps.platform),
+      connectionRequests: this.requests.list(),
       platformCaveat: this.deps.platform === 'win32' ? 'windows-pipe' : null,
       privilege,
     };
@@ -458,19 +512,78 @@ export class AgentAccessService {
     }
   }
 
-  /** The row exists before the dialog opens; the dialog only ends with Done. The token is shown here and nowhere else. */
-  async addTokenWithDialog(name: string): Promise<AgentTokenInfo> {
+  /**
+   * X27 §16.8: after main's confirm, creates an Agent Token and puts the
+   * client's setup, holding it, on the clipboard. Resolves only once the write
+   * has returned, so "copied" is true when the renderer says it. Cancel
+   * creates nothing.
+   */
+  async connectClient(name: string, client: SnippetClient): Promise<AgentCopyResult> {
+    const label = snippetLabel(client);
+    const answer = await this.deps.dialogs.showMessageBox(connectClientBox(name, label));
+    if (answer.response !== COPY_CONFIRMED) return { cancelled: true };
     const { info, token } = this.addToken(name);
+    const text = configSnippet(client, this.deps.bridge.installedPath, token, this.deps.platform);
+    try {
+      await this.deps.dialogs.writeClipboard(text);
+    } catch (err) {
+      // A token nobody holds would sit in the list unusable: it goes, and the user tries again.
+      this.deps.tokenRepo.deleteById(info.id);
+      this.deps.log.warn('agent', 'could not copy the Agent setup', { errName: err instanceof Error ? err.name : typeof err });
+      throw new SystemError('INTERNAL', 'The setup could not be copied, so the Agent was not added. Try again.');
+    }
+    this.rememberCopiedSetup(text);
     this.emitState();
-    await this.showToken(info.name, token, 'added');
-    return info;
+    return { tokenId: info.id, copiedAt: new Date(this.now()).toISOString() };
   }
 
-  async regenerateTokenWithDialog(id: string): Promise<AgentTokenInfo> {
+  /**
+   * Copies an existing Agent's setup. The token is stored only as a hash, so
+   * copying regenerates it, which ends the Agent's live sessions; main's
+   * confirm says so first. Cancel changes nothing.
+   */
+  async copySetup(id: string, client: SnippetClient): Promise<AgentCopyResult> {
+    const label = snippetLabel(client);
+    const row = this.deps.tokenRepo.findById(id);
+    if (!row) throw new NotFoundError(`agent token ${id} not found`);
+    const live = this.server.liveSessions().filter((s) => s.tokenId === id).length;
+    const answer = await this.deps.dialogs.showMessageBox(copySetupBox(row.name, label, live));
+    if (answer.response !== COPY_CONFIRMED) return { cancelled: true };
     const { info, token } = this.regenerateToken(id);
     this.emitState();
-    await this.showToken(info.name, token, 'regenerated');
-    return info;
+    const text = configSnippet(client, this.deps.bridge.installedPath, token, this.deps.platform);
+    try {
+      await this.deps.dialogs.writeClipboard(text);
+    } catch (err) {
+      // The old token is already dead and its sessions ended: nothing to roll back to. A new copy regenerates again.
+      this.deps.log.warn('agent', 'could not copy the Agent setup', { errName: err instanceof Error ? err.name : typeof err });
+      throw new SystemError('INTERNAL', "The token was regenerated, but the setup could not be copied. Copy the setup again.");
+    }
+    this.rememberCopiedSetup(text);
+    return { tokenId: info.id, copiedAt: new Date(this.now()).toISOString() };
+  }
+
+  /** Renames an Agent. Live sessions write the new name from their next call; stored rows keep the old one. */
+  renameToken(id: string, name: string): AgentTokenInfo {
+    if (!this.deps.tokenRepo.rename(id, name)) throw new NotFoundError(`agent token ${id} not found`);
+    this.server.renameToken(id, name);
+    const row = this.deps.tokenRepo.findById(id);
+    if (!row) throw new NotFoundError(`agent token ${id} not found`);
+    this.emitState();
+    return toInfo(row);
+  }
+
+  /**
+   * The user dismissed a Connection request: it goes, and that session makes
+   * no new one for that Connection. A session that is not live has nothing
+   * to dismiss, and remembering a pair for it would never be forgotten.
+   */
+  dismissRequest(sessionId: string, connectionId: string): { ok: true } {
+    if (this.server.liveSessions().some((s) => s.id === sessionId)) {
+      this.requests.dismiss(sessionId, connectionId);
+      this.emitState();
+    }
+    return { ok: true };
   }
 
   /** Revokes a token and ends the sessions that used it. */
@@ -488,27 +601,30 @@ export class AgentAccessService {
     return { removed };
   }
 
-  /**
-   * One message box in a loop. A copy button puts that client's configuration
-   * on the clipboard and shows the same box again with a note; only Done (or
-   * Escape) ends it. The box closes on any button, so this is how "Copy"
-   * works without a second window.
-   */
-  private async showToken(name: string, token: string, kind: 'added' | 'regenerated'): Promise<void> {
-    let note: string | null = null;
-    for (;;) {
-      const { response } = await this.deps.dialogs.showMessageBox(tokenBox(name, token, kind, note));
-      const choice = SNIPPET_CLIENTS[response - 1];
-      if (response === TOKEN_DONE || !choice) return;
-      try {
-        await this.deps.dialogs.writeClipboard(configSnippet(choice.client, this.deps.bridge.installedPath, token, this.deps.platform));
-        note = choice.copied;
-      } catch (err) {
-        // Say so in the box, which is still open to the token: the user can copy it by hand or regenerate.
-        this.deps.log.warn('agent', 'could not copy the Agent configuration', { errName: err instanceof Error ? err.name : typeof err });
-        note = `Could not copy it (${choice.button}). Copy the token by hand, or regenerate it.`;
-      }
+  /** A new copy replaces the one pending: only the latest text main wrote is ever cleared. */
+  private rememberCopiedSetup(text: string): void {
+    if (this.copied) clearTimeout(this.copied.timer);
+    const timer = setTimeout(() => void this.clearCopiedSetup(), CLIPBOARD_CLEAR_MS);
+    timer.unref();
+    this.copied = { text, timer };
+  }
+
+  /** Clears the clipboard only if it still holds exactly what main wrote: anything the user copied since stays. */
+  private async clearCopiedSetup(): Promise<void> {
+    const copied = this.copied;
+    if (!copied) return;
+    clearTimeout(copied.timer);
+    this.copied = null;
+    try {
+      if ((await this.deps.dialogs.readClipboard()) === copied.text) this.deps.dialogs.clearClipboard();
+    } catch (err) {
+      // Quitting must not stop on a clipboard that cannot be read; the failure is logged by class.
+      this.deps.log.warn('agent', 'could not clear the copied Agent setup', { errName: err instanceof Error ? err.name : typeof err });
     }
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
   }
 
   /** Copies the bundled bridge to the per-user path. Never throws; the outcome is logged. */
@@ -542,7 +658,22 @@ export class AgentAccessService {
       }
     }
     if (!this.stopped) this.deps.emitCall(row);
-    this.scheduleEmit();
+    if (this.observeRequest(row) === 'added') this.emitState();
+    else this.scheduleEmit();
+  }
+
+  /**
+   * A refused or paused call on a shared Connection that is not open becomes
+   * a Connection request (X27 §16.6). One that opened, or stopped being
+   * shared, while the call ran would only sit there for 30 minutes: skipped.
+   */
+  private observeRequest(row: AgentCallSummary): 'added' | 'updated' | 'ignored' {
+    if (row.outcome !== 'NOT_OPEN' && row.outcome !== 'INPUT_REQUIRED') return 'ignored';
+    if (row.connectionId === null || row.sessionId === null) return 'ignored';
+    if (this.deps.pool.status(row.connectionId).status === 'connected') return 'ignored';
+    if (this.deps.connRepo.findById(row.connectionId)?.share_with_agents !== 1) return 'ignored';
+    const session = this.server.liveSessions().find((s) => s.id === row.sessionId);
+    return this.requests.observe(row, this.displayFolder(session?.folder ?? null));
   }
 
   /** A session opening or closing is pushed at once, not coalesced. */
@@ -552,6 +683,7 @@ export class AgentAccessService {
       this.sessionStats.set(id, { callCount: 0, refusedCount: 0, lastCallAt: null });
     } else {
       this.sessionStats.delete(id);
+      this.requests.endSession(id);
       const reason = event.session.endReason ?? 'unknown';
       for (const hook of this.sessionEndedHooks) hook(id, reason);
     }

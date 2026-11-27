@@ -1,6 +1,7 @@
+import type { SnippetClient } from '@shared/types';
 import { TOKEN_RE } from './token.ts';
 
-export type SnippetClient = 'claude-code-cli' | 'claude-code' | 'claude-desktop' | 'cursor';
+export type { SnippetClient };
 
 /** The MCP server name every snippet registers, and the one `claude mcp` commands refer to. */
 export const MCP_SERVER_NAME = 'latelier';
@@ -8,17 +9,20 @@ export const MCP_SERVER_NAME = 'latelier';
 /** The token placeholder in the command Settings shows. Inside the token class, so it never reads as shell syntax. */
 export const TOKEN_PLACEHOLDER = 'YOUR_TOKEN';
 
-/** What the token dialog offers, in order: the button text and what the note says once it copied. */
-export const SNIPPET_CLIENTS: ReadonlyArray<{ client: SnippetClient; button: string; copied: string }> = [
-  {
-    client: 'claude-code-cli',
-    button: 'Copy Claude Code command',
-    copied: 'Claude Code command copied. Paste it into a terminal and run it, then check with: claude mcp list',
-  },
-  { client: 'claude-code', button: 'Copy for Claude Code (JSON)', copied: 'Configuration copied for Claude Code (JSON).' },
-  { client: 'claude-desktop', button: 'Copy for Claude Desktop', copied: 'Configuration copied for Claude Desktop.' },
-  { client: 'cursor', button: 'Copy for Cursor', copied: 'Configuration copied for Cursor.' },
+/** Every client a setup can be copied for, in the order Settings offers them, with the name main's confirm shows. */
+export const SNIPPET_CLIENTS: ReadonlyArray<{ client: SnippetClient; label: string }> = [
+  { client: 'claude-code-cli', label: 'Claude Code (command)' },
+  { client: 'claude-code', label: 'Claude Code (JSON)' },
+  { client: 'claude-desktop', label: 'Claude Desktop' },
+  { client: 'cursor', label: 'Cursor' },
 ];
+
+/** The client's name as main's confirm shows it. */
+export function snippetLabel(client: SnippetClient): string {
+  const found = SNIPPET_CLIENTS.find((c) => c.client === client);
+  if (!found) throw new Error(`unknown MCP client ${String(client)}`);
+  return found.label;
+}
 
 /** Characters a POSIX shell takes literally in a bare word. */
 const BARE_WORD = /^[A-Za-z0-9_./-]+$/;
@@ -67,4 +71,11 @@ export function configSnippet(client: SnippetClient, bridgePath: string, token: 
     env: { LATELIER_AGENT_TOKEN: token },
   };
   return JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } }, null, 2);
+}
+
+/** One setup per client with the placeholder where the token goes, for Settings to show. Never holds a token. */
+export function snippetTemplates(bridgePath: string, platform: NodeJS.Platform): Record<SnippetClient, string> {
+  const out = {} as Record<SnippetClient, string>;
+  for (const { client } of SNIPPET_CLIENTS) out[client] = configSnippet(client, bridgePath, TOKEN_PLACEHOLDER, platform);
+  return out;
 }

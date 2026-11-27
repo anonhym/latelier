@@ -18,6 +18,7 @@ export class AgentTokenRepo {
   private findByIdStmt: Statement<[string]>;
   private listStmt: Statement;
   private touchStmt: Statement<[string, string]>;
+  private renameStmt: Statement<[string, string]>;
 
   constructor(db: Database) {
     this.insertStmt = db.prepare(
@@ -29,6 +30,7 @@ export class AgentTokenRepo {
     this.findByIdStmt = db.prepare('SELECT * FROM agent_tokens WHERE id = ?');
     this.listStmt = db.prepare('SELECT * FROM agent_tokens ORDER BY created_at ASC, rowid ASC');
     this.touchStmt = db.prepare('UPDATE agent_tokens SET last_used_at = ? WHERE id = ?');
+    this.renameStmt = db.prepare('UPDATE agent_tokens SET name = ? WHERE id = ?');
   }
 
   insert(row: AgentTokenRow): void {
@@ -56,6 +58,11 @@ export class AgentTokenRepo {
 
   list(): AgentTokenRow[] {
     return this.listStmt.all() as AgentTokenRow[];
+  }
+
+  /** Renames the Agent. The Read Log and session rows keep the name they were written with. Returns whether a row matched. */
+  rename(id: string, name: string): boolean {
+    return this.renameStmt.run(name, id).changes > 0;
   }
 
   touchLastUsed(id: string, at: string): void {
