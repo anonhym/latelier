@@ -211,6 +211,11 @@ describe('Agent Proposals (X28)', () => {
         ['ci-agent', 'cursor', sessionOf('cursor'), 'seen in the invoices too'],
       ]);
       expect(count('agent_proposals')).toBe(1);
+      // The join is announced too, with the status the Proposal already had.
+      expect(h.proposalEvents).toEqual([
+        { id: idOf(first), status: 'pending' },
+        { id: idOf(first), status: 'pending' },
+      ]);
     });
 
     it('writes a Proposal or backer only with its Read Log row: a row that cannot be written leaves neither, and announces nothing', async () => {
@@ -348,6 +353,22 @@ describe('Agent Proposals (X28)', () => {
       expect(() => h.proposals.accept(id, 'connection')).toThrow(expect.objectContaining({ code: 'CONFLICT' }));
       expect(h.proposalRepo.findById(id)).toMatchObject({ status: 'expired', decidedAt: '2026-12-27T10:00:00.000Z' });
       expect(ruleCount()).toBe(0);
+    });
+
+    it('accept creates no rule when the Proposal cannot be marked accepted, whether the guard misses or the write fails', async () => {
+      const id = idOf(await propose(a));
+      const mark = vi.spyOn(h.proposalRepo, 'markAccepted').mockReturnValue(false);
+      expect(() => h.proposals.accept(id, 'connection')).toThrow(expect.objectContaining({ code: 'CONFLICT' }));
+      expect(ruleCount()).toBe(0);
+      mark.mockImplementation(() => {
+        throw new Error('disk I/O error');
+      });
+      expect(() => h.proposals.accept(id, 'connection')).toThrow('disk I/O error');
+      expect(ruleCount()).toBe(0);
+      expect(h.proposalEvents.map((e) => e.status)).toEqual(['pending']);
+      mark.mockRestore();
+      expect(h.proposals.accept(id, 'connection').savedFor).toBe('connection');
+      expect(ruleCount()).toBe(1);
     });
 
     it('accept works after the Connection was unshared or closed, and is refused once it is deleted', async () => {
