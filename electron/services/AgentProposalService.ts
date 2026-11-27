@@ -297,11 +297,17 @@ export class AgentProposalService {
     return { ok: true };
   }
 
-  /** Never for this pair: declined, and the pair joins X26's Never list so no Agent or discovery offers it again. */
+  /**
+   * Never for this pair: declined, and the pair joins X26's Never list so no
+   * Agent or discovery offers it again. Both land in one transaction (the Never
+   * list is app state in the same database): a declined Proposal is never left
+   * off the list.
+   */
   decline(id: string): { ok: true } {
-    const row = this.decide(id, 'decline');
-    const never = readNeverList(this.deps.appState.get<unknown>(NEVER_PAIRS_KEY));
-    this.deps.appState.set(NEVER_PAIRS_KEY, withNeverPair(never, row.pairKey));
+    this.decide(id, 'decline', (row) => {
+      const never = readNeverList(this.deps.appState.get<unknown>(NEVER_PAIRS_KEY));
+      this.deps.appState.set(NEVER_PAIRS_KEY, withNeverPair(never, row.pairKey));
+    });
     return { ok: true };
   }
 
@@ -312,20 +318,29 @@ export class AgentProposalService {
   }
 
   /** A user's choice: refused when the Proposal's status does not allow it. */
-  private decide(id: string, event: 'later' | 'reopen' | 'decline'): StoredProposal {
+  private decide(id: string, event: 'later' | 'reopen' | 'decline', alongside?: (row: StoredProposal) => void): StoredProposal {
     const row = this.refresh(this.found(id));
-    if (nextStatus(row.status, event) === null || !this.move(row, event)) {
+    if (nextStatus(row.status, event) === null || !this.move(row, event, alongside)) {
       throw new ConflictError(`Proposal ${id} is ${row.status}; it cannot be ${DECIDE_VERB[event]}`);
     }
     return row;
   }
 
-  /** Applies `event` to an open Proposal and announces it. False when the status does not allow it. */
-  private move(row: StoredProposal, event: ProposalEvent): boolean {
+  /**
+   * Applies `event` to an open Proposal, with `alongside` in the same
+   * transaction, and announces it once committed. False when the status does
+   * not allow it.
+   */
+  private move(row: StoredProposal, event: ProposalEvent, alongside?: (row: StoredProposal) => void): boolean {
     const to = nextStatus(row.status, event);
     if (to === null) return false;
     const decidedAt = isOpen(to) ? null : this.nowIso();
-    if (!this.deps.repo.setStatus(row.id, OPEN_STATUSES, to, decidedAt)) return false;
+    const moved = this.deps.repo.transaction(() => {
+      if (!this.deps.repo.setStatus(row.id, OPEN_STATUSES, to, decidedAt)) return false;
+      alongside?.(row);
+      return true;
+    });
+    if (!moved) return false;
     this.deps.emit({ id: row.id, status: to });
     return true;
   }

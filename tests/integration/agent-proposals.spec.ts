@@ -411,6 +411,20 @@ describe('Agent Proposals (X28)', () => {
       expect(codeOf(await propose(b))).toBe('PROPOSAL_DECLINED');
       expect(() => h.proposals.decline(id)).toThrow(expect.objectContaining({ code: 'CONFLICT' }));
     });
+
+    it('Never for this pair stays undone when the Never list cannot be written: the Proposal is still open and nothing is announced', async () => {
+      const id = idOf(await propose(a));
+      const set = vi.spyOn(h.appState, 'set').mockImplementation(() => {
+        throw new Error('disk I/O error');
+      });
+      expect(() => h.proposals.decline(id)).toThrow('disk I/O error');
+      set.mockRestore();
+      expect(h.proposalRepo.findById(id)).toMatchObject({ status: 'pending', decidedAt: null });
+      expect(h.appState.get(NEVER_PAIRS_KEY)).toBeNull();
+      expect(h.proposalEvents).toEqual([{ id, status: 'pending' }]);
+      expect(h.proposals.decline(id)).toEqual({ ok: true });
+      expect(h.proposalRepo.findById(id)!.status).toBe('declined');
+    });
   });
 
   describe('lifecycle', () => {
