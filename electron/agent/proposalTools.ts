@@ -11,6 +11,8 @@ export const PROPOSED_TEXT = "Proposed. The user will review it in L'Atelier; no
  * `propose_reference_rule`, checks in X28 §4.1's order: the gates (a closed
  * shared Connection is refused NOT_OPEN, which the runner may turn into X29's
  * question), both namespaces, the field paths, then the service's checks 4–8.
+ * Synchronous on purpose: the runner writes the Proposal and its Read Log
+ * row in the same tick the checks ran, so no other call can slip between.
  * The answer carries only app-written text and the app's own id: no name the
  * Agent sent comes back, so nothing needs the untrusted-data envelope.
  */
@@ -19,8 +21,9 @@ export function runProposeReferenceRule(input: ProposeInput, ctx: ToolContext): 
   assertTargetAllowed(input.sourceDb, input.sourceCollection);
   assertTargetAllowed(input.targetDb, input.targetCollection);
   assertProposalFields(input);
-  const { id } = ctx.proposals.propose(ctx.session, input);
-  return { text: `${PROPOSED_TEXT}\n${JSON.stringify({ proposalId: id })}`, count: 1 };
+  // The write is the runner's to make, with the Read Log row, in one transaction.
+  const { id, commit, afterCommit } = ctx.proposals.propose(ctx.session, input);
+  return { text: `${PROPOSED_TEXT}\n${JSON.stringify({ proposalId: id })}`, count: 1, commit, afterCommit };
 }
 
 /**

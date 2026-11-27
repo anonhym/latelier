@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, textOf, type AgentConnection } from '../helpers/agentSocket';
@@ -211,6 +211,26 @@ describe('Agent Proposals (X28)', () => {
         ['ci-agent', 'cursor', sessionOf('cursor'), 'seen in the invoices too'],
       ]);
       expect(count('agent_proposals')).toBe(1);
+    });
+
+    it('writes a Proposal or backer only with its Read Log row: a row that cannot be written leaves neither, and announces nothing', async () => {
+      const failInsert = () =>
+        vi.spyOn(h.readLogRepo, 'insert').mockImplementation(() => {
+          throw new Error('disk I/O error');
+        });
+      let insert = failInsert();
+      expect(codeOf(await propose(a))).toBe('DB_ERROR');
+      expect(count('agent_proposals')).toBe(0);
+      expect(count('agent_proposal_backers')).toBe(0);
+      expect(h.proposalEvents).toEqual([]);
+      insert.mockRestore();
+      const id = idOf(await propose(a));
+      insert = failInsert();
+      expect(codeOf(await propose(b, { reason: 'seen in the invoices too' }))).toBe('DB_ERROR');
+      expect(count('agent_proposal_backers')).toBe(1);
+      expect(h.proposals.list({ limit: 10 })[0]!.backers.map((x) => x.tokenName)).toEqual(['laptop-claude']);
+      expect(h.proposalEvents).toEqual([{ id, status: 'pending' }]);
+      insert.mockRestore();
     });
 
     it('7: caps a token at 20 open Proposals, counting the ones it joined, but still answers a repeat', async () => {

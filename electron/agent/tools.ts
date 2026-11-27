@@ -49,6 +49,14 @@ export interface ToolOutcome {
   appliedLimits?: Array<'limit' | 'bytes'>;
   /** Set by `count` when it answered from collection metadata. */
   estimate?: boolean;
+  /**
+   * The app state the call writes (X28: a Proposal or a backer). The runner
+   * runs it in the same SQLite transaction as the call's Read Log row, so a
+   * row that cannot be written leaves nothing behind it.
+   */
+  commit?: () => void;
+  /** Runs once that transaction committed: what the write announces. */
+  afterCommit?: () => void;
 }
 
 /** The Reference Rules a relation tool reads: `ReferenceRulesService.effective`, never a method that touches Mongo. */
@@ -56,10 +64,21 @@ export interface AgentReferenceRules {
   effective(connectionId: string, dbName?: string, collection?: string): EffectiveReferenceRule[];
 }
 
+/** What a proposal call will write, decided but not yet written. */
+export interface ProposalPlan {
+  id: string;
+  commit?: () => void;
+  afterCommit?: () => void;
+}
+
 /** The Proposals the two X28 tools file and read: `AgentProposalService`, which writes app state only, never a database. */
 export interface AgentProposals {
-  /** Checks 4–8 of X28 §4.1; the tool runs 1–3 first. */
-  propose(author: Pick<AgentSessionIdentity, 'sessionId' | 'tokenId' | 'tokenName' | 'clientName'>, input: ProposeInput): { id: string };
+  /**
+   * Checks 4–8 of X28 §4.1; the tool runs 1–3 first. Writes nothing itself:
+   * `commit` writes the Proposal or backer, `afterCommit` announces it, and
+   * both are absent for a repeat.
+   */
+  propose(author: Pick<AgentSessionIdentity, 'sessionId' | 'tokenId' | 'tokenName' | 'clientName'>, input: ProposeInput): ProposalPlan;
   /** Throws INVALID_INPUT for a Proposal the token does not back. */
   statusFor(tokenId: string, proposalId: string): { status: AgentProposalStatus; savedFor: AgentProposalSavedFor | null };
 }

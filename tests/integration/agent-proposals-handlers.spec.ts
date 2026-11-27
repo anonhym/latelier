@@ -38,8 +38,9 @@ describe('agentProposals:* channels', () => {
     if (env.ok) throw new Error(`${channel} succeeded`);
     return env.error.code;
   }
-  const file = (sourceField = 'customerId') =>
-    h.proposals.propose(
+  // Files a Proposal as the runner would: plan, commit, announce.
+  const file = (sourceField = 'customerId'): string => {
+    const plan = h.proposals.propose(
       { sessionId: randomUUID(), tokenId, tokenName: 'laptop-claude', clientName: 'claude-code' },
       {
         connectionId: conn,
@@ -51,7 +52,11 @@ describe('agentProposals:* channels', () => {
         targetField: '_id',
         reason: 'ids match',
       },
-    ).id;
+    );
+    plan.commit?.();
+    plan.afterCommit?.();
+    return plan.id;
+  };
 
   describe('validation', () => {
     it.each([

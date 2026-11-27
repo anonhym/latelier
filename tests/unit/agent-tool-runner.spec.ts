@@ -356,3 +356,90 @@ describe('AgentToolRunner tool context', () => {
     expect(rows[0]).toMatchObject({ tool: 'propose_reference_rule', outcome: 'ok', database: 'shop', collection: 'orders', connectionName: 'prod' });
   });
 });
+
+describe('AgentToolRunner committing a tool write with its row', () => {
+  function writing(opts: { tool: (log: string[]) => { text: string; count: number; commit?: () => void; afterCommit?: () => void }; insert?: () => string; withTransaction?: boolean }) {
+    const events: string[] = [];
+    const warned: unknown[] = [];
+    const readLog = {
+      insert: () => {
+        events.push('insert');
+        return opts.insert ? opts.insert() : 'row';
+      },
+      ...(opts.withTransaction === false
+        ? {}
+        : {
+            transaction: <T>(fn: () => T): T => {
+              events.push('begin');
+              try {
+                const out = fn();
+                events.push('commit');
+                return out;
+              } catch (err) {
+                events.push('rollback');
+                throw err;
+              }
+            },
+          }),
+    };
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ok' } as unknown as AgentGate,
+      tools: [{ name: 'write', description: 'write', inputSchema: z.strictObject({}), annotations: { readOnlyHint: false, openWorldHint: false }, run: () => opts.tool(events) }],
+      readLog,
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => null },
+      log: { warn: (_s: string, _m: string, ctx?: unknown) => void warned.push(ctx), error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
+    });
+    return { events, warned, call: () => r.call(session, 'write', {}, new AbortController().signal) };
+  }
+  const plan = (log: string[]) => ({ text: 'done', count: 1, commit: () => void log.push('write'), afterCommit: () => void log.push('announce') });
+
+  it('runs the write and the row in one transaction, and announces only once it committed', async () => {
+    const w = writing({ tool: plan });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'commit', 'announce']);
+    expect(reply).toMatchObject({ kind: 'result', result: { content: [{ text: expect.stringMatching(/^done\n/) }] } });
+  });
+
+  it('rolls the write back and announces nothing when the row cannot be written', async () => {
+    const w = writing({
+      tool: plan,
+      insert: () => {
+        throw new Error('disk I/O error');
+      },
+    });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'rollback']);
+    expect(reply).toMatchObject({ kind: 'result', result: { isError: true, content: [{ text: expect.stringMatching(/^DB_ERROR: /) }] } });
+  });
+
+  it('opens no transaction for a call that writes nothing', async () => {
+    const w = writing({ tool: () => ({ text: 'read', count: 0 }) });
+    await w.call();
+    expect(w.events).toEqual(['insert']);
+  });
+
+  it('still writes and answers when the log has no transaction to offer', async () => {
+    const w = writing({ tool: plan, withTransaction: false });
+    await w.call();
+    expect(w.events).toEqual(['write', 'insert', 'announce']);
+  });
+
+  it('logs an announcement that fails, by its class only, and still answers: the write already committed', async () => {
+    const w = writing({
+      tool: (log) => ({
+        ...plan(log),
+        afterCommit: () => {
+          throw new TypeError('renderer gone: secret detail');
+        },
+      }),
+    });
+    const reply = await w.call();
+    expect(w.events).toEqual(['begin', 'write', 'insert', 'commit']);
+    expect(w.warned).toEqual([{ errName: 'TypeError' }]);
+    expect(reply).toMatchObject({ kind: 'result', result: { content: [{ text: expect.stringMatching(/^done\n/) }] } });
+    expect((reply as { result: { isError?: boolean } }).result.isError).toBeUndefined();
+  });
+});

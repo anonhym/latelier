@@ -16,6 +16,7 @@ import { readNeverList, withNeverPair } from '../../src/utils/referenceDiscovery
 import type { AgentSessionIdentity } from '../agent/AgentGate.ts';
 import { AgentToolError, defaultAgentMessage } from '../agent/errorMap.ts';
 import { proposalPairKey, type ProposeInput } from '../agent/proposalInput.ts';
+import type { ProposalPlan } from '../agent/tools.ts';
 import {
   coversSourceField,
   expiresAt,
@@ -97,7 +98,13 @@ export class AgentProposalService {
    * Checks 4–8 of X28 §4.1; the tool has run 1–3. Returns the Proposal's id,
    * the same whether it was created, joined or already backed by this token.
    */
-  propose(author: ProposalAuthor, input: ProposeInput): { id: string } {
+  /**
+   * Runs checks 4–8 and plans the write without making it: the runner commits
+   * the plan with the call's Read Log row in one transaction, so a Proposal
+   * never exists without its audit row. Synchronous, so nothing runs between
+   * these checks and that commit.
+   */
+  propose(author: ProposalAuthor, input: ProposeInput): ProposalPlan {
     // Expiry is lazy: a Proposal past its 30 days must not count toward the cap, take a joiner, or hold the pair.
     this.sweep();
     const key = proposalPairKey(input.connectionId, input);
@@ -129,30 +136,32 @@ export class AgentProposalService {
       case 'limit':
         throw new AgentToolError('PROPOSAL_LIMIT');
       case 'join':
-        this.deps.repo.addBacker({ ...backer, proposalId: open!.id });
-        this.deps.emit({ id: open!.id, status: open!.status });
-        return { id: open!.id };
+        return {
+          id: open!.id,
+          commit: () => this.deps.repo.addBacker({ ...backer, proposalId: open!.id }),
+          afterCommit: () => this.deps.emit({ id: open!.id, status: open!.status }),
+        };
       case 'create': {
         const id = randomUUID();
-        this.deps.repo.create(
-          {
-            id,
-            connectionId: input.connectionId,
-            connectionName: connection.name,
-            sourceDb: input.sourceDb,
-            sourceCollection: input.sourceCollection,
-            sourceField: input.sourceField,
-            targetDb: input.targetDb,
-            targetCollection: input.targetCollection,
-            targetField: input.targetField,
-            pairKey: key,
-            createdAt,
-            expiresAt: expiresAt(createdAt),
-          },
-          backer,
-        );
-        this.deps.emit({ id, status: 'pending' });
-        return { id };
+        const proposal = {
+          id,
+          connectionId: input.connectionId,
+          connectionName: connection.name,
+          sourceDb: input.sourceDb,
+          sourceCollection: input.sourceCollection,
+          sourceField: input.sourceField,
+          targetDb: input.targetDb,
+          targetCollection: input.targetCollection,
+          targetField: input.targetField,
+          pairKey: key,
+          createdAt,
+          expiresAt: expiresAt(createdAt),
+        };
+        return {
+          id,
+          commit: () => this.deps.repo.create(proposal, backer),
+          afterCommit: () => this.deps.emit({ id, status: 'pending' }),
+        };
       }
     }
   }

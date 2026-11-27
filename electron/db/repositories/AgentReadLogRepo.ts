@@ -107,6 +107,14 @@ export class AgentReadLogRepo {
     this.countStmt = db.prepare('SELECT COUNT(*) AS n FROM agent_read_log');
   }
 
+  /**
+   * Runs `fn` in one SQLite transaction on the log's database: a tool's own
+   * app-state write and its row land together, or neither does.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   /** Writes one row and returns its id. Throws when the row cannot be written: the caller must then return no data. */
   insert(entry: AgentReadLogEntry): string {
     if (!OUTCOMES.has(entry.outcome)) {

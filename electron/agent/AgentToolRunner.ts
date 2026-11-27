@@ -23,7 +23,8 @@ export interface AgentCallResult {
 export interface AgentToolRunnerDeps {
   gate: AgentGate;
   tools: readonly AgentTool[];
-  readLog: { insert(entry: AgentReadLogEntry): string };
+  /** `transaction`, when given, holds a tool's own write and its row together. */
+  readLog: { insert(entry: AgentReadLogEntry): string; transaction?<T>(fn: () => T): T };
   tokens: { touchLastUsed(id: string, at: string): void };
   connections: { findById(id: string): { id: string; name: string } | null };
   log: Pick<Logger, 'warn' | 'error'>;
@@ -127,7 +128,9 @@ export class AgentToolRunner {
       const input = tool.inputSchema.parse(rawArgs ?? {});
       // Declined, cancelled or garbled: the user did not open it, so the gate is not run again.
       if (ask.answer === 'refused' && takesConnection(input)) throw new AgentToolError('NOT_OPEN', NOT_OPEN_DECLINED_MESSAGE);
-      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs, proposals: this.deps.proposals });
+      const ran = tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs, proposals: this.deps.proposals });
+      // A synchronous tool is not awaited: from its checks to its row nothing else runs, so a write it plans cannot be raced.
+      outcome = ran instanceof Promise ? await ran : ran;
     } catch (err) {
       failure = toAgentError(err);
       if (failure.code === 'DB_ERROR') {
@@ -173,8 +176,13 @@ export class AgentToolRunner {
       truncated: failure ? false : outcome!.truncated === true,
     };
     let rowId: string;
+    const commit = failure ? undefined : outcome!.commit;
+    const write = (): string => {
+      commit?.();
+      return this.deps.readLog.insert({ ...summary, outcome: rowOutcome, requestJson: requestJsonOf(rawArgs) });
+    };
     try {
-      rowId = this.deps.readLog.insert({ ...summary, outcome: rowOutcome, requestJson: requestJsonOf(rawArgs) });
+      rowId = commit !== undefined && this.deps.readLog.transaction ? this.deps.readLog.transaction(write) : write();
     } catch (err) {
       // Fail closed: a read the user cannot see afterwards does not happen.
       this.deps.log.error('agent', 'could not write the Agent Read Log row', {
@@ -184,6 +192,7 @@ export class AgentToolRunner {
       return { kind: 'result', result: { isError: true, content: [{ type: 'text', text: errorText(refused) }] }, closeSession };
     }
     this.deps.onRowWritten?.({ id: rowId, ...summary });
+    if (!failure) this.announce(outcome!);
 
     if (question !== null) return { kind: 'ask', message: question };
     if (failure) {
@@ -198,6 +207,15 @@ export class AgentToolRunner {
       estimate: outcome!.estimate,
     });
     return { kind: 'result', result: { content: [{ type: 'text', text: `${text}\n${meta}` }] }, closeSession };
+  }
+
+  /** What a committed write announces. It cannot undo the write, so a failure is logged and the call still answers. */
+  private announce(outcome: ToolOutcome): void {
+    try {
+      outcome.afterCommit?.();
+    } catch (err) {
+      this.deps.log.warn('agent', 'could not announce a tool write', { errName: err instanceof Error ? err.name : typeof err });
+    }
   }
 
   /**
