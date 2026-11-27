@@ -10,7 +10,10 @@ import type { ConnectionSwitcherProps } from '../../features/connections/Connect
 import { TitleBar } from './TitleBar';
 import { LocationBreadcrumb } from './LocationBreadcrumb';
 import { locationModel } from './locationModel';
-import { TabStrip } from './TabStrip';
+import { TabStrip, type AgentsTabProps } from './TabStrip';
+import { AgentsModeSwitch } from '../../features/agents/AgentsModeSwitch';
+import { AgentsBreadcrumb } from '../../features/agents/AgentsBreadcrumb';
+import type { SidebarMode } from '../../features/agents/useSidebarMode';
 import { reopenClosedTab } from './reopenClosedTab';
 import { activateTab, closeTabGuarded } from './tabActions';
 import { ResizeHandle } from './ResizeHandle';
@@ -63,6 +66,19 @@ export interface ShellSectionProps {
   setNavigatorRevealRequest: (request: NavigatorRevealInput | null) => void;
   /** The title bar's Inspector toggle, the right-hand twin of the sidebar toggle. */
   builderToggle: { open: boolean; available: boolean; onToggle: () => void };
+  /** Agents mode (X30 §2–§4): the switch, the Agents sidebar, the Agents tab and its breadcrumb. */
+  agents: {
+    mode: SidebarMode;
+    onMode: (mode: SidebarMode) => void;
+    needsYou: number;
+    sidebar: React.ReactNode;
+    /** The Agents tab in the strip, or null while it is closed. */
+    tab: AgentsTabProps | null;
+    /** The breadcrumb while the Agents tab is in front, else null. */
+    breadcrumb: string[] | null;
+    /** A stored tab is coming forward: the Agents tab steps back. */
+    onStoredTabFocus: () => void;
+  };
 }
 
 export function ShellSection({
@@ -90,12 +106,14 @@ export function ShellSection({
   navigatorRevealRequest,
   setNavigatorRevealRequest,
   builderToggle,
+  agents,
 }: ShellSectionProps) {
   const T = themeVars;
   const { sidebarCollapsed, toggleSidebar, leftWidth, setLeftWidth, commitLeftWidth } = panelPrefs;
   const { openEditConnectionModal, requestDisconnect } = connectionDialogs;
 
   const activate = (id: string) => {
+    agents.onStoredTabFocus();
     void activateTab({ tabs, connections, recordSessionEvent: hints.recordSessionEvent, openConnection }, id);
   };
 
@@ -196,6 +214,9 @@ export function ShellSection({
       >
         <TitleBar
           breadcrumb={
+            agents.breadcrumb ? (
+              <AgentsBreadcrumb crumbs={agents.breadcrumb} />
+            ) : (
             // No breadcrumb until the first list arrives, or with no Connection to name.
             location && (
               <LocationBreadcrumb
@@ -210,14 +231,15 @@ export function ShellSection({
                 }
                 onChooseCollection={palette.openCollections}
               />
-            )
+            ))
           }
           {...titleBarProps}
         />
         <TabStrip
           tabs={tabs.tabs}
           connections={connections}
-          activeId={tabs.activeId}
+          // While the Agents tab is in front no stored tab is selected, though `tabs.activeId` keeps its id.
+          activeId={agents.tab?.focused ? null : tabs.activeId}
           previewId={tabs.previewId}
           onKeep={tabs.keepTab}
           onOpenCollectionPicker={onOpenCollectionPicker}
@@ -242,6 +264,7 @@ export function ShellSection({
           }}
           onCloseMany={(ids, keepId) => void closeMany(ids, keepId)}
           onReveal={reveal}
+          agentsTab={agents.tab}
         />
       </AppShell.Header>
 
@@ -261,18 +284,24 @@ export function ShellSection({
         >
           {!sidebarCollapsed && (
             <>
+              <AgentsModeSwitch mode={agents.mode} onChange={agents.onMode} needsYou={agents.needsYou} />
+              {agents.mode === 'agents' ? (
+                agents.sidebar
+              ) : (
               <DbCollectionNavigator
                 connections={connections}
                 connectionsWithTabs={connectionsWithTabs}
                 focusedConnectionId={focusedConnection?.id ?? null}
                 activeDbName={active?.dbName ?? null}
                 activeCollection={active?.collection ?? null}
-                onOpenCollection={(input: NavigatorOpenInput, opts) =>
-                  void tabs.openCollection({ ...input, reuseExisting: opts.reuseExisting, preview: opts.preview })
-                }
-                onOpenAggregation={(input: NavigatorOpenInput) =>
-                  void tabs.openAggregation(input)
-                }
+                onOpenCollection={(input: NavigatorOpenInput, opts) => {
+                  agents.onStoredTabFocus();
+                  void tabs.openCollection({ ...input, reuseExisting: opts.reuseExisting, preview: opts.preview });
+                }}
+                onOpenAggregation={(input: NavigatorOpenInput) => {
+                  agents.onStoredTabFocus();
+                  void tabs.openAggregation(input);
+                }}
                 onEditConnection={openEditConnectionModal}
                 onDisconnect={requestDisconnect}
                 openCollections={openCollections}
@@ -299,6 +328,7 @@ export function ShellSection({
                 dialogRequest={navigatorDialogRequest}
                 onDialogRequestHandled={onNavigatorDialogHandled}
               />
+              )}
               <div
                 style={{
                   position: 'absolute',
