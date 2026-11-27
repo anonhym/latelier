@@ -70,7 +70,7 @@ const LEGACY_PAYLOAD = {
 
 function renderRecent() {
   return render(
-    <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} />,
+    <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} onLoad={() => {}} onAgentActivity={() => {}} />,
   );
 }
 
@@ -518,7 +518,7 @@ describe('W05 §9.6 — Saved and History under the keyboard', () => {
     async function mount() {
       const onRunHere = vi.fn();
       installAtelierMock({ recent: { list: async () => runs() } });
-      render(<RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={onRunHere} />);
+      render(<RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={onRunHere} onLoad={() => {}} onAgentActivity={() => {}} />);
       await screen.findAllByTestId('recent-row');
       const search = screen.getByRole('textbox', { name: 'Search recent queries' });
       return { onRunHere, search };

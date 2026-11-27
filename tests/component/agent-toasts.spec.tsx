@@ -1,7 +1,6 @@
 // X30 §8 and §10.1: Agent toasts in Databases mode — one per new Needs you
 // item, never taking the focus, folding from the fourth request, and none in
 // Agents mode.
-import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';

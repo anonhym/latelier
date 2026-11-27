@@ -45,7 +45,7 @@ describe('Recent per-row delete is bounded by what the tab is showing', () => {
       recent: { list: async () => [recent()], clear: clear as never },
     });
     render(
-      <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} />,
+      <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} onLoad={() => {}} onAgentActivity={() => {}} />,
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /^Delete .* from recent history$/ }));
@@ -86,12 +86,12 @@ describe('Recent per-row delete is bounded by what the tab is showing', () => {
     });
 
     const { rerender } = render(
-      <RecentTab connectionId="c1" dbName="shop" collection="invoices" onRunHere={() => {}} />,
+      <RecentTab connectionId="c1" dbName="shop" collection="invoices" onRunHere={() => {}} onLoad={() => {}} onAgentActivity={() => {}} />,
     );
     // Switch collection before the first request settles — same instance, so
     // the component is reused rather than remounted.
     rerender(
-      <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} />,
+      <RecentTab connectionId="c1" dbName="shop" collection="orders" onRunHere={() => {}} onLoad={() => {}} onAgentActivity={() => {}} />,
     );
     await screen.findByText(/Recent · orders/);
 

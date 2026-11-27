@@ -55,6 +55,7 @@ import { FieldsControl } from './FieldsControl';
 import { useProjectionDraft } from './useProjectionDraft';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
+import { requestAgentsPage } from '../../features/agents/agentsNav';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import type {
   BuilderState,
@@ -539,11 +540,16 @@ function QueryBarInner({
   };
   const loadFind = (payload: SavedPayload) => {
     if (payload.kind !== 'find') return;
-    const patch = hydrateFindPayload(payload as unknown as LegacySavedFindPayload, builder);
-    // The draft belongs to the filter being replaced: drop it with it.
-    onPatch({ ...patch, filterDraft: undefined });
+    const patch = fillFind(payload as unknown as LegacySavedFindPayload);
     onRun(patch);
     onLoaded?.();
+  };
+  // An Agent's query (X30 §9): it fills the editor and never runs.
+  const fillFind = (payload: LegacySavedFindPayload) => {
+    const patch = hydrateFindPayload(payload, builder);
+    // The draft belongs to the filter being replaced: drop it with it.
+    onPatch({ ...patch, filterDraft: undefined });
+    return patch;
   };
 
   const findOptionsHint = useFeatureHint('find.options', !!builder.collation?.trim() || !!builder.hint?.trim());
@@ -1291,6 +1297,15 @@ function QueryBarInner({
                     onRunHere={(recent) => {
                       closeQueries();
                       loadFind(recent.payload);
+                    }}
+                    onLoad={(payload) => {
+                      closeQueries();
+                      fillFind(payload);
+                      onLoaded?.();
+                    }}
+                    onAgentActivity={() => {
+                      closeQueries();
+                      requestAgentsPage({ kind: 'activity', connectionId: meta.connectionId, database: meta.dbName, collection: meta.collection });
                     }}
                   />
                 </Tabs.Panel>
