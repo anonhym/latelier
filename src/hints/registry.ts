@@ -89,7 +89,7 @@ export const HINT_REGISTRY: Record<FeatureHintId, FeatureHintCopy> = {
   'agents.share': {
     id: 'agents.share',
     title: 'Let an AI Agent read this data',
-    body: 'Agents such as Claude Code can query the Connections you share, read-only, over MCP. Open Agents here to share this one, or set it up step by step in Settings.',
+    body: 'Agents such as Claude Code can query the Connections you share, read-only, over MCP. Set it up from the Agents side of this switch.',
     ctaLabel: 'Set up',
     priority: 110,
   },

@@ -68,6 +68,16 @@ import { HINTS_SUPPRESSED, useFeatureHint } from '../hints/useFeatureHint';
 import { useHints } from '../hints/HintsContext';
 import { FeatureHint } from '../hints/FeatureHint';
 import { useAgentAccessState } from '../features/agentAccess/useAgentAccessState';
+import { useSidebarMode, type SidebarMode } from '../features/agents/useSidebarMode';
+import { useAgentsTab } from '../features/agents/useAgentsTab';
+import { agentsBreadcrumb, agentsTabLabel, HOME_PAGE, type AgentsPage } from '../features/agents/agentsPage';
+import { AGENTS_TAB_ID, nthTab, steppedTab, stripOrder } from '../features/agents/tabOrder';
+import { needsYouCount } from '../features/agents/needsYou';
+import { onAgentsPageRequest, takeAgentsPageRequest } from '../features/agents/agentsNav';
+import { AgentsSidebar } from '../features/agents/AgentsSidebar';
+import { AgentsTab } from '../features/agents/AgentsTab';
+import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
+import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -89,7 +99,11 @@ function WorkspaceInner() {
   const T = themeVars;
   const navigate = useNavigate();
   const location = useLocation();
-  const tabs = useWorkspaceTabs();
+  // Agents mode (X30 §2–§4): the sidebar's mode, and the one renderer-only Agents tab.
+  const [sidebarMode, setSidebarMode] = useSidebarMode();
+  const agentsTab = useAgentsTab();
+  const agentsFocused = agentsTab.open && agentsTab.focused;
+  const tabs = useStoredTabsFront(useWorkspaceTabs(), agentsTab.unfocus);
   const {
     connections,
     loading: connectionsLoading,
@@ -128,7 +142,10 @@ function WorkspaceInner() {
   const settings = useSettings();
   const palette = usePaletteApi();
 
-  const active = tabs.tabs.find((t) => t.id === tabs.activeId) ?? null;
+  // While the Agents tab is in front no stored tab is shown, though `tabs.activeId` keeps its id:
+  // every shortcut, pane and status that follows the shown tab reads nothing.
+  const storedActive = tabs.tabs.find((t) => t.id === tabs.activeId) ?? null;
+  const active = agentsFocused ? null : storedActive;
   const activeCollection = active?.kind === 'collection' ? active : null;
   const activeScript = active?.kind === 'script' ? active : null;
   const activeView: CollectionView =
@@ -333,13 +350,21 @@ function WorkspaceInner() {
       cancelled = true;
     };
   }, []);
-  // Agent Access (X27 §12.2, X06 §4): offered once a collection is open on a live
+  // Agent Access (X30 §12, X06 §4): offered once a collection is open on a live
   // Connection, while Agent Access is off and nothing is shared yet, pointing at
-  // the status bar control that shares it.
+  // the sidebar's Agents switch, so only while the sidebar is drawn.
   const agentAccess = useAgentAccessState();
+  // Home's per-Connection Agent activity, read once the Agents tab first opens
+  // and kept for the run, so coming back to Home never re-reads the log.
+  const [agentsSeen, setAgentsSeen] = React.useState(false);
+  if (agentsTab.open && !agentsSeen) setAgentsSeen(true);
+  const connectionIds = React.useMemo(() => connections.map((c) => c.id), [connections]);
+  const connectionActivity = useConnectionActivity(connectionIds, agentsSeen);
   const agentsShareHint = useFeatureHint(
     'agents.share',
     activeCollection !== null &&
+      !agentsFocused &&
+      !sidebarCollapsed &&
       focusedConnection?.status === 'connected' &&
       agentAccess !== null &&
       !agentAccess.enabled &&
@@ -523,6 +548,78 @@ function WorkspaceInner() {
     () => reopenClosedTab(tabsRef.current, knownConnectionsRef.current, connectionsLoadingRef.current),
     [tabsRef, knownConnectionsRef, connectionsLoadingRef],
   );
+
+  // Agents mode (X30 §2): switching to Agents brings the Agents tab forward on
+  // the page it last showed; switching to Databases brings back the stored tab
+  // that was in front. Choosing a tab in the strip never changes the mode.
+  const agentsTabRef = useLatest(agentsTab);
+  const sidebarModeRef = useLatest(sidebarMode);
+  const pendingSidebarFocus = React.useRef(false);
+  const changeSidebarMode = React.useCallback(
+    (mode: SidebarMode, opts: { focusSidebar?: boolean; page?: AgentsPage } = {}) => {
+      setSidebarMode(mode);
+      if (mode === 'agents') agentsTabRef.current.show(opts.page);
+      else agentsTabRef.current.unfocus();
+      if (opts.focusSidebar) {
+        pendingSidebarFocus.current = true;
+        if (panelPrefsRef.current.sidebarCollapsed) panelPrefsRef.current.toggleSidebar();
+      }
+    },
+    [setSidebarMode, agentsTabRef, panelPrefsRef],
+  );
+  // Focus lands once the sidebar is drawn: a collapsed one opens first.
+  React.useEffect(() => {
+    if (!pendingSidebarFocus.current) return;
+    const target = document.querySelector<HTMLElement>('[aria-label="Sidebar mode"] [role="tab"][aria-selected="true"]');
+    if (!target) return;
+    pendingSidebarFocus.current = false;
+    target.focus();
+  });
+  /** Shows an Agents page in the Agents tab, in Agents mode (the palette, Home's links, Settings). */
+  const showAgentsPage = React.useCallback(
+    (page: AgentsPage) => changeSidebarMode('agents', { page }),
+    [changeSidebarMode],
+  );
+  // X30 §12: the Agents pages and the mode, from the palette.
+  useRegisterCommands(
+    [
+      { id: 'agents.home', title: 'Agents: Home', group: 'navigation', keywords: ['agent', 'mcp', 'needs you'], perform: () => showAgentsPage(HOME_PAGE) },
+      {
+        id: 'agents.connect',
+        title: 'Agents: Connect an Agent',
+        group: 'navigation',
+        keywords: ['agent', 'mcp', 'token', 'setup', 'claude', 'cursor'],
+        perform: () => showAgentsPage({ kind: 'connect' }),
+      },
+      { id: 'agents.activity', title: 'Agents: All activity', group: 'navigation', keywords: ['agent', 'log', 'calls'], perform: () => showAgentsPage({ kind: 'activity' }) },
+      {
+        id: 'agents.setup',
+        title: 'Agents: Setup & capabilities',
+        group: 'navigation',
+        keywords: ['agent', 'access', 'bridge', 'tools', 'settings'],
+        perform: () => showAgentsPage({ kind: 'setup' }),
+      },
+      {
+        id: 'view.agents.toggle',
+        title: 'Toggle Agents sidebar',
+        group: 'view',
+        shortcut: '⌘⇧A',
+        keywords: ['agents', 'databases', 'sidebar', 'mode'],
+        toggle: { checked: sidebarMode === 'agents' },
+        perform: () => changeSidebarMode(sidebarModeRef.current === 'agents' ? 'databases' : 'agents'),
+      },
+    ],
+    [showAgentsPage, changeSidebarMode, sidebarMode, sidebarModeRef],
+  );
+  // Settings → Agent Access → Open Agents, which cannot reach this state directly.
+  React.useEffect(() => {
+    const take = () => {
+      const page = takeAgentsPageRequest();
+      if (page) showAgentsPage(page);
+    };
+    take();
+    return onAgentsPageRequest(take);
+  }, [showAgentsPage]);
 
   // "Go to Indexes" / "Go to Schema" from the palette: the Structure view may
   // not be mounted yet when the command runs, so the scroll waits for the
@@ -1375,7 +1472,10 @@ function WorkspaceInner() {
       const origin = e.target instanceof HTMLElement ? e.target : null;
       // ⌥1–⌥3 (W01 §14.11): the code, since Option-digit types a character on
       // a Mac. Left alone in a text field, where that character is the point.
+      // The Agents tab in front hides the stored one: its view keys are not this page's.
+      const agentsFront = agentsTabRef.current.open && agentsTabRef.current.focused;
       if (e.altKey && !mod && !e.shiftKey && /^Digit[123]$/.test(e.code)) {
+        if (agentsFront) return;
         const a = activeCollectionRef.current;
         if (!a || origin?.closest('[role="dialog"], [role="alertdialog"], input, textarea, select, [contenteditable="true"]')) return;
         e.preventDefault();
@@ -1383,11 +1483,28 @@ function WorkspaceInner() {
         return;
       }
       if (!mod) return;
-      // Grouped-by-connection order, matching what's on screen (not stored order).
-      const ids = groupTabsByConnection(tabs.tabs).flatMap((g) =>
-        g.tabs.map((t) => t.id),
+      // Grouped-by-connection order, matching what's on screen (not stored order),
+      // with the Agents tab last where it is drawn (X30 §4).
+      const agents = agentsTabRef.current;
+      const ids = stripOrder(
+        groupTabsByConnection(tabs.tabs).flatMap((g) => g.tabs.map((t) => t.id)),
+        agents.open,
       );
-      if (e.key === '`' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      const focusedId = agents.open && agents.focused ? AGENTS_TAB_ID : tabs.activeId;
+      const focusTab = (id: string) => {
+        if (id === AGENTS_TAB_ID) {
+          agents.show();
+          return;
+        }
+        agents.unfocus();
+        void tabs.setActive(id);
+      };
+      if (e.key.toLowerCase() === 'a' && e.shiftKey && !e.altKey) {
+        // ⌘⇧A (X30 §2): the sidebar's mode, and focus into the sidebar; never under a dialog.
+        if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
+        e.preventDefault();
+        changeSidebarMode(sidebarModeRef.current === 'agents' ? 'databases' : 'agents', { focusSidebar: true });
+      } else if (e.key === '`' && e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
         // The Console (W11 §8.2): from anywhere in the workspace outside a dialog.
         if (origin?.closest('[role="dialog"], [role="alertdialog"]') || !focusedConnectionRef.current) return;
         e.preventDefault();
@@ -1407,6 +1524,7 @@ function WorkspaceInner() {
         if (origin?.closest('[role="dialog"], [role="alertdialog"]')) return;
         if (e.shiftKey) {
           // ⌘⇧B: the Query Builder, on Documents only (W01 §14.11).
+          if (agentsFront) return;
           const a = activeCollectionRef.current;
           if (!a || (a.state.activeView ?? 'documents') !== 'documents') return;
           e.preventDefault();
@@ -1426,29 +1544,26 @@ function WorkspaceInner() {
         document.getElementById('query-bar-filter')?.focus();
       } else if (e.key === 'w') {
         e.preventDefault();
-        if (tabs.activeId) void closeTabGuarded(tabs, tabs.activeId);
+        // The Agents tab first: the stored tab behind it is not the one in front. Closing it leaves the mode.
+        if (agents.open && agents.focused) agents.close();
+        else if (tabs.activeId) void closeTabGuarded(tabs, tabs.activeId);
       } else if (e.key === 'Alt' || e.key === 'Option') {
         // noop
       } else if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
         e.preventDefault();
-        const idx = tabs.activeId ? ids.indexOf(tabs.activeId) : 0;
-        if (idx === -1) return;
-        const next =
-          e.key === 'ArrowRight'
-            ? ids[(idx + 1) % ids.length]
-            : ids[(idx - 1 + ids.length) % ids.length];
-        if (next) void tabs.setActive(next);
+        const next = steppedTab(ids, focusedId, e.key === 'ArrowRight' ? 1 : -1);
+        if (next) focusTab(next);
       } else if (/^[1-9]$/.test(e.key)) {
-        const id = ids[Number(e.key) - 1];
+        const id = nthTab(ids, Number(e.key));
         if (id) {
           e.preventDefault();
-          void tabs.setActive(id);
+          focusTab(id);
         }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosed, focusedConnectionRef, panelPrefsRef]);
+  }, [tabs, activeCollectionRef, toggleBuilderWithFocus, reopenClosed, focusedConnectionRef, panelPrefsRef, agentsTabRef, sidebarModeRef, changeSidebarMode]);
 
   const handlePick = async (input: {
     connectionId: string;
@@ -1824,6 +1939,38 @@ function WorkspaceInner() {
 
   const welcome = !connectionsLoading && connections.length === 0;
 
+  const agentsNames = { tokens: agentAccess?.tokens ?? [], sessions: agentAccess?.sessions ?? [] };
+  const agentsShell = {
+    mode: sidebarMode,
+    onMode: (mode: SidebarMode) => changeSidebarMode(mode),
+    needsYou: needsYouCount(agentAccess),
+    sidebar: (
+      <AgentsSidebar state={agentAccess} page={agentsTab.open ? agentsTab.page : null} onNavigate={agentsTab.show} />
+    ),
+    tab: agentsTab.open
+      ? {
+          label: agentsTabLabel(agentsTab.page, agentsNames),
+          focused: agentsTab.focused,
+          onActivate: () => agentsTab.show(),
+          onClose: agentsTab.close,
+        }
+      : null,
+    breadcrumb: agentsFocused ? agentsBreadcrumb(agentsTab.page, agentsNames) : null,
+    onStoredTabFocus: agentsTab.unfocus,
+  };
+  const agentsView = agentsFocused ? (
+    <AgentsTab
+      page={agentsTab.page}
+      state={agentAccess}
+      connections={connections}
+      onNavigate={agentsTab.show}
+      openConnection={openConnection}
+      connectDrafts={agentsTab.connectDrafts}
+      onConnectAction={agentsTab.connectAction}
+      activity={connectionActivity}
+    />
+  ) : null;
+
   // mode="static" (CSS grid), not the default "fixed" (position: fixed) —
   // the Electron viewport is exactly 100vh and inner panes rely on
   // flex + overflow: hidden, which fixed positioning doesn't tolerate.
@@ -1884,6 +2031,7 @@ function WorkspaceInner() {
           available: !!activeCollection && activeView === 'documents',
           onToggle: toggleBuilder,
         }}
+        agents={agentsShell}
       />
 
       <PanelBody
@@ -1920,6 +2068,7 @@ function WorkspaceInner() {
         }
         onStructureInitialCreateConsumed={onCreateIndexConsumed}
         connectErrors={navigatorTree.connectErrors}
+        agentsView={agentsView}
       />
 
       {/* After Main in the DOM; the grid draws it at the bottom either way. Not
@@ -1932,10 +2081,9 @@ function WorkspaceInner() {
 
       <FeatureHint
         id="agents.share"
-        placement="above"
         visible={agentsShareHint.visible}
         onDismiss={agentsShareHint.dismiss}
-        onCta={() => settings.open('agents')}
+        onCta={() => showAgentsPage(HOME_PAGE)}
       />
 
       <FeatureHint

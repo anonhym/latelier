@@ -257,6 +257,8 @@ export interface PanelBodyProps {
   connectErrors: Record<string, ConnectErrorInfo>;
   /** Loads that replace the query from outside (the palette's saved Open/Run), counted with this pane's own. */
   externalLoadGen?: number;
+  /** The Agents tab's page while that tab is in front (X30 §4); it replaces the stored tab's body. */
+  agentsView?: React.ReactNode;
 }
 
 export function PanelBody({
@@ -286,6 +288,7 @@ export function PanelBody({
   structureInitialCreate,
   onStructureInitialCreateConsumed,
   connectErrors,
+  agentsView = null,
 }: PanelBodyProps) {
   const T = themeVars;
   // The Connection the breadcrumb names with no tab in front; the canvas names the same one.
@@ -484,6 +487,9 @@ export function PanelBody({
             onEnterManually={() => switcherProps.onAdd?.()}
             onImport={openImport}
           />
+        ) : agentsView ? (
+          // Before the no-tab canvases: the Agents tab shows with no stored tab open too.
+          agentsView
         ) : tabs.tabs.length === 0 && failedConnection ? (
           <ConnectionPane
             conn={failedConnection}

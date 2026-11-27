@@ -34,6 +34,7 @@ const ROUND_TRIPS: Array<[string, unknown]> = [
   ['ui.commandPalette.mru', ['tab.new', 'tab.open:shop:orders']],
   ['ui.connections.pinned', [UUID]],
   ['warnings.crossConnectionPaste', false],
+  ['sidebar.mode', 'agents'],
   [`ui.workspace.navigator.connExpanded:${UUID}`, true],
 ];
 

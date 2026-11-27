@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import { ConnectionTransferProvider } from '../../src/features/connections/ConnectionTransferProvider';
-import { collectionTabFixture, installAtelierMock, multiConnectionMock, uninstallAtelierMock } from '../helpers/atelierMock';
+import { AGENT_ACCESS_OFF, collectionTabFixture, installAtelierMock, multiConnectionMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { invalidateSchemaEnumCache } from '../../src/features/fieldSuggestions/sources/schemaEnumSource';
 
 // Spied so the write can be checked for dropping the cached enum suggestions.
@@ -238,6 +238,7 @@ function mount(
      */
     focusedConnectionId?: string;
     extra?: ReactNode;
+    agentAccess?: MockOverrides['agentAccess'];
   } = {},
 ) {
   const connections = opts.connections ?? NINE_CONNECTIONS;
@@ -251,6 +252,7 @@ function mount(
     tabs: opts.tabs ?? focused,
     conn: { list: async () => connections, ...opts.conn },
     ...(opts.mongo ? { mongo: opts.mongo } : {}),
+    ...(opts.agentAccess ? { agentAccess: opts.agentAccess } : {}),
   });
   return render(
     <MemoryRouter initialEntries={['/workspace']}>
@@ -900,7 +902,6 @@ describe('ConnectionSwitcher — the row ⋯ menu', () => {
       'Edit…',
       'Disconnect',
       'Copy connection string',
-      'Share with Agents…',
       'Delete…',
     ]);
     const deleteItem = within(menu).getByRole('menuitem', { name: 'Delete…' });
@@ -1807,7 +1808,6 @@ describe('ConnectionSwitcher — expanded table', () => {
       'Copy connection string',
       'Add to family…',
       'Leave family',
-      'Share with Agents…',
       'Delete…',
     ]);
     await userEvent.keyboard('{Escape}');
@@ -2307,5 +2307,32 @@ describe('ConnectionSwitcher — read-only indicator', () => {
     const trigger = await titleBar().findByRole('button', { name: /Connection: Prod — US East/i });
     expect(within(trigger).queryByTitle('Read-only connection')).toBeNull();
     expect(trigger.getAttribute('aria-label')).not.toMatch(/Read-only connection/i);
+  });
+});
+
+describe('ConnectionSwitcher — the shared marker (X30 §10.2)', () => {
+  const sharedWorld = () =>
+    mount({
+      connections: NINE_CONNECTIONS.map((c) => (c.id === 'c3' ? { ...c, shareWithAgents: true } : c)),
+      agentAccess: { getState: async () => ({ ...AGENT_ACCESS_OFF, enabled: true }) },
+    });
+  const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it('marks a shared Connection before its name in the Switcher row, and no other row', async () => {
+    sharedWorld();
+    const listbox = await openSwitcher();
+    const marker = await within(listbox).findByTestId('share-marker');
+    expect(within(listbox).getAllByTestId('share-marker')).toHaveLength(1);
+    const row = marker.closest('[role="option"]') as HTMLElement;
+    expect(precedes(marker, within(row).getByText('Staging'))).toBe(true);
+  });
+
+  it('marks it before its name in the Connections table row too', async () => {
+    sharedWorld();
+    const dialog = await openExpandedTable();
+    const row = tableRow(dialog, 'Staging');
+    const marker = await within(row).findByTestId('share-marker');
+    expect(precedes(marker, within(row).getByText('Staging'))).toBe(true);
+    expect(within(dialog).getAllByTestId('share-marker')).toHaveLength(1);
   });
 });

@@ -56,6 +56,8 @@ const SET_SCHEMAS = new Map<string, z.ZodType>([
   ['warnings.crossConnectionPaste', z.boolean()],
   // Reference pairs the user chose Never for (X26 §6): `connectionId|` then the six names as a JSON array (or a hash of it when longer than the cap below, `MAX_PAIR_KEY_LENGTH` in `src/utils/referenceDiscovery.ts`), oldest first.
   ['refs.discovery.never', z.array(z.string().max(1024)).max(500)],
+  // What the sidebar shows (X30 §2): the navigator, or Agents and their sessions. X30 names the key, so it has no `ui.` prefix.
+  ['sidebar.mode', z.enum(['databases', 'agents'])],
 ]);
 
 // Connection ids are `crypto.randomUUID()`. One bounded character class and an

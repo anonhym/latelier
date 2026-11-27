@@ -11,6 +11,7 @@ import { isContextMenuKey, anchorFromRect } from '../../utils/contextMenuKey';
 import { formatShortcut } from '../../commands/shortcutLabel';
 import { isMacRenderer } from '../../utils/platform';
 import { ShareMarker } from '../../features/agentAccess/ShareMarker';
+import { IconPlugConnected } from '@tabler/icons-react';
 
 interface TabStripProps {
   tabs: WorkspaceTab[];
@@ -37,6 +38,80 @@ interface TabStripProps {
   onCloseMany: (ids: string[], keepId: string) => void;
   /** Show this collection tab's row in the navigator. */
   onReveal: (id: string) => void;
+  /**
+   * The Agents tab (X30 §4), drawn last and outside every Tab Group, or null
+   * while it is closed. Renderer-only: it has no stored row, so it is never
+   * dragged, pinned or reordered.
+   */
+  agentsTab?: AgentsTabProps | null;
+}
+
+export interface AgentsTabProps {
+  label: string;
+  focused: boolean;
+  onActivate: () => void;
+  onClose: () => void;
+}
+
+/** The Agents tab: plug icon, its page in the label, a close button; never draggable. */
+function AgentsStripTab({ label, focused, onActivate, onClose }: AgentsTabProps) {
+  const T = themeVars;
+  const mac = isMacRenderer();
+  return (
+    <div
+      data-testid="agents-tab"
+      role="tab"
+      aria-selected={focused}
+      aria-label={label}
+      title={label}
+      tabIndex={focused ? 0 : -1}
+      draggable={false}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: themeVars.gapXs,
+        padding: '0 12px',
+        fontSize: T.fsSm,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        background: focused ? T.surfaceRaised : 'transparent',
+        color: focused ? T.text : T.textMuted,
+        borderRight: `1px solid ${T.border}`,
+        borderLeft: `3px solid ${T.accentBorder}`,
+        fontWeight: focused ? 500 : undefined,
+        maxWidth: 320,
+      }}
+    >
+      <span aria-hidden style={{ display: 'flex', color: T.textMuted }}>
+        <IconPlugConnected size={13} stroke={1.5} />
+      </span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      <Tooltip label={`Close tab ${formatShortcut('⌘W', mac)}`} withArrow openDelay={400}>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="xs"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+          }}
+          aria-label="Close Agents tab"
+        >
+          {I.close}
+        </ActionIcon>
+      </Tooltip>
+    </div>
+  );
 }
 
 /** A tab's read-only marker (spec §4.4). The group chip has carried one
@@ -80,6 +155,7 @@ export function TabStrip({
   onTogglePin,
   onCloseMany,
   onReveal,
+  agentsTab = null,
 }: TabStripProps) {
   const T = themeVars;
   const [dragId, setDragId] = React.useState<string | null>(null);
@@ -307,6 +383,8 @@ export function TabStrip({
               >
                 {I.chevD}
               </span>
+              {/* Before the name, so the header's own controls never cover it (X30 §10.2). */}
+              {connection && <ShareMarker connection={connection} />}
               <span>{name}</span>
               {/* Read-only: the Connection's Family, after its name. Clicking it is clicking the header. */}
               {familyName && (
@@ -315,7 +393,6 @@ export function TabStrip({
                 </span>
               )}
               {readOnly && <ReadOnlyBadge />}
-              {connection && <ShareMarker connection={connection} />}
             </button>}
             {!collapsed && groupTabs.map((tab) => {
               const active = tab.id === activeId;
@@ -475,6 +552,7 @@ export function TabStrip({
           </div>
         );
       })}
+      {agentsTab && <AgentsStripTab {...agentsTab} />}
       <Menu position="bottom-start">
         <Menu.Target>
           <UnstyledButton
