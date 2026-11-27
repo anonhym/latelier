@@ -1951,3 +1951,90 @@ export interface AgentAccessState {
   /** Shared Connections an Agent asked for while they were closed, newest first (X27 §16.6). */
   connectionRequests: AgentConnectionRequest[];
 }
+
+// ─── Agent Proposals (X28) ───────────────────────────────────────────────────
+
+/** Where a Proposal is in its life (X28 §3). `pending` and `later` are open; the rest are decided. */
+export type AgentProposalStatus = 'pending' | 'later' | 'accepted' | 'declined' | 'expired' | 'obsolete';
+
+/** Who an accepted Proposal's rule was saved for. */
+export type AgentProposalSavedFor = 'connection' | 'family';
+
+/**
+ * One Agent that proposed a pair. Every text here came from the Agent's side
+ * (its token and client names, its reason): text only, never markup or a link.
+ */
+export interface AgentProposalBacker {
+  tokenId: string;
+  /** The token's name when this Agent proposed it. */
+  tokenName: string | null;
+  sessionId: string | null;
+  clientName: string | null;
+  /** The Agent's own words, decrypted in main for display; null when the cell cannot be opened. */
+  reason: string | null;
+  createdAt: string;
+}
+
+/**
+ * A Proposal for a Reference Rule (X28). Database, collection and field names
+ * came from an Agent: untrusted text. `pairKey` is X26's `pairKey` for the
+ * pair, the key the Never list and the discovery strip use.
+ */
+export interface AgentProposal {
+  id: string;
+  kind: 'reference_rule';
+  status: AgentProposalStatus;
+  connectionId: string;
+  /** The Connection's name when the Proposal was filed. */
+  connectionName: string;
+  sourceDb: string;
+  sourceCollection: string;
+  sourceField: string;
+  targetDb: string;
+  targetCollection: string;
+  targetField: string;
+  pairKey: string;
+  createdAt: string;
+  decidedAt: string | null;
+  expiresAt: string;
+  /** Set once accepted: the rule it created. */
+  ruleId: string | null;
+  savedFor: AgentProposalSavedFor | null;
+  /** First backer first. */
+  backers: AgentProposalBacker[];
+}
+
+export interface AgentProposalsQuery {
+  /** `open`: pending or later. `decided`: everything else. Absent: both. */
+  status?: 'open' | 'decided';
+  connectionId?: string;
+  /** Proposals any backer filed in this session. */
+  sessionId?: string;
+  /** The last row of the previous page; newest first on `(createdAt, id)`. */
+  before?: { createdAt: string; id: string };
+  limit: number;
+}
+
+/**
+ * The check a user runs on an opened Proposal (X28 §5). `not-open`: the
+ * Connection is not open, so nothing was read and nothing was connected.
+ * `sampled`: up to three source documents that have the field were read, and
+ * `resolved` of them found a target document.
+ */
+export type AgentProposalCheck =
+  | { kind: 'not-open'; connectionName: string }
+  | {
+      kind: 'sampled';
+      sampled: number;
+      resolved: number;
+      sourceCollection: string;
+      sourceField: string;
+      targetCollection: string;
+      targetField: string;
+    };
+
+/** What `agentProposals:event` pushes: a Proposal was added or changed status. The renderer lists again. */
+export interface AgentProposalEvent {
+  id: string;
+  status: AgentProposalStatus;
+}
