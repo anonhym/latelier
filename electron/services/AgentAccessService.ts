@@ -37,7 +37,7 @@ import { AgentGate, type AgentPool } from '../agent/AgentGate.ts';
 import { AgentServer, type AgentSessionEvent } from '../agent/AgentServer.ts';
 import { displayFolder } from '../agent/folderDisplay.ts';
 import { AgentToolRunner } from '../agent/AgentToolRunner.ts';
-import { AGENT_TOOLS, type AgentReferenceRules } from '../agent/tools.ts';
+import { AGENT_TOOLS, type AgentProposals, type AgentReferenceRules } from '../agent/tools.ts';
 import { generateToken, hashToken } from '../agent/token.ts';
 import type { AgentTokenRepo, AgentTokenRow } from '../db/repositories/AgentTokenRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
@@ -88,6 +88,8 @@ export interface AgentAccessDeps {
   emitCall: (row: AgentCallSummary) => void;
   /** The Reference Rules the relation tools read. */
   refs: AgentReferenceRules;
+  /** The Proposals the X28 tools file and read. */
+  proposals: AgentProposals;
   /** The clock Connection requests and copies are timed by. */
   now?: () => number;
 }
@@ -180,6 +182,7 @@ export class AgentAccessService {
       connections: deps.connRepo,
       log: deps.log,
       refs: deps.refs,
+      proposals: deps.proposals,
       onRowWritten: (row) => this.onRowWritten(row),
       openDeclined: (sessionId, connectionId) => this.requests.isDismissed(sessionId, connectionId),
     });

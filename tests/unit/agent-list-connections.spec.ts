@@ -5,6 +5,16 @@ import { LISTING_LIMIT } from '../../electron/agent/readOps';
 import { MAX_RESPONSE_BYTES } from '../../electron/agent/resultBudget';
 import { envelopeBody } from '../helpers/agentFixture';
 
+/** No test here files or reads a Proposal: a call that reaches one is a bug in the test. */
+const NO_PROPOSALS = {
+  propose: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+  statusFor: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+};
+
 const tool = AGENT_TOOLS.find((t) => t.name === 'list_connections')!;
 const session: AgentSessionIdentity = { sessionId: 's', tokenId: 't', tokenHash: 'h', tokenName: 'n', clientName: null, clientVersion: null };
 
@@ -35,7 +45,7 @@ function context(options: FakeOptions): ToolContext {
       release: () => undefined,
     }),
   };
-  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] } };
+  return { gate: gate as unknown as AgentGate, session, signal: new AbortController().signal, log: { warn: () => undefined }, refs: { effective: () => [] }, proposals: NO_PROPOSALS };
 }
 
 const names = (count: number, prefix = 'db'): string[] => Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(6, '0')}`);

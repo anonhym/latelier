@@ -14,6 +14,10 @@ export const AGENT_ERROR_CODES = [
   'TIMEOUT',
   'CANCELLED',
   'DB_ERROR',
+  // X28 §4.1: refusals of propose_reference_rule.
+  'PROPOSAL_DECLINED',
+  'ALREADY_CONFIGURED',
+  'PROPOSAL_LIMIT',
 ] as const;
 
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
@@ -38,6 +42,10 @@ const DEFAULT_MESSAGES: Record<AgentErrorCode, string> = {
   TIMEOUT: 'The operation exceeded its time limit.',
   CANCELLED: 'The operation was cancelled.',
   DB_ERROR: 'The database returned an error.',
+  PROPOSAL_DECLINED: 'The user declined this relation. Do not propose it again.',
+  // Names no rule: an Agent learns that the field is covered, not by what.
+  ALREADY_CONFIGURED: 'A Reference Rule already covers this source field.',
+  PROPOSAL_LIMIT: 'This Agent already has 20 open Proposals. Wait until the user decides some of them.',
 };
 
 /**

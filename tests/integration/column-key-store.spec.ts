@@ -149,10 +149,14 @@ describe('column key store', () => {
       VALUES ('l', ?, 'find', x'01', 1, 'ok')`).run(now);
     tmp.db.prepare(`INSERT INTO agent_tokens (id, name, token_hash, created_at) VALUES ('tok', 'Claude', 'hash', ?)`).run(now);
     tmp.db.prepare(`INSERT INTO agent_sessions (id, token_id, folder, started_at) VALUES ('ses', 'tok', x'01', ?)`).run(now);
+    tmp.db.prepare(`INSERT INTO agent_proposals (id, kind, status, connection_id, connection_name, source_db, source_collection, source_field,
+      target_db, target_collection, target_field, pair_key, created_at, expires_at)
+      VALUES ('p', 'reference_rule', 'pending', 'c1', 'n', 'd', 'o', 'cid', 'd', 'c', '_id', 'k', ?, ?)`).run(now, now);
+    tmp.db.prepare(`INSERT INTO agent_proposal_backers (id, proposal_id, token_id, reason, created_at) VALUES ('b', 'p', 'tok', x'01', ?)`).run(now);
 
     resetProtectedData(tmp.db, log());
 
-    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'agent_read_log', 'agent_sessions', 'column_keys']) {
+    for (const table of ['recent_queries', 'recent_field_values', 'audit_log', 'saved_queries', 'workspace_tabs', 'agent_read_log', 'agent_sessions', 'agent_proposals', 'agent_proposal_backers', 'column_keys']) {
       expect((tmp.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, table).toBe(0);
     }
     // Hashes only, no sealed cell: the Agent Tokens outlive a key reset.

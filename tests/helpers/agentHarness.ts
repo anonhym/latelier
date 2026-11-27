@@ -8,6 +8,8 @@ import type { Logger } from '../../electron/log';
 import { AppStateRepo } from '../../electron/db/repositories/AppStateRepo';
 import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
 import { AgentSessionRepo } from '../../electron/db/repositories/AgentSessionRepo';
+import { AgentProposalRepo } from '../../electron/db/repositories/AgentProposalRepo';
+import { AgentProposalService } from '../../electron/services/AgentProposalService';
 import { AgentTokenRepo } from '../../electron/db/repositories/AgentTokenRepo';
 import { ConnectionRepo, inputToRow } from '../../electron/db/repositories/ConnectionRepo';
 import { ReferenceRulesRepo } from '../../electron/db/repositories/ReferenceRulesRepo';
@@ -16,7 +18,7 @@ import type { MongoPool } from '../../electron/mongo/MongoPool';
 import { AppStateService } from '../../electron/services/AppStateService';
 import { AgentAccessService, type AgentAccessPool } from '../../electron/services/AgentAccessService';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
-import type { AgentAccessState, AgentCallSummary, ConnectionInput } from '@shared/types';
+import type { AgentAccessState, AgentCallSummary, AgentProposalEvent, ConnectionInput } from '@shared/types';
 import { createTempCipher, createTempDb, type TempDb } from './db';
 
 export type PoolStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -39,6 +41,8 @@ export interface AgentHarnessOptions {
   homedir?: string;
   /** The service's clock for Connection requests and copies. Default the real one. */
   now?: () => number;
+  /** The Proposal service's clock. Default the real one. */
+  proposalsNow?: () => number;
 }
 
 /** A pool that only reports the statuses a test sets, and emits `status` like the real one. */
@@ -111,6 +115,11 @@ export interface AgentHarness {
   clipboardHold: Promise<void> | null;
   /** The real Reference Rules the relation tools read, on the harness database. */
   refs: ReferenceRulesService;
+  /** The real Proposals the X28 tools file, on the harness database. */
+  proposals: AgentProposalService;
+  proposalRepo: AgentProposalRepo;
+  /** Every Proposal event the service pushed to the renderer. */
+  proposalEvents: AgentProposalEvent[];
   answers: number[];
   bridge: FakeBridge;
   /** Runs when a message box opens, before it is answered. */
@@ -172,7 +181,21 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
   const bridge = new FakeBridge();
   const log: Logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   // `effective` reads only SQLite: the pool is never reached, so none is given.
-  const refs = new ReferenceRulesService(new ReferenceRulesRepo(tmp.db), null as unknown as MongoPool);
+  const rulesRepo = new ReferenceRulesRepo(tmp.db);
+  const refs = new ReferenceRulesService(rulesRepo, null as unknown as MongoPool);
+  const proposalRepo = new AgentProposalRepo(tmp.db, cipher, log);
+  const proposalEvents: AgentProposalEvent[] = [];
+  const proposals = new AgentProposalService({
+    repo: proposalRepo,
+    refs,
+    rulesRepo,
+    connections: connRepo,
+    pool,
+    appState,
+    log,
+    emit: (event) => void proposalEvents.push(event),
+    ...(options.proposalsNow ? { now: options.proposalsNow } : {}),
+  });
   const svc = new AgentAccessService({
     appState,
     tokenRepo,
@@ -208,6 +231,7 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
       },
     },
     refs,
+    proposals,
     ...(options.now ? { now: options.now } : {}),
     emit: (state) => void states.push(state),
     emitCall: (row) => void calls.push(row),
@@ -234,6 +258,9 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     clipboardReadFails: false,
     clipboardHold: null,
     refs,
+    proposals,
+    proposalRepo,
+    proposalEvents,
     answers,
     bridge,
     onBox: null,

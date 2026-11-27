@@ -215,6 +215,44 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
       expect(retried.isError).toBeUndefined();
       expect(textOf(retried)).toContain('x27-marker-alpha');
 
+      // X28: the Agent proposes a Reference Rule through the bridge; the app lists it, the user accepts it, and the Agent sees the decision.
+      const proposed = await client.callTool({
+        name: 'propose_reference_rule',
+        arguments: {
+          connectionId,
+          sourceDb: DB,
+          sourceCollection: 'orders',
+          sourceField: 'customerId',
+          targetDb: DB,
+          targetCollection: 'customers',
+          reason: 'orders.customerId holds customers._id values',
+        },
+      });
+      expect(proposed.isError).toBeUndefined();
+      const proposalId = (JSON.parse(textOf(proposed).split('\n')[1]!) as { proposalId: string }).proposalId;
+      type ProposalsApi = {
+        list: (q: unknown) => Promise<Array<{ id: string; status: string; sourceField: string; backers: Array<{ reason: string | null }> }>>;
+        accept: (q: unknown) => Promise<{ ruleId: string; savedFor: string }>;
+      };
+      const proposals = await win.evaluate(() =>
+        (window as unknown as { atelier: { agentProposals: ProposalsApi } }).atelier.agentProposals.list({ status: 'open', limit: 10 }),
+      );
+      expect(proposals).toEqual([
+        expect.objectContaining({ id: proposalId, status: 'pending', sourceField: 'customerId', backers: [expect.objectContaining({ reason: 'orders.customerId holds customers._id values' })] }),
+      ]);
+      const accepted = await win.evaluate(
+        (id) => (window as unknown as { atelier: { agentProposals: ProposalsApi } }).atelier.agentProposals.accept({ id, savedFor: 'connection' }),
+        proposalId,
+      );
+      expect(accepted.savedFor).toBe('connection');
+      const rules = await win.evaluate(
+        (id) => (window as unknown as { atelier: { refs: { list: (q: unknown) => Promise<Array<{ id: string; sourceField: string; targetCollection: string }>> } } }).atelier.refs.list({ connectionId: id }),
+        connectionId,
+      );
+      expect(rules).toEqual([expect.objectContaining({ id: accepted.ruleId, sourceField: 'customerId', targetCollection: 'customers' })]);
+      const decided = await client.callTool({ name: 'get_proposal', arguments: { proposalId } });
+      expect(textOf(decided).split('\n')[0]).toBe(JSON.stringify({ proposalId, status: 'accepted', savedFor: 'connection' }));
+
       // Unshare in the app: the very next call is refused.
       expect((await setShared(win, connectionId, false)).shared).toBe(false);
       const refused = await client.callTool({ name: 'find', arguments: { connectionId, database: DB, collection: 'items' } });
