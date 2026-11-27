@@ -97,6 +97,18 @@ describe('the Agents sidebar', () => {
     expect(within(live[0]!).queryByTestId('needs-you-badge')).toBeNull();
   });
 
+  it('its chevron is a native button out of the Tab order, and toggles without opening the Agent', () => {
+    const { onNavigate } = mount();
+    const chevron = within(agentRow('laptop-claude')).getByRole('button', { name: 'Collapse laptop-claude' });
+    expect(chevron.tagName).toBe('BUTTON');
+    expect(chevron.tabIndex).toBe(-1);
+    fireEvent.click(chevron);
+    expect(agentRow('laptop-claude').getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(within(agentRow('laptop-claude')).getByRole('button', { name: 'Expand laptop-claude' }));
+    expect(agentRow('laptop-claude').getAttribute('aria-expanded')).toBe('true');
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
   it('lists up to five ended sessions, dimmed, and Show all when there are more', async () => {
     const { onNavigate, listSessions } = mount(STATE, [0, 1, 2, 3, 4, 5].map((i) => ended(i)));
     await waitFor(() => expect(screen.getAllByTestId('agents-sidebar-ended-session')).toHaveLength(5));

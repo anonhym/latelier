@@ -206,16 +206,26 @@ export function AgentsSidebar({
             marginTop: index > 0 ? 4 : 0,
           }}
         >
-          <span
-            aria-hidden
+          {/* Out of the Tab order: the tree's ←/→ expand from the keyboard; this is the pointer's way. */}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={`${item.expanded ? 'Collapse' : 'Expand'} ${item.row.name}`}
             onClick={(e) => {
               e.stopPropagation();
               setExpanded(item.row.id, !item.expanded);
             }}
-            style={{ color: T.textGhost, fontSize: T.fsXs, width: 10, flexShrink: 0 }}
+            style={{
+              all: 'unset',
+              cursor: 'pointer',
+              color: T.textGhost,
+              fontSize: T.fsXs,
+              width: 10,
+              flexShrink: 0,
+            }}
           >
-            {item.expanded ? '▾' : '▸'}
-          </span>
+            <span aria-hidden>{item.expanded ? '▾' : '▸'}</span>
+          </button>
           <IconKey size={13} stroke={1.5} aria-hidden="true" style={{ flexShrink: 0 }} />
           <Untrusted text={item.row.name} style={{ fontWeight: 600, flex: '0 1 auto' }} />
           <span style={{ marginLeft: 'auto', fontSize: T.fsXs, color: T.textGhost, whiteSpace: 'nowrap', flexShrink: 0 }}>
