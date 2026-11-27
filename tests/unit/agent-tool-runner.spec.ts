@@ -5,7 +5,7 @@ import { AgentToolRunner, requestJsonOf } from '../../electron/agent/AgentToolRu
 import type { AgentGate, AgentSessionIdentity } from '../../electron/agent/AgentGate';
 import type { AgentReadLogEntry } from '../../electron/db/repositories/AgentReadLogRepo';
 import { AGENT_TOOLS } from '../../electron/agent/tools';
-import { AgentToolError } from '../../electron/agent/errorMap';
+import { AgentToolError, defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
 const session: AgentSessionIdentity = {
   sessionId: 's',
@@ -74,7 +74,14 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
   const findArgs = { connectionId: CONNECTION, database: 'd', collection: 'c' };
   const signal = new AbortController().signal;
 
-  function pausing(opts: { token?: () => 'ok' | 'ACCESS_OFF'; name?: string | null; insert?: (row: AgentReadLogEntry) => void } = {}) {
+  function pausing(
+    opts: {
+      token?: () => 'ok' | 'ACCESS_OFF';
+      name?: string | null;
+      insert?: (row: AgentReadLogEntry) => void;
+      declined?: (sessionId: string, connectionId: string) => boolean;
+    } = {},
+  ) {
     const rows: AgentReadLogEntry[] = [];
     const written: string[] = [];
     const summaries: AgentCallSummary[] = [];
@@ -105,6 +112,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
         summaries.push(row);
         written.push(row.outcome);
       },
+      ...(opts.declined ? { openDeclined: opts.declined } : {}),
     });
     return { r, rows, written, summaries, acquired: () => acquired };
   }
@@ -153,7 +161,8 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       const { r, rows, written, acquired } = pausing();
       const reply = await r.call(session, 'find', findArgs, signal, ask);
       expect(reply.kind).toBe('result');
-      if (reply.kind === 'result') expect(reply.result.content[0]!.text).toMatch(/^NOT_OPEN: /);
+      // Nothing declined: the Agent is told the user has been asked (X27 §16.6).
+      if (reply.kind === 'result') expect(reply.result.content[0]!.text).toBe(`NOT_OPEN: ${defaultAgentMessage('NOT_OPEN')}`);
       expect(rows.map((row) => row.outcome)).toEqual(['NOT_OPEN']);
       expect(rows[0]!.bytes).toBeGreaterThan(0);
       expect(written).toEqual(['NOT_OPEN']);
@@ -165,8 +174,34 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
     const { r, rows, acquired } = pausing();
     const reply = await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'refused' });
     expect(reply.kind === 'result' && reply.result.isError).toBe(true);
+    // The user declined in the Agent's host: the Agent is told not to retry, never that the user was asked.
+    if (reply.kind === 'result') expect(reply.result.content[0]!.text).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
     expect(rows.map((row) => row.outcome)).toEqual(['NOT_OPEN']);
     expect(acquired()).toBe(0);
+  });
+
+  it('tells the Agent not to retry when the user dismissed the request for this session and Connection', async () => {
+    const seen: Array<[string, string]> = [];
+    const { r, rows } = pausing({ declined: (s, c) => (seen.push([s, c]), true) });
+    const reply = await r.call(session, 'find', findArgs, signal);
+    if (reply.kind !== 'result') throw new Error('expected a result');
+    expect(reply.result.content[0]!.text).toBe(
+      'NOT_OPEN: The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to.',
+    );
+    expect(seen).toEqual([['s', CONNECTION]]);
+    expect(rows.map((row) => row.outcome)).toEqual(['NOT_OPEN']);
+    expect(rows[0]!.bytes).toBe(Buffer.byteLength(reply.result.content[0]!.text));
+  });
+
+  it('keeps the asked text when the pair was not dismissed, and never consults dismissal for another refusal', async () => {
+    const seen: string[] = [];
+    const { r } = pausing({ declined: (_s, c) => (seen.push(c), false) });
+    const reply = await r.call(session, 'find', findArgs, signal);
+    if (reply.kind === 'result') expect(reply.result.content[0]!.text).toBe(`NOT_OPEN: ${defaultAgentMessage('NOT_OPEN')}`);
+    expect(seen).toEqual([CONNECTION]);
+    const other = await r.call(session, 'find', { ...findArgs, database: 'admin' }, signal);
+    if (other.kind === 'result') expect(other.result.content[0]!.text).toMatch(/^NAMESPACE_DENIED: /);
+    expect(seen).toEqual([CONNECTION]);
   });
 
   it('ignores a refused answer on a tool that names no Connection', async () => {

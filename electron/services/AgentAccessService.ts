@@ -181,6 +181,7 @@ export class AgentAccessService {
       log: deps.log,
       refs: deps.refs,
       onRowWritten: (row) => this.onRowWritten(row),
+      openDeclined: (sessionId, connectionId) => this.requests.isDismissed(sessionId, connectionId),
     });
     this.server = new AgentServer({
       userData: deps.userData,

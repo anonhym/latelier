@@ -40,6 +40,14 @@ const DEFAULT_MESSAGES: Record<AgentErrorCode, string> = {
   DB_ERROR: 'The database returned an error.',
 };
 
+/**
+ * NOT_OPEN when the user said no: they dismissed this session's request for
+ * the Connection, or declined X29's question. Nothing was asked of them this
+ * time, so the Agent is told not to keep trying (X27 §16.6).
+ */
+export const NOT_OPEN_DECLINED_MESSAGE =
+  'The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to.';
+
 export function defaultAgentMessage(code: AgentErrorCode): string {
   return DEFAULT_MESSAGES[code];
 }

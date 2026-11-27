@@ -15,6 +15,7 @@ import { TOKEN_RE, hashToken } from '../../electron/agent/token';
 import { IPC_CHANNELS, type Envelope } from '../../shared/ipc';
 import type { AgentAccessState, AgentCopyResult, AgentTokenInfo, Connection, ConnectionInput } from '../../shared/types';
 import { CLIPBOARD_CLEAR_MS } from '../../electron/services/AgentAccessService';
+import { NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, handshakeLine, openSocket, readUntilClosed, textOf } from '../helpers/agentSocket';
 import { createIpcShim } from '../helpers/ipcShim';
@@ -828,7 +829,8 @@ describe('agentAccess:* channels', () => {
       await agent.client.callTool(find(connectionId));
       expect(await ok(IPC_CHANNELS.agentAccessDismissRequest, { sessionId, connectionId })).toEqual({ ok: true });
       expect(h.states.at(-1)!.connectionRequests).toEqual([]);
-      await agent.client.callTool(find(connectionId));
+      // The Agent is told the user chose not to open it, so it stops retrying.
+      expect(textOf(await agent.client.callTool(find(connectionId)))).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
       expect(await requests()).toEqual([]);
       const calls = await ok<Array<{ outcome: string }>>(IPC_CHANNELS.agentAccessListCalls, { connectionId, outcome: 'all', limit: 10 });
       expect(calls.map((c) => c.outcome)).toEqual(['NOT_OPEN', 'NOT_OPEN']);

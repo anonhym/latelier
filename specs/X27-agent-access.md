@@ -573,7 +573,11 @@ The two fit together: X29's question tells the user to open the Connection in L'
 - A request ends when its Connection opens, when the user dismisses it (`agentAccess:dismiss-request` `{ sessionId, connectionId }`), when its session ends, when the Connection is unshared or deleted, or 30 minutes after its `lastAt`. Requests are not persisted.
 - **A dismissal holds for the session.** After the user dismisses a (session, Connection) pair, further `NOT_OPEN` or `INPUT_REQUIRED` rows on it make no new request for the rest of that session, so an Agent steered by its data cannot keep asking the user to open a Connection. The refusals are still logged.
 - **The Agent never opens anything.** The renderer's Open button runs the user's ordinary connect action. §1's "letting an Agent open, wake or connect a Connection" stays out of scope: the Agent asks, and a person clicks.
-- The `NOT_OPEN` message to the Agent becomes "This Connection is not open. L'Atelier has asked the user to open it; try again after they do." X29 §4.2's question is unchanged.
+- The `NOT_OPEN` message to the Agent depends on whether the user has already said no:
+  - By default it is "This Connection is not open. L'Atelier has asked the user to open it; try again after they do."
+  - Once the user has dismissed the request for that (session, Connection) pair, or declined X29's question, it is "The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to." Without this, an Agent told to try again would keep making calls the user has already turned down.
+
+  X29 §4.2's question is unchanged.
 
 ### 16.7 Relation tools
 
@@ -611,7 +615,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 - The bridge sends `protocol: 2` with its working folder, cut to 1,024 bytes. Main accepts protocols 1 and 2 and refuses any other. A line over 4,096 bytes is refused.
 - The folder is stored sealed, and the renderer receives it only in display form, with `~` for the home directory and no control characters.
 - `agentAccess:list-calls` filters by session, token, Connection, namespace, tool and outcome, pages by `(ts, id)` without gaps or repeats, and caps `limit` at 200. `agentAccess:list-sessions` pages the same way on `(started_at, id)`.
-- A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session.
+- A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session. Until the user dismisses the request or declines the question, the Agent is told to try again once the Connection is open. After either, it is told not to retry unless the user asks.
 - No Agent call ever connects a Connection.
 - `list_references` returns the effective rules without the §7.4 namespaces. `suggest_references` samples only through the agent client, never connects a closed Connection, and returns errors as codes instead of an empty list.
 - `connect-client` and `copy-setup` create or regenerate a token only after main's confirm, write it only to the clipboard, and resolve only after the write. Cancel changes nothing. The clipboard is cleared after five minutes and at quit only if it still holds what main wrote.

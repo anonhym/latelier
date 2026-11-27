@@ -5,6 +5,7 @@ import {
   AgentToolError,
   defaultAgentMessage,
   errorText,
+  NOT_OPEN_DECLINED_MESSAGE,
   toAgentError,
 } from '../../electron/agent/errorMap';
 
@@ -105,6 +106,11 @@ describe('the NOT_OPEN message', () => {
   it("tells the Agent the user was asked to open it, and to try again after they do", () => {
     expect(defaultAgentMessage('NOT_OPEN')).toBe(
       "This Connection is not open. L'Atelier has asked the user to open it; try again after they do.",
+    );
+  });
+  it('tells the Agent not to retry once the user chose not to open it', () => {
+    expect(NOT_OPEN_DECLINED_MESSAGE).toBe(
+      'The Connection is shared but not open, and the user chose not to open it now. Do not retry unless the user asks you to.',
     );
   });
 });

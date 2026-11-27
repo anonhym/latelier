@@ -15,6 +15,7 @@ import {
 } from '../helpers/agentSocket';
 import { MAX_MESSAGE_BYTES } from '../../electron/agent/AgentSession';
 import { SERVER_INSTRUCTIONS } from '../../electron/agent/tools';
+import { defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
 const MODERN = '2026-07-28';
 const FORM = { elicitation: { form: {} } };
@@ -256,7 +257,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
       const result = await modern.client.callTool(findOn(CLOSED_ID));
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toMatch(/^NOT_OPEN: /);
+      expect(textOf(result)).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
       expect(asked).toEqual([`The Connection "prod" is closed. Open it in L'Atelier, then accept to continue.`]);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
       expect(rows()[0]).toMatchObject({ tool: 'find', doc_count: 0, bytes: 0 });
@@ -269,7 +270,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       h.addConnection(CLOSED_ID, 'prod', { shared: true });
       const { asked, onElicit } = answering('cancel');
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
-      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toMatch(/^NOT_OPEN: /);
+      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toBe(`NOT_OPEN: ${NOT_OPEN_DECLINED_MESSAGE}`);
       expect(asked).toHaveLength(1);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
     });
@@ -279,7 +280,7 @@ describe('Agent Access on MCP 2026-07-28 (X29)', () => {
       h.addConnection(CLOSED_ID, 'prod', { shared: true });
       const { asked, onElicit } = answering('accept');
       const modern = await agentFor(socketPath, token, { modern: true, capabilities: FORM, onElicit });
-      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toMatch(/^NOT_OPEN: /);
+      expect(textOf(await modern.client.callTool(findOn(CLOSED_ID)))).toBe(`NOT_OPEN: ${defaultAgentMessage('NOT_OPEN')}`);
       expect(asked).toHaveLength(1);
       expect(rows().map((r) => r.outcome)).toEqual(['INPUT_REQUIRED', 'NOT_OPEN']);
     });
