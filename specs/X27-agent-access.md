@@ -523,7 +523,12 @@ Rules:
 
 - **No foreign keys**, like the log: a session row outlives its token.
 - **When the row is written.** At the moment [X29 §2](./X29-agent-access-mcp-2026.md) counts a session: its first request other than `server/discover`, before that request is handled. A discovery-only probe session therefore never gets a row, as it never shows in presence.
-- **Fail closed.** If the row cannot be written, main answers that first request with a distinct JSON-RPC error (`-32003`, "L'Atelier could not record this session") and closes the socket. Being the app's first line on that socket, it is read by the bridge like `-32001` and `-32002` (the code sits in the implementation range X29 §6 names): the bridge prints "L'Atelier could not start this session; see its log" and exits 4. The token-refused message would send the user off to regenerate a token that is fine.
+- **Fail closed.** If the row cannot be written, main answers that first request with a distinct JSON-RPC error (`-32003`, "L'Atelier could not record this session") and closes the socket. The code sits in the implementation range X29 §6 names. The bridge prints "L'Atelier could not start this session; see its log" and exits 4. The token-refused message would send the user off to regenerate a token that is fine.
+- **How the bridge recognizes it.** It cannot rely on the first-line check `-32001` and `-32002` use (`FirstLineTap` in `bridge/src/relay.rs`). When the client sent `server/discover` first ([X29 §2](./X29-agent-access-mcp-2026.md)), the discovery reply was the first line and the failure comes later on the same socket. So:
+  - Main does not send this reply through the SDK transport. It writes one fixed line directly to the socket, with `error` as the first key and the failed request's `id` last: `{"error":{"code":-32003,"message":"L'Atelier could not record this session"},"jsonrpc":"2.0","id":<id>}\n`. Then it ends the socket.
+  - The bridge checks the start of every line it relays from the app for the exact prefix `{"error":{"code":-32003,`, not only the first line. It holds at most those 24 bytes of each line and forwards everything unchanged. On a match it records the verdict, and when the socket ends it prints the message and exits 4.
+  - The SDK writes every message as `JSON.stringify(message) + "\n"`, and JSON never contains a raw newline, so every line start is the start of a message. A database value that spells out the prefix is always inside a message, JSON-escaped, and never at a line start. No SDK reply uses `-32003`.
+  - A bridge still speaking protocol 1 does not know the prefix. It forwards the error to the client and ends as a normal close. The reason is in the app log.
 - `ended_at` and `end_reason` are written when the session closes. A row still open at launch (the app crashed or was killed) is closed at launch with `ended_at` = the launch time and `end_reason` = `unknown`.
 - Every Agent Read Log row written inside a session carries its `session_id`. Rows are only written by tool calls, so in practice that is every new row; a refused handshake goes to the app log, not to the Agent Read Log.
 - **Retention**: a session whose `ended_at` is more than 90 days old is deleted by `MaintenanceService` in the same pass that prunes the log. A live session is never pruned.
@@ -599,7 +604,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 
 ### 16.10 Acceptance criteria
 
-- Every session writes an `agent_sessions` row on its first request other than `server/discover`, before handling it; a discovery-only probe writes none. A session whose row cannot be written is refused with its own message. Every log row written inside a session carries its session id.
+- Every session writes an `agent_sessions` row on its first request other than `server/discover`, before handling it; a discovery-only probe writes none. A session whose row cannot be written is refused with its own message, and the bridge exits 4 with that message even when a `server/discover` reply came first on the socket. Every log row written inside a session carries its session id.
 - Closing a session records `ended_at` and the right `end_reason`. A session left open by a crash is closed at the next launch with `unknown`.
 - Ended sessions older than 90 days are pruned with the log. Live sessions never are.
 - The bridge sends `protocol: 2` with its working folder, cut to 1,024 bytes. Main accepts protocols 1 and 2 and refuses any other. A line over 4,096 bytes is refused.
@@ -619,11 +624,17 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 - `agent-folder-display.spec.ts`: the home directory becomes `~` on each platform's path form; a path outside home is shown as it is; the cut happens at a character boundary.
 - `agent-connection-requests.spec.ts`: one request per (session, Connection), from a `NOT_OPEN` row or an `INPUT_REQUIRED` row; a paused call's two rows make one request; a repeat bumps `count`; `NOT_SHARED` makes none; each ending condition removes it; after a dismissal the same pair makes none for that session; the 30-minute expiry uses an injected clock.
 - `reference-candidates.spec.ts`: the split-out stem matching gives the same candidates `autodetect` gave on the existing fixtures.
-- `bridge` crate (`cargo test`): the handshake line carries protocol 2 and the folder, cut at a character boundary, and omits it when the working directory cannot be read; a `-32003` reply prints the could-not-record message and exits 4.
+- `bridge` crate (`cargo test`): the handshake line carries protocol 2 and the folder, cut at a character boundary, and omits it when the working directory cannot be read. A `-32003` line prints the could-not-record message and exits 4 in each of these cases:
+  - it is the first line;
+  - it comes after a `server/discover` reply on the same socket;
+  - it comes after a discovery reply longer than the 1,024 bytes the first-line check inspects;
+  - its prefix is split across writes.
+
+  A reply whose JSON-escaped value contains `{\"error\":{\"code\":-32003,` is not a refusal, and neither is any `-32003` that does not start a line.
 
 **Integration**
 
-- `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
+- `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session with the fixed `-32003` line, both as the first request and after a `server/discover` on the same socket; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
 - `agent-read-log.spec.ts` (extend): `list-calls` filters and keyset paging; `list-sessions` paging past 200 sessions of one token, including sessions sharing a `started_at`; `request` decrypted only in the response, and a truncated request flagged.
 - `agent-tools.spec.ts` (extend): `list_references` with Connection and Family rules and a denied namespace; `suggest_references` on a sampled collection; with the Connection closed it returns `NOT_OPEN` and the pool's status never changes to connecting.
 - `agent-access-handlers.spec.ts` (extend): validation of the new channels; `connect-client` with a stubbed confirm creates and copies on yes and does nothing on no; the clipboard clear leaves a changed clipboard alone.
