@@ -388,3 +388,13 @@ A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections
 - **Unit**: the tab label rule (bare name, `database.collection` on a clash, back again); the next script title; the closed-tab list (cap of ten, newest first, entries of a deleted Connection dropped); the breadcrumb model for each state (collection, script, server, no tab, no open Connection, none saved).
 - **Component**: breadcrumb segments and their dropdowns; the no-tab canvas; the group chip appearing with a second Connection; `+ ▾`; the view header labels and ⌥1–3 (ignored in a text field); the status bar's Connection, and the result bar's count, pager and running state; reopen from the menu, the key and the toast; the preview tab being replaced, and kept by an edit; ⌘B and ⌘⇧B, each inert under a dialog.
 - **E2E**: connect, open two same-named collections from two databases and read both tab labels; browse three collections by single click and end with one tab; close a script tab and reopen it with its source; relaunch and find the Focused Tab run and the filter focused.
+
+## 15. Amendment — Agents mode
+
+> **Accepted, not built.** Specified in [X29](./X29-agents-mode.md); this section records what it adds to §14.
+
+- **Sidebar.** A two-segment switch, Databases | Agents, sits at the top of the sidebar above the navigator's filter ([X29 §2](./X29-agents-mode.md)). Databases is the navigator of [W02](./W02-db-collection-navigator.md).
+- **Tab strip.** A new tab kind, the **Agents tab**: at most one, renderer-only, never stored in `workspace_tabs` ([X29 §4](./X29-agents-mode.md)). Its breadcrumb reads `Agents › {page}`.
+- **Keyboard.** `⌘⇧A` toggles the Agents sidebar and is added to §14.11's table.
+- **Status bar.** §14.6 stands: it holds the Connection only. The X27 status-bar Agents control is removed ([X29 §10.2](./X29-agents-mode.md)).
+
