@@ -54,6 +54,7 @@
     "src/pages/Workspace/builderToPipeline.ts",
     "src/pages/Workspace/queryCaps.ts",
     "electron/services/referencePairing.ts",
+    "electron/services/referenceCandidates.ts",
     "src/pages/Workspace/toolbarLayout.ts",
     "src/pages/Workspace/resultPaneState.ts",
     "src/pages/Workspace/optionPills.ts",
