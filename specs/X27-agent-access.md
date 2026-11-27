@@ -1,6 +1,6 @@
 # X27 — Agent Access: read-only MCP access to shared Connections
 
-> **Status: Implemented.** §1–§15 shipped. §16 (Agent sessions, Connection requests, reading the log, relation tools, the clipboard setup flow) is accepted, not built; where it names a part of §4.5, §5.2, §8, §11 or the Scope, §16 is what ships. The UI of §11.3 and §12 is superseded by [X29](./X29-agents-mode.md).
+> **Status: Implemented.** §1–§15 shipped. §16 (Agent sessions, Connection requests, reading the log, relation tools, the clipboard setup flow) is accepted, not built; where it names a part of §4.5, §5.2, §8, §11 or the Scope, §16 is what ships. The UI of §11.3 and §12 is superseded by [X30](./X30-agents-mode.md).
 
 ## Purpose
 
@@ -144,6 +144,8 @@ There is no HTTP server and no TCP port. Every Agent client in scope supports st
 
 ### 4.5 Handshake and sessions
 
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §2 and §3: each session is served in the protocol era the client opens with, and client info comes from each request in the 2026-07-28 era.
+
 - The bridge's first line on the socket is `{"agentToken":"<token>","protocol":1}\n`. Main hashes the token and compares it in constant time against the stored hashes (§5). A `protocol` value main does not support is refused the same way, so a bridge and an app that drifted apart fail loudly instead of mis-speaking. On failure it writes one JSON-RPC error line and closes. On success the rest of the stream belongs to MCP.
 - Main runs one MCP `Server` per socket connection, over the SDK's `StdioServerTransport` constructed on the socket's own streams (the SDK supports this for Unix sockets). `maxBufferSize` is set to 1 MiB, so an oversized message closes that session only.
 - `initialize.clientInfo` (name and version) is recorded with the token's name on every Agent Read Log row.
@@ -239,6 +241,8 @@ The same rule filters `list_databases` and `list_collections`, so the Agent is n
 
 ## 8. Tools
 
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §4: in the 2026-07-28 era, a call on a shared Connection that is closed can pause and ask the user to open it.
+
 Every tool has `annotations: { readOnlyHint: true, openWorldHint: false }`, and a strict input schema. A tool returns no `outputSchema` and no `structuredContent`: some clients show the model only the structured part of a result and drop the text, which hid the documents themselves (found in a real client).
 
 | Tool | Input | Returns |
@@ -298,6 +302,8 @@ After every `await` that returns data, the gates are checked again, **before** s
 ## 11. Agent Read Log
 
 ### 11.1 Table
+
+> Amended by [X29](./X29-agent-access-mcp-2026.md) §5: `outcome` also takes `INPUT_REQUIRED`, for a call's asking round.
 
 A new table `agent_read_log` with these columns:
 
@@ -495,11 +501,11 @@ All eight gates in `CLAUDE.md` § Definition of done apply. This is code, a migr
 
 ## 16. Amendment — sessions, Connection requests, the log as a source, relation tools
 
-> **Accepted, not built.** Agreed on 2026-11-27 with the Agents mode design ([X29](./X29-agents-mode.md)). It supersedes §4.5's handshake line, §5.2's token window, §11.3, and the Scope bullets "A viewer for the Agent Read Log" (out) and "a status-bar Agents control … share actions on the navigator root" (in). Everything else in §1–§15 stands. The rule that an Agent never writes is unchanged: nothing here lets an Agent change a database, and app-state changes an Agent can ask for are [X28](./X28-agent-proposals.md)'s.
+> **Accepted, not built.** Agreed on 2026-11-27 with the Agents mode design ([X30](./X30-agents-mode.md)). It supersedes §4.5's handshake line, §5.2's token window, §11.3, and the Scope bullets "A viewer for the Agent Read Log" (out) and "a status-bar Agents control … share actions on the navigator root" (in). Everything else in §1–§15 stands. The rule that an Agent never writes is unchanged: nothing here lets an Agent change a database, and app-state changes an Agent can ask for are [X28](./X28-agent-proposals.md)'s.
 
 ### 16.1 Why
 
-The user could not tell which Agent did what. A session existed only in main's memory (`AgentSessionIdentity.sessionId`), so two Claude Code windows on the same token were indistinguishable, and once a session ended its calls could not be grouped again. A refused call on a shared Connection that was not open reached the user only if the Agent thought to say so in its chat. And the log X27 recorded so carefully could not be read. This section adds what main needs for [X29](./X29-agents-mode.md) to show all three.
+The user could not tell which Agent did what. A session existed only in main's memory (`AgentSessionIdentity.sessionId`), so two Claude Code windows on the same token were indistinguishable, and once a session ended its calls could not be grouped again. A refused call on a shared Connection that was not open reached the user only if the Agent thought to say so in its chat. And the log X27 recorded so carefully could not be read. This section adds what main needs for [X30](./X30-agents-mode.md) to show all three.
 
 ### 16.2 Agent sessions
 
@@ -507,7 +513,7 @@ A new append-only migration (the next free number; this section is built before 
 
 - A table `agent_sessions`:
   - `id` (the UUID `AgentServer.accept` already mints), `token_id`, `token_name` (copied at write time, as in the log);
-  - `client_name`, `client_version` (null until `initialize`, then written once, cut as today by `cutClientInfo`);
+  - `client_name`, `client_version`: null until a request carries client info, then written once, cut as today by `cutClientInfo`. In the legacy era that is `initialize`; in the 2026-07-28 era it is the first request whose envelope carries `clientInfo` ([X29 §3](./X29-agent-access-mcp-2026.md)). Read Log rows keep recording each call's own client info, as X29 §3 says;
   - `folder` (§16.3), a `BLOB` sealed by `ColumnCipher`, nullable;
   - `started_at`, `ended_at` (null while live);
   - `end_reason TEXT CHECK (end_reason IN ('client-closed','user-ended','token-revoked','access-off','app-quit','unknown'))`, null while live.
@@ -516,7 +522,8 @@ A new append-only migration (the next free number; this section is built before 
 Rules:
 
 - **No foreign keys**, like the log: a session row outlives its token.
-- **Fail closed.** The session row is written after the handshake succeeds and before the MCP server is attached. If it cannot be written, main refuses the session with a distinct JSON-RPC error (`-32003`, "L'Atelier could not record this session"), and the bridge prints "L'Atelier could not start this session; see its log" and exits 4. The token-refused message would send the user off to regenerate a token that is fine.
+- **When the row is written.** At the moment [X29 §2](./X29-agent-access-mcp-2026.md) counts a session: its first request other than `server/discover`, before that request is handled. A discovery-only probe session therefore never gets a row, as it never shows in presence.
+- **Fail closed.** If the row cannot be written, main answers that first request with a distinct JSON-RPC error (`-32003`, "L'Atelier could not record this session") and closes the socket. Being the app's first line on that socket, it is read by the bridge like `-32001` and `-32002` (the code sits in the implementation range X29 §6 names): the bridge prints "L'Atelier could not start this session; see its log" and exits 4. The token-refused message would send the user off to regenerate a token that is fine.
 - `ended_at` and `end_reason` are written when the session closes. A row still open at launch (the app crashed or was killed) is closed at launch with `ended_at` = the launch time and `end_reason` = `unknown`.
 - Every Agent Read Log row written inside a session carries its `session_id`. Rows are only written by tool calls, so in practice that is every new row; a refused handshake goes to the app log, not to the Agent Read Log.
 - **Retention**: a session whose `ended_at` is more than 90 days old is deleted by `MaintenanceService` in the same pass that prunes the log. A live session is never pruned.
@@ -533,7 +540,7 @@ The best way to tell two sessions of one client apart is the folder the client w
 
 `AgentAccessState` gains:
 
-- `sessions: AgentSessionInfo[]`, the live sessions: `id`, `tokenId`, `tokenName`, `clientName`, `clientVersion`, `folder` (display form or null), `startedAt`, `callCount`, `refusedCount`, `lastCallAt`.
+- `sessions: AgentSessionInfo[]`, the live sessions: `id`, `tokenId`, `tokenName`, `clientName`, `clientVersion`, `folder` (display form or null), `startedAt`, `callCount`, `refusedCount`, `lastCallAt`. An `INPUT_REQUIRED` row ([X29 §5](./X29-agent-access-mcp-2026.md)) counts as neither a call nor a refusal, so a paused call counts once, as X29 counts reads.
 - `connectionRequests: AgentConnectionRequest[]` (§16.6).
 
 `sessionCount` stays and equals `sessions.length`. Because a call changes counts, `agentAccess:state-event` is coalesced to at most four pushes a second; a session opening or closing, and a new Connection request, push at once.
@@ -548,18 +555,20 @@ This lifts §11.3's "the viewer is out of scope". The renderer reads the log thr
 
 Everything these return that came from an Agent or from the data (database, collection, tool arguments, client name, folder) is untrusted text. The renderer shows it as text only, never as markup or a link.
 
-§6.3 still holds as stored data: Agent calls are never written to `recent_queries`. A view may list Agent calls beside the user's own history, read from this channel and labelled as an Agent's ([X29 §9](./X29-agents-mode.md)).
+§6.3 still holds as stored data: Agent calls are never written to `recent_queries`. A view may list Agent calls beside the user's own history, read from this channel and labelled as an Agent's ([X30 §9](./X30-agents-mode.md)).
 
 ### 16.6 Connection requests
 
-When an Agent asks for a shared Connection that is not open, the call is refused `NOT_OPEN` (§2) and logged, with the Connection's id and name filled from the repository. Main turns that refusal into a **Connection request** the user can act on.
+When an Agent asks for a shared Connection that is not open, the call either pauses and asks the user, in the Agent's host, to open it ([X29 §4](./X29-agent-access-mcp-2026.md): an `INPUT_REQUIRED` row), or is refused `NOT_OPEN` (§2) for a client that cannot be asked. Both rows carry the Connection's id and name, filled from the repository. Main turns either into a **Connection request** the user can act on in L'Atelier.
+
+The two fit together: X29's question tells the user to open the Connection in L'Atelier and then accept, and the request puts an **Open** button there. It is not X29 §7's rejected alternative: nothing opens a dialog or a window, and nothing opens a Connection on the Agent's request; the user clicks.
 
 - Main keeps the requests in memory, one per (session, Connection): `{ sessionId, tokenName, clientName, connectionId, connectionName, firstAt, lastAt, count, lastTool, database, collection }`. A further refusal on the same pair updates `lastAt`, `count` and the target, and never makes a second request.
-- **Only `NOT_OPEN` makes a request.** `NOT_SHARED` never does: an unknown id reads as not shared (`AgentGate.checkConnection`), so a request built on it would let text the Agent read point a "share this?" prompt at any Connection id it guessed. A Connection an Agent can name has been shared already, and §2 lists it as `unavailable`.
+- **Only `NOT_OPEN` and `INPUT_REQUIRED` make a request.** `NOT_SHARED` never does: an unknown id reads as not shared (`AgentGate.checkConnection`), so a request built on it would let text the Agent read point a "share this?" prompt at any Connection id it guessed. A Connection an Agent can name has been shared already, and §2 lists it as `unavailable`.
 - A request ends when its Connection opens, when the user dismisses it (`agentAccess:dismiss-request` `{ sessionId, connectionId }`), when its session ends, when the Connection is unshared or deleted, or 30 minutes after its `lastAt`. Requests are not persisted.
-- **A dismissal holds for the session.** After the user dismisses a (session, Connection) pair, further `NOT_OPEN` refusals on it make no new request for the rest of that session, so an Agent steered by its data cannot keep asking the user to open a Connection. The refusals are still logged.
+- **A dismissal holds for the session.** After the user dismisses a (session, Connection) pair, further `NOT_OPEN` or `INPUT_REQUIRED` rows on it make no new request for the rest of that session, so an Agent steered by its data cannot keep asking the user to open a Connection. The refusals are still logged.
 - **The Agent never opens anything.** The renderer's Open button runs the user's ordinary connect action. §1's "letting an Agent open, wake or connect a Connection" stays out of scope: the Agent asks, and a person clicks.
-- The `NOT_OPEN` message to the Agent becomes "This Connection is not open. L'Atelier has asked the user to open it; try again after they do."
+- The `NOT_OPEN` message to the Agent becomes "This Connection is not open. L'Atelier has asked the user to open it; try again after they do." X29 §4.2's question is unchanged.
 
 ### 16.7 Relation tools
 
@@ -590,13 +599,13 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 
 ### 16.10 Acceptance criteria
 
-- Every session writes an `agent_sessions` row before MCP starts, and a session whose row cannot be written is refused with its own message. Every log row written inside a session carries its session id.
+- Every session writes an `agent_sessions` row on its first request other than `server/discover`, before handling it; a discovery-only probe writes none. A session whose row cannot be written is refused with its own message. Every log row written inside a session carries its session id.
 - Closing a session records `ended_at` and the right `end_reason`. A session left open by a crash is closed at the next launch with `unknown`.
 - Ended sessions older than 90 days are pruned with the log. Live sessions never are.
 - The bridge sends `protocol: 2` with its working folder, cut to 1,024 bytes. Main accepts protocols 1 and 2 and refuses any other. A line over 4,096 bytes is refused.
 - The folder is stored sealed, and the renderer receives it only in display form, with `~` for the home directory and no control characters.
 - `agentAccess:list-calls` filters by session, token, Connection, namespace, tool and outcome, pages by `(ts, id)` without gaps or repeats, and caps `limit` at 200.
-- A `NOT_OPEN` refusal makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session.
+- A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session.
 - No Agent call ever connects a Connection.
 - `list_references` returns the effective rules without the §7.4 namespaces. `suggest_references` samples only through the agent client, never connects a closed Connection, and returns errors as codes instead of an empty list.
 - `connect-client` and `copy-setup` create or regenerate a token only after main's confirm, write it only to the clipboard, and resolve only after the write. Cancel changes nothing. The clipboard is cleared after five minutes and at quit only if it still holds what main wrote.
@@ -608,13 +617,13 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 
 - `agent-handshake.spec.ts` (extend): protocol 1 without a folder and protocol 2 with one are accepted; protocol 3 is refused; a 4,097-byte line is refused; a folder with control characters is cleaned.
 - `agent-folder-display.spec.ts`: the home directory becomes `~` on each platform's path form; a path outside home is shown as it is; the cut happens at a character boundary.
-- `agent-connection-requests.spec.ts`: one request per (session, Connection); a repeat bumps `count`; `NOT_SHARED` makes none; each ending condition removes it; after a dismissal the same pair makes none for that session; the 30-minute expiry uses an injected clock.
+- `agent-connection-requests.spec.ts`: one request per (session, Connection), from a `NOT_OPEN` row or an `INPUT_REQUIRED` row; a paused call's two rows make one request; a repeat bumps `count`; `NOT_SHARED` makes none; each ending condition removes it; after a dismissal the same pair makes none for that session; the 30-minute expiry uses an injected clock.
 - `reference-candidates.spec.ts`: the split-out stem matching gives the same candidates `autodetect` gave on the existing fixtures.
 - `bridge` crate (`cargo test`): the handshake line carries protocol 2 and the folder, cut at a character boundary, and omits it when the working directory cannot be read; a `-32003` reply prints the could-not-record message and exits 4.
 
 **Integration**
 
-- `agent-sessions.spec.ts`: rows written and closed; the session-row write failing refuses the session; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
+- `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
 - `agent-read-log.spec.ts` (extend): `list-calls` filters and keyset paging, `request` decrypted only in the response, and a truncated request flagged.
 - `agent-tools.spec.ts` (extend): `list_references` with Connection and Family rules and a denied namespace; `suggest_references` on a sampled collection; with the Connection closed it returns `NOT_OPEN` and the pool's status never changes to connecting.
 - `agent-access-handlers.spec.ts` (extend): validation of the new channels; `connect-client` with a stubbed confirm creates and copies on yes and does nothing on no; the clipboard clear leaves a changed clipboard alone.

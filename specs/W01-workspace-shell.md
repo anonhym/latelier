@@ -391,10 +391,10 @@ A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections
 
 ## 15. Amendment — Agents mode
 
-> **Accepted, not built.** Specified in [X29](./X29-agents-mode.md); this section records what it adds to §14.
+> **Accepted, not built.** Specified in [X30](./X30-agents-mode.md); this section records what it adds to §14.
 
-- **Sidebar.** A two-segment switch, Databases | Agents, sits at the top of the sidebar above the navigator's filter ([X29 §2](./X29-agents-mode.md)). Databases is the navigator of [W02](./W02-db-collection-navigator.md).
-- **Tab strip.** A new tab kind, the **Agents tab**: at most one, renderer-only, never stored in `workspace_tabs` ([X29 §4](./X29-agents-mode.md)). Its breadcrumb reads `Agents › {page}`.
+- **Sidebar.** A two-segment switch, Databases | Agents, sits at the top of the sidebar above the navigator's filter ([X30 §2](./X30-agents-mode.md)). Databases is the navigator of [W02](./W02-db-collection-navigator.md).
+- **Tab strip.** A new tab kind, the **Agents tab**: at most one, renderer-only, never stored in `workspace_tabs` ([X30 §4](./X30-agents-mode.md)). Its breadcrumb reads `Agents › {page}`.
 - **Keyboard.** `⌘⇧A` toggles the Agents sidebar and is added to §14.11's table.
-- **Status bar.** §14.6 stands: it holds the Connection only. The X27 status-bar Agents control is removed ([X29 §10.2](./X29-agents-mode.md)).
+- **Status bar.** §14.6 stands: it holds the Connection only. The X27 status-bar Agents control is removed ([X30 §10.2](./X30-agents-mode.md)).
 

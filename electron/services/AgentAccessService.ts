@@ -112,8 +112,9 @@ export class AgentAccessService {
       tokens: deps.tokenRepo,
       connections: deps.connRepo,
       log: deps.log,
-      onRowWritten: () => {
-        this.readCount += 1;
+      onRowWritten: (outcome) => {
+        // A paused call writes a row for its asking round and one for its retry; it is one read.
+        if (outcome !== 'INPUT_REQUIRED') this.readCount += 1;
         this.scheduleEmit();
       },
     });

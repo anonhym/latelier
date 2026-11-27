@@ -195,6 +195,38 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
       await client.close();
     }
 
+    // X29: a 2026-07-28 client on a shared Connection that is closed is asked to open it, and gets the documents
+    // once the user opens it in the app between the two rounds.
+    expect((await setShared(win, connectionId, true)).shared).toBe(true);
+    await win.evaluate((id) => (window as unknown as { atelier: { mongo: { disconnect: (id: string) => Promise<unknown> } } }).atelier.mongo.disconnect(id), connectionId);
+    const modern = new Client(
+      { name: 'x29-e2e', version: '1.0' },
+      { capabilities: { elicitation: { form: {} } }, versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    const asked: string[] = [];
+    modern.setRequestHandler('elicitation/create', async (request) => {
+      asked.push((request.params as { message: string }).message);
+      await win.evaluate((id) => (window as unknown as { atelier: { mongo: { connect: (id: string) => Promise<unknown> } } }).atelier.mongo.connect(id), connectionId);
+      return { action: 'accept' };
+    });
+    await modern.connect(
+      new StdioClientTransport({
+        command: server.command,
+        args: server.args,
+        env: { ...bridgeEnv, HOME: userDataDir, USERPROFILE: userDataDir, APPDATA: userDataDir },
+        stderr: 'pipe',
+      }),
+    );
+    try {
+      expect(modern.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+      const paused = await modern.callTool({ name: 'find', arguments: { connectionId, database: DB, collection: 'items', sort: { n: 1 } } });
+      expect(paused.isError).toBeUndefined();
+      expect(textOf(paused)).toContain('x27-marker-alpha');
+      expect(asked).toEqual([`The Connection "${CONNECTION_NAME}" is closed. Open it in L'Atelier, then accept to continue.`]);
+    } finally {
+      await modern.close();
+    }
+
     // A bridge speaking another protocol is refused with a JSON-RPC error line, and the socket closes.
     // The bridge always sends 1, so this speaks the socket directly.
     const raw = net.connect(on.socketPath);

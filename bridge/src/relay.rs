@@ -30,8 +30,10 @@ pub enum Refusal {
 const MAX_FIRST_LINE: usize = 1024;
 
 /// Reads the app's first line for a refusal. The app writes it with `JSON.stringify`, so the form is
-/// fixed (`"error"` and `"code":-32001`, no whitespace). A reply to `initialize` is a `result`, and
-/// carries neither, so a legitimate first message is never mistaken for a refusal.
+/// fixed (`"error"` and `"code":-32001`, no whitespace). The reply to the client's first request
+/// (`initialize` in the 2025 era, usually `server/discover` in 2026-07-28) is a `result` and carries
+/// neither, and a database value inside one is JSON-escaped (`\"code\":-32001`), so a legitimate first
+/// message is never mistaken for a refusal.
 pub fn classify_first_line(line: &[u8]) -> Option<Refusal> {
     let text = std::str::from_utf8(line).ok()?;
     if !text.contains("\"error\"") {
@@ -257,6 +259,12 @@ mod tests {
     #[test]
     fn a_reply_to_initialize_is_not_a_refusal() {
         let reply: &[u8] = b"{\"result\":{\"protocolVersion\":\"2025-06-18\",\"instructions\":\"-32001 \\\"code\\\":-32001\"},\"jsonrpc\":\"2.0\",\"id\":0}\n";
+        assert_eq!(tapped(&[reply]).1, None);
+    }
+
+    #[test]
+    fn a_reply_to_server_discover_is_not_a_refusal() {
+        let reply: &[u8] = b"{\"result\":{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"latelier\",\"version\":\"1\"},\"instructions\":\"\\\"error\\\" \\\"code\\\":-32001\"},\"jsonrpc\":\"2.0\",\"id\":0}\n";
         assert_eq!(tapped(&[reply]).1, None);
     }
 

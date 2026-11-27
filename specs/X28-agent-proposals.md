@@ -19,7 +19,7 @@ An Agent exploring a database often works out how its collections relate (`order
 **Defended against:**
 
 - **Applying without the user.** No tool creates a rule. Only a user's click on Add Reference Rule does, through main (§6).
-- **Flooding.** At most 20 open Proposals per Agent Token (§4.2). A repeat of an open pair returns the existing Proposal. A declined pair is refused for good. The X29 toasts fold beyond three.
+- **Flooding.** At most 20 open Proposals per Agent Token (§4.1). A repeat of an open pair returns the existing Proposal. A declined pair is refused for good. The X30 toasts fold beyond three.
 - **Persuasion.** The Agent's reason is at most 500 characters, shown as plain text in a style marked as the Agent's own words, never as markup or a link (§5).
 - **Reaching what was not shared.** A Proposal is filed only on a shared, open Connection (X27 §2), and never names a §7.4 namespace.
 
@@ -31,7 +31,7 @@ An Agent exploring a database often works out how its collections relate (`order
 - Two Agent tools, `propose_reference_rule` and `get_proposal`.
 - A table and a migration.
 - Accept, set aside, decline. A read-only check of three sample documents.
-- The inline strip on the source collection, reusing X26's strip. The rest of the UI, Needs you and toasts, is [X29](./X29-agents-mode.md)'s.
+- The inline strip on the source collection, reusing X26's strip. The rest of the UI, Needs you and toasts, is [X30](./X30-agents-mode.md)'s.
 
 ### Out
 
@@ -46,7 +46,7 @@ An Agent exploring a database often works out how its collections relate (`order
 - [X05](./X05-document-references.md): `ReferenceRulesService.create` and the effective rule list.
 - [X23](./X23-connection-families.md): rule owners, one Connection or a Family.
 - [X26](./X26-reference-discovery.md): the pair key, the strip, and the Never list `refs.discovery.never`.
-- [X29](./X29-agents-mode.md): where Proposals are listed and announced.
+- [X30](./X30-agents-mode.md): where Proposals are listed and announced.
 - [X21](./X21-encryption-at-rest.md): `ColumnCipher` for the Agent's reason.
 
 ## 1. Terms
@@ -107,7 +107,7 @@ X27 §8 says every tool is `readOnlyHint: true`. `propose_reference_rule` is the
 - **Input** (strict schema): `connectionId`, `sourceDb`, `sourceCollection`, `sourceField`, `targetDb`, `targetCollection`, `targetField?` (default `_id`), `reason` (1 to 500 characters).
 - **Annotations**: `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
 - **Checks, in order**, each refusing with a §9.4 code:
-  1. The three gates and the token (X27 §2): `ACCESS_OFF`, `NOT_SHARED`, `NOT_OPEN`.
+  1. The three gates and the token (X27 §2): `ACCESS_OFF`, `NOT_SHARED`, `NOT_OPEN`. Like every tool that names a Connection, a call on a shared, closed Connection may first pause and ask the user to open it ([X29 §4](./X29-agent-access-mcp-2026.md)).
   2. Both namespaces against X27 §7.4: `NAMESPACE_DENIED`.
   3. Both field paths: 1 to 256 characters, dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. Source and target the same field of the same collection: `INVALID_INPUT`.
   4. The pair key is on the Never list: the new code `PROPOSAL_DECLINED`, "The user declined this relation. Do not propose it again."
@@ -154,7 +154,7 @@ On a collection tab's Documents view, an open `pending` Proposal whose source na
 - X26 allows one strip per tab. A discovery suggestion from the user's own copy takes it first; the Proposal waits in Needs you and comes back when the strip is free. Several Proposals for one tab show one at a time, oldest first.
 - Escape acts as Not now and calls `stopPropagation()`, as in X26.
 
-Needs you and the toasts are [X29 §6 and §8](./X29-agents-mode.md).
+Needs you and the toasts are [X30 §6 and §8](./X30-agents-mode.md).
 
 ## 8. IPC
 

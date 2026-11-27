@@ -44,7 +44,7 @@ export interface AgentReadLogEntry {
   truncated: boolean;
 }
 
-const OUTCOMES: ReadonlySet<string> = new Set<string>(['ok', ...AGENT_ERROR_CODES]);
+const OUTCOMES: ReadonlySet<string> = new Set<string>(['ok', 'INPUT_REQUIRED', ...AGENT_ERROR_CODES]);
 
 /**
  * The Agent Read Log (X27 §11). Only `request_json` is sealed: it holds

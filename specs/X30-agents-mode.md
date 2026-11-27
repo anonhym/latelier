@@ -1,10 +1,10 @@
-# X29 — Agents mode: a sidebar for Agents and their sessions
+# X30 — Agents mode: a sidebar for Agents and their sessions
 
 > **Status: Accepted.** Nothing has shipped. The design was reviewed and approved in Claude Design on 2026-11-27 (canvas "Atelier — Agents, first class", page "Agents mode").
 
 ## Purpose
 
-[X27](./X27-agent-access.md) let Agents read shared Connections, but in the app they were scattered over seven places: a Settings section, a status-bar control, four Share menus and a token window. None of them answered what a user asks: which Connections can an Agent reach, which Agent is this, what did it do, and does it want something from me. X29 gives Agents one place. The sidebar switches between **Databases**, today's navigator, and **Agents**, which lists only Agents and their sessions. Each item opens in one Agents tab: Home, an Agent, a session. In Databases mode, requests that need the user still arrive as toasts, and a badge on the switch keeps the count.
+[X27](./X27-agent-access.md) let Agents read shared Connections, but in the app they were scattered over seven places: a Settings section, a status-bar control, four Share menus and a token window. None of them answered what a user asks: which Connections can an Agent reach, which Agent is this, what did it do, and does it want something from me. X30 gives Agents one place. The sidebar switches between **Databases**, today's navigator, and **Agents**, which lists only Agents and their sessions. Each item opens in one Agents tab: Home, an Agent, a session. In Databases mode, requests that need the user still arrive as toasts, and a badge on the switch keeps the count.
 
 ## Scope
 
@@ -111,7 +111,7 @@ From top to bottom:
 - Pills for the call count and the refusal count.
 - **End this session** (`agentAccess:end-session`) closes that one session; the client may reconnect. **Revoke {Agent}…** asks in an app dialog and calls `agentAccess:revoke-token`, which ends every session of that token. Both are absent on an ended session.
 - **Needs you** for this session.
-- **Activity**: `agentAccess:list-calls` for the session, newest first, appended live from `agentAccess:call-event`. Columns: time, tool, target, result (`50 docs · 38 ms`, `refused · not open`, `truncated · bytes`). A refused row has the warning tint. **Refused only** filters; paging loads older rows on scroll. A row opens a detail panel:
+- **Activity**: `agentAccess:list-calls` for the session, newest first, appended live from `agentAccess:call-event`. Columns: time, tool, target, result (`50 docs · 38 ms`, `refused · not open`, `truncated · bytes`, and `asked you to open {Connection}` for an `INPUT_REQUIRED` asking round, [X29 §5](./X29-agent-access-mcp-2026.md)). A refused row has the warning tint. **Refused only** filters; paging loads older rows on scroll. A row opens a detail panel:
   - the request as sent, as JSON text, with the limits applied and the outcome;
   - **Open as query** on an `ok` row of `find`, `count` or `aggregate` whose request was not cut at 16 KiB. It opens a collection tab with the filter, sort and projection, or the pipeline, in place and **does not run it**: it would run with the user's permissions, so the user reads it and presses Run;
   - **Copy** on every row. A refused or cut request gets Copy only, because a document can steer an Agent into asking for `$out` or `$merge`, and that must never be one click from running.
@@ -154,7 +154,7 @@ One list model, used on Home, on a session page and by the toasts:
 
 | Kind | Sentence | Actions |
 | --- | --- | --- |
-| Connection request | "**{Agent}** asked for **{Connection}**. It is shared, but not open, so the call was refused." Meta: client · folder · time · `{tool} on {db.collection}` | **Open {Connection}** (the user's ordinary connect action) · **Not now** (`agentAccess:dismiss-request`) |
+| Connection request | "**{Agent}** asked for **{Connection}**. It is shared, but not open, so the call was refused", or "… so the call is waiting for you" when the client paused it ([X29 §4](./X29-agent-access-mcp-2026.md)); then accept in {client} to continue. Meta: client · folder · time · `{tool} on {db.collection}` | **Open {Connection}** (the user's ordinary connect action) · **Not now** (`agentAccess:dismiss-request`) |
 | Proposal (`pending`) | "**{Agent}** proposes a Reference Rule `{source} → {target}`" Meta: client · folder · time | **Review** (opens it in the session page, with X28 §5's reason and check) · **Decline** (X28's Never for this pair, after an app confirm) |
 
 - Newest first. Later Proposals sit under a collapsed **Later ({n})**, each with **Review** and **Move back**.
