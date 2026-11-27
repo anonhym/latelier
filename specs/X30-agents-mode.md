@@ -166,7 +166,7 @@ One list model, used on Home, on a session page and by the toasts:
 Agent calls on a collection appear in its Saved | History popover ([W10 §6](./W10-recent-preview.md)), beside the user's own runs:
 
 - A segmented filter, **All · Mine · Agents**, defaulting to All.
-- Agent rows come from `agentAccess:list-calls` filtered to the tab's Connection, database and collection: finds and counts in the Documents history. The Aggregation tab has no history yet, so Agent aggregations are not shown there; that waits for an Aggregation history (#864). They merge with the user's rows by time. Nothing is written to `recent_queries` (X27 §6.3).
+- Agent rows come from `agentAccess:list-calls` filtered to the tab's Connection, database and collection: finds and counts in the Documents history. The Aggregation tab has no history yet, so Agent aggregations are not shown there; that waits for an Aggregation history, a separate piece of work. They merge with the user's rows by time. Nothing is written to `recent_queries` (X27 §6.3).
 - Each Agent row carries a chip, "Agent · {client name}", and its tooltip names the Agent and session.
 - Agent rows offer **Load**, which fills the editor without running, never "Run here". Refused and cut rows offer Copy only, for the reason in §5.2.
 - The footer links to the session pages: "All Agent activity on {collection}" opens All activity filtered to it.
