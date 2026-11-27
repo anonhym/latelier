@@ -195,7 +195,10 @@ describe('Agent Proposals (X28)', () => {
     it('8: another token joins as a backer with its own reason, session and client, and gets the same answer', async () => {
       const first = await propose(a);
       const joined = await propose(b, { reason: 'seen in the invoices too' });
-      expect(textOf(joined)).toBe(textOf(first));
+      // The last line is the app's meta line, which carries the call's duration.
+      const answer = (r: ToolResult) => textOf(r).split('\n').slice(0, -1).join('\n');
+      expect(answer(joined)).toBe(answer(first));
+      expect(answer(first)).toBe(`${PROPOSED_TEXT}\n{"proposalId":"${idOf(first)}"}`);
       const [p] = h.proposals.list({ limit: 10 });
       expect(p!.backers.map((x) => [x.tokenName, x.clientName, x.sessionId, x.reason])).toEqual([
         ['laptop-claude', 'claude-code', sessionOf('claude-code'), 'orders.customerId values match customers._id'],
