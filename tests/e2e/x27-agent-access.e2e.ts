@@ -34,6 +34,8 @@ const CONNECTION_NAME = 'X27 Target';
 interface Captured {
   boxes: Array<{ title: string; buttons: string[]; detail: string }>;
   clipboard: string[];
+  /** What the stubbed clipboard holds now. */
+  current: string;
 }
 
 interface AgentState {
@@ -41,6 +43,7 @@ interface AgentState {
   socketPath: string;
   bridgeInstalled: boolean;
   bridgePath: string;
+  connectionRequests: Array<{ connectionId: string; lastOutcome: string; lastTool: string }>;
 }
 
 interface Snippet {
@@ -95,9 +98,10 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
     const captured = () => app.evaluate(() => (globalThis as unknown as { __x27: Captured }).__x27);
 
     // Answers main's native dialogs by title and button label, and records every box and clipboard write.
+    // Reading and clearing are stubbed too, so the clear at quit never touches the developer's clipboard.
     await app.evaluate(({ dialog, clipboard }) => {
       const g = globalThis as unknown as { __x27: Captured };
-      g.__x27 = { boxes: [], clipboard: [] };
+      g.__x27 = { boxes: [], clipboard: [], current: '' };
       dialog.showMessageBox = (async (...args: unknown[]) => {
         const box = args[args.length - 1] as { title: string; buttons: string[]; detail: string };
         g.__x27.boxes.push({ title: box.title, buttons: box.buttons, detail: box.detail });
@@ -105,14 +109,17 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
         let response = 0;
         if (box.title === 'Turn on Agent Access?') response = pick('Turn on');
         else if (box.title === 'Share with Agents?') response = pick('Share');
-        else if (box.title === 'Agent added') {
-          response = box.detail.includes('Configuration copied') ? pick('Done') : pick('Copy for Claude Code (JSON)');
-        }
+        else if (box.title === 'Copy setup') response = pick('Copy setup');
         return { response, checkboxChecked: false };
       }) as typeof dialog.showMessageBox;
-      clipboard.writeText = ((text: string) => {
+      clipboard.writeText = (async (text: string) => {
         g.__x27.clipboard.push(text);
+        g.__x27.current = text;
       }) as typeof clipboard.writeText;
+      clipboard.readText = (async () => g.__x27.current) as typeof clipboard.readText;
+      clipboard.clear = (() => {
+        g.__x27.current = '';
+      }) as typeof clipboard.clear;
     });
 
     // The Connection exists and is open, but is not shared.
@@ -137,10 +144,14 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
     expect(fs.existsSync(on.bridgePath)).toBe(true);
     expect(on.socketPath).not.toBe('');
 
-    // An Agent token: main's dialog shows it once, and "Copy for Claude Code (JSON)" puts the configuration on the clipboard.
-    await win.evaluate(() =>
-      (window as unknown as { atelier: { agentAccess: { addToken: (i: { name: string }) => Promise<unknown> } } }).atelier.agentAccess.addToken({ name: 'E2E Agent' }),
+    // An Agent: main confirms, then puts the Claude Code (JSON) setup, holding its new token, on the clipboard.
+    const copied = await win.evaluate(() =>
+      (window as unknown as { atelier: { agentAccess: { connectClient: (i: unknown) => Promise<{ tokenId?: string; cancelled?: true }> } } }).atelier.agentAccess.connectClient({
+        name: 'E2E Agent',
+        client: 'claude-code',
+      }),
     );
+    expect(copied.tokenId).toEqual(expect.any(String));
     const afterToken = await captured();
     expect(afterToken.clipboard).toHaveLength(1);
     const server = (JSON.parse(afterToken.clipboard[0]!) as Snippet).mcpServers.latelier;
@@ -155,7 +166,7 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
 
     // Share it: the privilege check, then main's dialog.
     expect((await setShared(win, connectionId, true)).shared).toBe(true);
-    expect((await captured()).boxes.map((b) => b.title)).toEqual(['Turn on Agent Access?', 'Agent added', 'Agent added', 'Share with Agents?']);
+    expect((await captured()).boxes.map((b) => b.title)).toEqual(['Turn on Agent Access?', 'Copy setup', 'Share with Agents?']);
 
     const bridgeEnv = { LATELIER_AGENT_TOKEN: token, LATELIER_AGENT_SOCKET: on.socketPath };
     const transport = new StdioClientTransport({
@@ -185,6 +196,24 @@ test('an Agent reads a shared Connection through the bridge, and every gate hold
       expect(textOf(found)).toContain('x27-marker-alpha');
       expect(textOf(found)).toContain('x27-marker-beta');
       expect(Object.keys(found)).not.toContain('structuredContent');
+
+      // X27 §16.6: the Connection closes, so a 2025-era client is refused, and the app shows a request.
+      const mongoApi = (op: 'connect' | 'disconnect') =>
+        win.evaluate(
+          ({ id, op }) => (window as unknown as { atelier: { mongo: Record<string, (id: string) => Promise<unknown>> } }).atelier.mongo[op]!(id),
+          { id: connectionId, op },
+        );
+      await mongoApi('disconnect');
+      const notOpen = await client.callTool({ name: 'find', arguments: { connectionId, database: DB, collection: 'items' } });
+      expect(notOpen.isError).toBe(true);
+      expect(textOf(notOpen)).toBe("NOT_OPEN: This Connection is not open. L'Atelier has asked the user to open it; try again after they do.");
+      expect((await state(win)).connectionRequests).toEqual([expect.objectContaining({ connectionId, lastOutcome: 'refused', lastTool: 'find' })]);
+      // Opening it, as the user would from the request, ends the request, and the Agent's retry reads.
+      await mongoApi('connect');
+      await expect.poll(async () => (await state(win)).connectionRequests).toEqual([]);
+      const retried = await client.callTool({ name: 'find', arguments: { connectionId, database: DB, collection: 'items', sort: { n: 1 } } });
+      expect(retried.isError).toBeUndefined();
+      expect(textOf(retried)).toContain('x27-marker-alpha');
 
       // Unshare in the app: the very next call is refused.
       expect((await setShared(win, connectionId, false)).shared).toBe(false);
