@@ -19,7 +19,7 @@ An Agent exploring a database often works out how its collections relate (`order
 **Defended against:**
 
 - **Applying without the user.** No tool creates a rule. Only a user's click on Add Reference Rule does, through main (§6).
-- **Flooding.** At most 20 open Proposals per Agent Token (§4.1). A repeat of an open pair returns the existing Proposal. A declined pair is refused for good. The X30 toasts fold beyond three.
+- **Flooding.** At most 20 open Proposals per Agent Token (§4.1). A repeat of an open pair adds the Agent as a backer of the existing Proposal, never a second Proposal. A declined pair is refused for good. The X30 toasts fold beyond three.
 - **Persuasion.** The Agent's reason is at most 500 characters, shown as plain text in a style marked as the Agent's own words, never as markup or a link (§5).
 - **Reaching what was not shared.** A Proposal is filed only on a shared, open Connection (X27 §2), and never names a §7.4 namespace.
 
@@ -56,25 +56,34 @@ An Agent exploring a database often works out how its collections relate (`order
 
 ## 2. Data model
 
-A new append-only migration (the next free number, after [X27 §16.2](./X27-agent-access.md)'s, since `session_id` refers to its sessions) adds `agent_proposals`:
+A new append-only migration (the next free number, after [X27 §16.2](./X27-agent-access.md)'s, since `session_id` refers to its sessions) adds two tables. `agent_proposals` holds the suggestion; `agent_proposal_backers` holds each Agent that proposed it, because two Agents can propose the same pair.
+
+`agent_proposals`:
 
 | Column | Notes |
 | --- | --- |
 | `id` | UUID |
 | `kind` | `TEXT CHECK (kind IN ('reference_rule'))` |
 | `status` | `TEXT CHECK (status IN ('pending','later','accepted','declined','expired','obsolete'))` |
-| `token_id`, `token_name` | the proposing Agent, the name copied at write time |
-| `session_id`, `client_name` | the session (X27 §16.2) and its client |
 | `connection_id`, `connection_name` | the name copied at write time |
 | `source_db`, `source_collection`, `source_field` | |
 | `target_db`, `target_collection`, `target_field` | |
 | `pair_key` | X26 §4's key: `connectionId\|srcDb.srcColl.srcField->tgtDb.tgtColl.tgtField` |
-| `reason` | `BLOB` sealed by `ColumnCipher`: Agent-written text can carry values copied from documents |
 | `created_at`, `decided_at`, `expires_at` | ISO-8601 |
 | `rule_id` | the created rule, once accepted |
 | `saved_for` | `TEXT CHECK (saved_for IN ('connection','family'))`, once accepted |
 
-- No foreign keys, like the Agent Read Log: a Proposal outlives its token, session and Connection.
+`agent_proposal_backers`, primary key `(proposal_id, token_id)`:
+
+| Column | Notes |
+| --- | --- |
+| `proposal_id` | the Proposal |
+| `token_id`, `token_name` | the proposing Agent, the name copied at write time |
+| `session_id`, `client_name` | the session (X27 §16.2) and its client |
+| `reason` | `BLOB` sealed by `ColumnCipher`: Agent-written text can carry values copied from documents |
+| `created_at` | when this Agent proposed it |
+
+- No foreign keys, like the Agent Read Log: a Proposal outlives its tokens, sessions and Connection. Backer rows go with their Proposal when it is pruned.
 - A partial unique index on `(pair_key)` where the status is open: one open Proposal per pair.
 - Database and collection names follow the Agent Read Log's treatment (X27 §11.2).
 - **Retention**: decided Proposals (`accepted`, `declined`, `expired`, `obsolete`) are pruned 90 days after `decided_at`, by `MaintenanceService` in the log's pass.
@@ -112,17 +121,17 @@ X27 §8 says every tool is `readOnlyHint: true`. `propose_reference_rule` is the
   3. Both field paths: 1 to 256 characters, dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. Source and target the same field of the same collection: `INVALID_INPUT`.
   4. The pair key is on the Never list: the new code `PROPOSAL_DECLINED`, "The user declined this relation. Do not propose it again."
   5. The source field already has an effective rule: the new code `ALREADY_CONFIGURED`, naming no rule.
-  6. An open Proposal for the same pair exists: no new row. The call succeeds and returns the existing Proposal's id and status.
-  7. The token already has 20 open Proposals: the new code `PROPOSAL_LIMIT`.
-- **Effect**: one `pending` row.
-- **Returns**: the app-written text "Proposed. The user will review it in L'Atelier; nothing changes until they accept it." and the Proposal id. Names stay inside the X27 §9.3 envelope.
+  6. The token already backs 20 open Proposals: the new code `PROPOSAL_LIMIT`.
+  7. An open Proposal for the same pair exists. If this token already backs it, nothing is written. Otherwise the token is added as a backer, with its own reason, session and client. Either way the call returns that Proposal's id.
+- **Effect**: a `pending` Proposal with this token as its first backer, or this token added to an open one (step 7).
+- **Returns**: the app-written text "Proposed. The user will review it in L'Atelier; nothing changes until they accept it." and the Proposal id. The response is the same whether the Proposal is new or the token joined an existing one, so an Agent cannot learn that another Agent proposed the pair. Names stay inside the X27 §9.3 envelope.
 - The tool reads no documents. It does not check whether the relation holds: the user's check does that, on the user's side (§5).
 
 ### 4.2 `get_proposal`
 
 - **Input**: `proposalId`. Read-only.
 - **Returns** the status and, once accepted, whether the rule was saved for the Connection or its Family. Nothing else: not the rule's id, and not what other Agents proposed.
-- A Proposal filed with another token reads as unknown (`INVALID_INPUT`), so an Agent cannot find out what exists.
+- Any backer may read it. For a token that does not back the Proposal it reads as unknown (`INVALID_INPUT`), so an Agent cannot find out what exists. A token that joined an existing Proposal backs it, so the id it was given always works for it.
 
 Both calls write an Agent Read Log row like any tool call, with the arguments, the reason included, in the sealed `request_json`. The server's `instructions` describe both tools and say that a Proposal is a suggestion the user may decline.
 
@@ -131,8 +140,8 @@ Both calls write an Agent Read Log row like any tool call, with the arguments, t
 Every surface that shows a Proposal shows the same parts:
 
 - The pair, as X26 writes it: **`orders.customerId` → `customers._id`**, with database names when the two databases differ.
-- Who proposed it: the Agent's name and client ("laptop-claude · claude-code") and when.
-- The reason, labelled "In the Agent's words", in a quoted style, as plain text. It is never rendered as Markdown or HTML, and nothing in it is a link.
+- Who proposed it: each backer's name and client ("laptop-claude · claude-code") and when, first backer first.
+- Each backer's reason, labelled "In {Agent}'s words", in a quoted style, as plain text. It is never rendered as Markdown or HTML, and nothing in it is a link.
 - **The check.** Shown after the user opens the Proposal, never on the Agent's call. Main samples up to three source documents that have the field (`{ [sourceField]: { $exists: true } }`, `limit: 3`) and looks each value up in the target (`limit: 1`, `maxTimeMS` 2,000). It reads on the user's own client, and only while the Connection is open; otherwise it reads "Open {connection} to check this relation". It reports "3 of 3 sampled orders resolve", "1 of 3 …" or "No sampled order has `customerId`". It is read-only and never changes the Proposal.
 
 ## 6. Deciding
@@ -150,7 +159,7 @@ What the Agent learns through `get_proposal` is the status: `pending`, `later`, 
 
 On a collection tab's Documents view, an open `pending` Proposal whose source namespace is that tab's, on the tab's Connection, shows in X26's strip under the Filter Bar:
 
-- "**laptop-claude** proposes a Reference Rule: **`orders.customerId` → `customers._id`**", the reason as in §5, the check, and **Add Reference Rule** (or Add anyway), **Not now**, **Never for this pair**. A Family member also gets **Save for the Family**.
+- "**laptop-claude** proposes a Reference Rule: **`orders.customerId` → `customers._id`**" ("**laptop-claude** and 1 other Agent propose …" when several back it), the reasons as in §5, the check, and **Add Reference Rule** (or Add anyway), **Not now**, **Never for this pair**. A Family member also gets **Save for the Family**.
 - X26 allows one strip per tab. A discovery suggestion from the user's own copy takes it first; the Proposal waits in Needs you and comes back when the strip is free. Several Proposals for one tab show one at a time, oldest first.
 - Escape acts as Not now and calls `stopPropagation()`, as in X26.
 
@@ -160,7 +169,7 @@ Needs you and the toasts are [X30 §6 and §8](./X30-agents-mode.md).
 
 Through the 5-file contract, with a `registerAgentProposalsChannels` call in `electron/main.ts`:
 
-- `agentProposals:list` `{ status?: 'open' | 'decided', connectionId?, sessionId?, limit }` → Proposals with the reason decrypted for display
+- `agentProposals:list` `{ status?: 'open' | 'decided', connectionId?, sessionId?, before?: { createdAt, id }, limit }`, `limit` at most 200, newest first, keyset-paged on `(created_at, id)` → Proposals with their backers and reasons decrypted for display. `sessionId` matches any backer's session.
 - `agentProposals:check` `{ id }` → the §5 check result
 - `agentProposals:accept` `{ id, savedFor: 'connection' | 'family' }`
 - `agentProposals:later`, `agentProposals:reopen`, `agentProposals:decline` `{ id }`
@@ -172,10 +181,10 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 - `propose_reference_rule` creates one `pending` row and never a Reference Rule. No path creates a rule from a Proposal except `agentProposals:accept`.
 - Each refusal in §4.1 returns its code. A Proposal on a shared Connection that is not open is refused `NOT_OPEN` and makes a Connection request (X27 §16.6).
-- A repeat of an open pair returns the same id and adds no row. A token with 20 open Proposals is refused `PROPOSAL_LIMIT`.
+- A repeat of an open pair by the same token returns the same id and writes nothing. The same pair from another token adds that token as a backer and returns the same id, which `get_proposal` then answers for it. A token backing 20 open Proposals is refused `PROPOSAL_LIMIT`.
 - A pair on the Never list is refused `PROPOSAL_DECLINED`, and Never for this pair adds the key to `refs.discovery.never`.
 - Accept uses the stored pair, defaults to this Connection, and refuses a Proposal that is no longer open or whose source field gained a rule.
-- `get_proposal` reports the status to the proposing token only.
+- `get_proposal` reports the status to the Proposal's backers only.
 - Proposals expire after 30 days, become obsolete when a rule covers the source field, and are pruned 90 days after a decision.
 - The reason is stored sealed, capped at 500 characters, and rendered as plain text with no markup or link.
 - The check reads at most three source and three target documents, on the user's client, only while the Connection is open, and never changes the Proposal.
@@ -194,8 +203,10 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 - `agent-proposals.spec.ts`, through an in-process MCP client:
   - each §4.1 check and its code, in order;
-  - dedupe and the 20 cap;
-  - `get_proposal` across two tokens;
+  - dedupe for one token, and a second token joining as a backer with its own reason;
+  - the 20 cap counting backed Proposals;
+  - `get_proposal` for both backers, and unknown for a third token;
+  - the same response whether a Proposal is new or joined;
   - accept for the Connection and for the Family through `ReferenceRulesService`;
   - decline writes the Never key, and a re-proposal is refused;
   - the reason is encrypted at rest;

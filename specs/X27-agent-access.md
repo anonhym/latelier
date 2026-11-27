@@ -550,7 +550,7 @@ The best way to tell two sessions of one client apart is the folder the client w
 This lifts §11.3's "the viewer is out of scope". The renderer reads the log through main; it still never reads SQLite or decrypts anything.
 
 - `agentAccess:list-calls` `{ sessionId?, tokenId?, connectionId?, database?, collection?, tool?, outcome: 'all' | 'ok' | 'refused', before?: { ts, id }, limit }`, `limit` at most 200, newest first, keyset-paged on `(ts, id)`. Each row carries the log's columns, `request` (the decrypted `request_json` text, or null) and `requestTruncated`. `request` is decrypted in main for this call only.
-- `agentAccess:list-sessions` `{ tokenId?, includeEnded, limit }`, `limit` at most 200, newest first: session rows with the folder in display form and per-session call and refusal counts.
+- `agentAccess:list-sessions` `{ tokenId?, includeEnded, before?: { startedAt, id }, limit }`, `limit` at most 200, ordered by `started_at` then `id`, both descending, and keyset-paged on that pair, so a token with any number of sessions can be read to the end: session rows with the folder in display form and per-session call and refusal counts.
 - `agentAccess:call-event` (push): one summary per new log row, carrying no `request`, so a page showing Activity can append it live.
 
 Everything these return that came from an Agent or from the data (database, collection, tool arguments, client name, folder) is untrusted text. The renderer shows it as text only, never as markup or a link.
@@ -604,7 +604,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 - Ended sessions older than 90 days are pruned with the log. Live sessions never are.
 - The bridge sends `protocol: 2` with its working folder, cut to 1,024 bytes. Main accepts protocols 1 and 2 and refuses any other. A line over 4,096 bytes is refused.
 - The folder is stored sealed, and the renderer receives it only in display form, with `~` for the home directory and no control characters.
-- `agentAccess:list-calls` filters by session, token, Connection, namespace, tool and outcome, pages by `(ts, id)` without gaps or repeats, and caps `limit` at 200.
+- `agentAccess:list-calls` filters by session, token, Connection, namespace, tool and outcome, pages by `(ts, id)` without gaps or repeats, and caps `limit` at 200. `agentAccess:list-sessions` pages the same way on `(started_at, id)`.
 - A `NOT_OPEN` refusal or an `INPUT_REQUIRED` asking round makes one Connection request per session and Connection. A `NOT_SHARED` refusal never makes one. A request ends on open, dismiss, session end, unshare, delete, or 30 minutes of quiet, and a dismissed pair makes no new request in that session.
 - No Agent call ever connects a Connection.
 - `list_references` returns the effective rules without the §7.4 namespaces. `suggest_references` samples only through the agent client, never connects a closed Connection, and returns errors as codes instead of an empty list.
@@ -624,7 +624,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 **Integration**
 
 - `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
-- `agent-read-log.spec.ts` (extend): `list-calls` filters and keyset paging, `request` decrypted only in the response, and a truncated request flagged.
+- `agent-read-log.spec.ts` (extend): `list-calls` filters and keyset paging; `list-sessions` paging past 200 sessions of one token, including sessions sharing a `started_at`; `request` decrypted only in the response, and a truncated request flagged.
 - `agent-tools.spec.ts` (extend): `list_references` with Connection and Family rules and a denied namespace; `suggest_references` on a sampled collection; with the Connection closed it returns `NOT_OPEN` and the pool's status never changes to connecting.
 - `agent-access-handlers.spec.ts` (extend): validation of the new channels; `connect-client` with a stubbed confirm creates and copies on yes and does nothing on no; the clipboard clear leaves a changed clipboard alone.
 
