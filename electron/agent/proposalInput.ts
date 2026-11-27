@@ -13,6 +13,9 @@ import { hasUnsafeChars } from './safeText.ts';
 
 /** The longest name or field path a Proposal holds: what a saved Reference Rule accepts, so an accepted Proposal always fits one. */
 export const MAX_FIELD_PATH = MAX_NAME;
+/** The two control characters a reason may hold, to lay out plain text over lines. */
+const REASON_LAYOUT = /[\n\t]/g;
+
 /** The longest reason an Agent may give. */
 export const MAX_REASON = 500;
 /** A bound on what the schema accepts before check 3 refuses it: no Agent input is unbounded. */
@@ -59,7 +62,8 @@ function refuse(key: string, problem: string): never {
 
 /**
  * Check 3: both field paths name a field, no name or the reason carries a
- * character that could disguise what the user reads, and the pair does not
+ * character that could disguise what the user reads (a reason may still hold
+ * line feeds and tabs), and the pair does not
  * point a field at itself. Throws INVALID_INPUT naming the argument, never its value.
  */
 export function assertProposalFields(input: PairFields & Pick<ProposeInput, 'reason'>): void {
@@ -68,9 +72,11 @@ export function assertProposalFields(input: PairFields & Pick<ProposeInput, 'rea
     if (problem !== null) refuse(key, problem);
   }
   // Every one of these is shown to the user: a bidi override or a line separator would let the Agent reorder or forge what they read.
-  for (const key of ['sourceDb', 'sourceCollection', 'sourceField', 'targetDb', 'targetCollection', 'targetField', 'reason'] as const) {
+  for (const key of ['sourceDb', 'sourceCollection', 'sourceField', 'targetDb', 'targetCollection', 'targetField'] as const) {
     if (hasUnsafeChars(input[key])) refuse(key, 'has a control, format or separator character');
   }
+  // The reason is plain text that may span lines, shown as such: a line feed and a tab are its only control characters.
+  if (hasUnsafeChars(input.reason.replace(REASON_LAYOUT, ''))) refuse('reason', 'has a control, format or separator character');
   if (
     input.sourceDb === input.targetDb &&
     input.sourceCollection === input.targetCollection &&

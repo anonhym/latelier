@@ -90,6 +90,22 @@ describe('assertProposalFields', () => {
     expect(() => assertProposalFields({ ...fields, reason: 'ordinary words, ids and é' })).not.toThrow();
   });
 
+  it('takes a reason over several lines, with tabs, and refuses any other control or separator character in it', () => {
+    expect(() => assertProposalFields({ ...fields, reason: 'orders.customerId:\n\t3 of 3 sampled values\n\tmatch customers._id' })).not.toThrow();
+    for (const bad of ['\r', '\u2028', '\u2029', '\u202E', '\u200B', '\u0000', '\v']) {
+      expect(refusal(() => assertProposalFields({ ...fields, reason: `line one\n${bad}line two` })).message).toBe(
+        'The input is invalid. reason: has a control, format or separator character',
+      );
+    }
+    for (const key of ['sourceDb', 'sourceCollection', 'sourceField', 'targetDb', 'targetCollection', 'targetField'] as const) {
+      for (const layout of ['\n', '\t']) {
+        expect(refusal(() => assertProposalFields({ ...fields, [key]: `cust${layout}omers` })).message).toBe(
+          `The input is invalid. ${key}: has a control, format or separator character`,
+        );
+      }
+    }
+  });
+
   it('checks the field path rules before the characters', () => {
     expect(refusal(() => assertProposalFields({ ...fields, sourceField: '$\u202E' })).message).toBe(
       'The input is invalid. sourceField: has a segment that starts with $',

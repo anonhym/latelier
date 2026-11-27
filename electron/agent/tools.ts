@@ -300,7 +300,7 @@ const suggestReferences = defineTool({
 const proposeReferenceRule = defineTool({
   name: 'propose_reference_rule',
   description:
-    "Propose a Reference Rule you found: that sourceField of sourceCollection holds values of targetField (default _id) of targetCollection. It files a Proposal the user reviews in L'Atelier; nothing changes until they accept it, and they may decline it. Give your reason (at most 500 characters). Proposing the same pair again returns the same proposalId. Reads no documents. Check list_references first: a field that already has a rule is refused.",
+    "Propose a Reference Rule you found: that sourceField of sourceCollection holds values of targetField (default _id) of targetCollection. It files a Proposal the user reviews in L'Atelier; nothing changes until they accept it, and they may decline it. Give your reason as plain text, at most 500 characters; it may span lines. Proposing the same pair again returns the same proposalId. Reads no documents. Check list_references first: a field that already has a rule is refused.",
   inputSchema: proposeInputSchema,
   // The one tool that writes: a row of app state the user decides on, never a database.
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
