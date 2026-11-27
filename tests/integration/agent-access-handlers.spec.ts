@@ -1142,8 +1142,29 @@ describe('agentAccess:* channels', () => {
       await h.svc.stop();
       const after = h.states.length;
       h.answers.push(COPY);
-      await h.svc.connectClient('Late', 'cursor');
+      expect(await h.svc.connectClient('Late', 'cursor')).toEqual({ cancelled: true });
       expect(h.states).toHaveLength(after);
+      expect(h.tokenRepo.list()).toEqual([]);
+      expect(h.clipboard).toEqual([]);
+    });
+
+    it('creates no Agent when the app starts quitting while the copy question is open', async () => {
+      h.onBox = () => void h.svc.stop();
+      h.answers.push(COPY);
+      expect(await h.svc.connectClient('Late', 'cursor')).toEqual({ cancelled: true });
+      expect(h.tokenRepo.list()).toEqual([]);
+      expect(h.clipboard).toEqual([]);
+    });
+
+    it('keeps the old token when the app starts quitting while the copy-setup question is open', async () => {
+      await addTokenAndCopy();
+      const before = h.tokenRepo.list()[0]!;
+      const copies = h.clipboard.length;
+      h.onBox = () => void h.svc.stop();
+      h.answers.push(COPY);
+      expect(await h.svc.copySetup(before.id, 'cursor')).toEqual({ cancelled: true });
+      expect(h.tokenRepo.list()).toEqual([before]);
+      expect(h.clipboard).toHaveLength(copies);
     });
 
     it('folds a burst of reads into one push of the count, and pushes nothing once stopped', async () => {

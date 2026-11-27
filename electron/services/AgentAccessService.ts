@@ -522,7 +522,8 @@ export class AgentAccessService {
   async connectClient(name: string, client: SnippetClient): Promise<AgentCopyResult> {
     const label = snippetLabel(client);
     const answer = await this.deps.dialogs.showMessageBox(connectClientBox(name, label));
-    if (answer.response !== COPY_CONFIRMED) return { cancelled: true };
+    // The app may have begun quitting while the question was open: nothing is created after that.
+    if (answer.response !== COPY_CONFIRMED || this.stopped) return { cancelled: true };
     const { info, token } = this.addToken(name);
     const text = configSnippet(client, this.deps.bridge.installedPath, token, this.deps.platform);
     try {
@@ -549,7 +550,7 @@ export class AgentAccessService {
     if (!row) throw new NotFoundError(`agent token ${id} not found`);
     const live = this.server.liveSessions().filter((s) => s.tokenId === id).length;
     const answer = await this.deps.dialogs.showMessageBox(copySetupBox(row.name, label, live));
-    if (answer.response !== COPY_CONFIRMED) return { cancelled: true };
+    if (answer.response !== COPY_CONFIRMED || this.stopped) return { cancelled: true };
     const { info, token } = this.regenerateToken(id);
     this.emitState();
     const text = configSnippet(client, this.deps.bridge.installedPath, token, this.deps.platform);
