@@ -19,6 +19,30 @@ const AddTokenInput = z.strictObject({
 });
 const TokenIdInput = z.strictObject({ id: z.string().uuid() });
 
+const PAGE_LIMIT = z.number().int().min(1).max(200);
+// Names an Agent sent or a log row holds: matched exactly, never parsed.
+const LoggedName = z.string().max(256);
+const Timestamp = z.string().max(64);
+
+const ListCallsInput = z.strictObject({
+  sessionId: z.string().uuid().optional(),
+  tokenId: z.string().uuid().optional(),
+  connectionId: z.string().uuid().optional(),
+  database: LoggedName.optional(),
+  collection: LoggedName.optional(),
+  tool: LoggedName.optional(),
+  outcome: z.enum(['all', 'ok', 'refused']),
+  before: z.strictObject({ ts: Timestamp, id: z.string().uuid() }).optional(),
+  limit: PAGE_LIMIT,
+});
+const ListSessionsInput = z.strictObject({
+  tokenId: z.string().uuid().optional(),
+  includeEnded: z.boolean(),
+  before: z.strictObject({ startedAt: Timestamp, id: z.string().uuid() }).optional(),
+  limit: PAGE_LIMIT,
+});
+const EndSessionInput = z.strictObject({ sessionId: z.string().uuid() });
+
 /**
  * Agent Access (X27 §13). Every channel here is a request: turning the switch
  * on, sharing a Connection and showing a token each go through a main-process
@@ -38,4 +62,8 @@ export function registerAgentAccessChannels(router: Router, svc: AgentAccessServ
   );
   router.register(IPC_CHANNELS.agentAccessRevokeToken, zodValidator(TokenIdInput), ({ id }) => svc.revokeTokenAndNotify(id));
   router.register(IPC_CHANNELS.agentAccessRemoveBridge, zodValidator(NoInput), () => svc.removeBridge());
+  // Reading the log (X27 §16.5): the renderer never reads SQLite or decrypts anything itself.
+  router.register(IPC_CHANNELS.agentAccessListCalls, zodValidator(ListCallsInput), (query) => svc.listCalls(query));
+  router.register(IPC_CHANNELS.agentAccessListSessions, zodValidator(ListSessionsInput), (query) => svc.listSessions(query));
+  router.register(IPC_CHANNELS.agentAccessEndSession, zodValidator(EndSessionInput), ({ sessionId }) => svc.endSession(sessionId));
 }

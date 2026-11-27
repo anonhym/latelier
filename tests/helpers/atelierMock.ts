@@ -83,6 +83,10 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       revokeToken: async () => ({ ok: true as const }),
       removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
+      listCalls: async () => [],
+      listSessions: async () => [],
+      endSession: async () => ({ ok: true as const }),
+      onCall: () => () => {},
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),
@@ -470,6 +474,10 @@ function makePermissiveStub(): IpcApi {
       revokeToken: async () => ({ ok: true as const }),
       removeBridge: async () => ({ removed: false }),
       onState: () => () => {},
+      listCalls: async () => [],
+      listSessions: async () => [],
+      endSession: async () => ({ ok: true as const }),
+      onCall: () => () => {},
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),

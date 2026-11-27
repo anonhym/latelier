@@ -176,6 +176,106 @@ describe('agentAccess:* channels', () => {
     });
   });
 
+  describe('reading the log and the sessions', () => {
+    const uuid = () => randomUUID();
+
+    it.each([
+      ['no outcome', { limit: 10 }],
+      ['an unknown outcome', { outcome: 'denied', limit: 10 }],
+      ['no limit', { outcome: 'all' }],
+      ['a limit of 0', { outcome: 'all', limit: 0 }],
+      ['a limit of 201', { outcome: 'all', limit: 201 }],
+      ['a fractional limit', { outcome: 'all', limit: 1.5 }],
+      ['a session id that is not a uuid', { outcome: 'all', limit: 10, sessionId: 's1' }],
+      ['a token id that is not a uuid', { outcome: 'all', limit: 10, tokenId: 't1' }],
+      ['a Connection id that is not a uuid', { outcome: 'all', limit: 10, connectionId: 'c1' }],
+      ['a database name over 256 characters', { outcome: 'all', limit: 10, database: 'd'.repeat(257) }],
+      ['a collection name over 256 characters', { outcome: 'all', limit: 10, collection: 'c'.repeat(257) }],
+      ['a tool name over 256 characters', { outcome: 'all', limit: 10, tool: 't'.repeat(257) }],
+      ['a cursor without an id', { outcome: 'all', limit: 10, before: { ts: '2026-11-27T00:00:00.000Z' } }],
+      ['a cursor id that is not a uuid', { outcome: 'all', limit: 10, before: { ts: 'x', id: 'y' } }],
+      ['a cursor ts over 64 characters', { outcome: 'all', limit: 10, before: { ts: 'x'.repeat(65), id: uuid() } }],
+      ['a cursor with an extra key', { outcome: 'all', limit: 10, before: { ts: 'x', id: uuid(), more: 1 } }],
+      ['an extra key', { outcome: 'all', limit: 10, request: true }],
+      ['no payload', undefined],
+    ])('list-calls refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessListCalls, payload);
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it.each([
+      ['no includeEnded', { limit: 10 }],
+      ['an includeEnded that is not a boolean', { includeEnded: 'yes', limit: 10 }],
+      ['a limit of 201', { includeEnded: true, limit: 201 }],
+      ['a limit of 0', { includeEnded: true, limit: 0 }],
+      ['a token id that is not a uuid', { includeEnded: true, limit: 10, tokenId: 't1' }],
+      ['a cursor without startedAt', { includeEnded: true, limit: 10, before: { id: uuid() } }],
+      ['a cursor startedAt over 64 characters', { includeEnded: true, limit: 10, before: { startedAt: 's'.repeat(65), id: uuid() } }],
+      ['an extra key', { includeEnded: true, limit: 10, folder: '/' }],
+    ])('list-sessions refuses %s', async (_name, payload) => {
+      const env = await invoke(IPC_CHANNELS.agentAccessListSessions, payload);
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+    });
+
+    it('end-session refuses a session id that is not a uuid, a missing one and an extra key', async () => {
+      for (const payload of [{ sessionId: 'abc' }, {}, { sessionId: uuid(), reason: 'x' }, undefined]) {
+        const env = await invoke(IPC_CHANNELS.agentAccessEndSession, payload);
+        expect(env.ok).toBe(false);
+        if (!env.ok) expect(env.error.code).toBe('VALIDATION');
+      }
+    });
+
+    it('end-session answers NOT_FOUND for a session that is not live', async () => {
+      const env = await invoke(IPC_CHANNELS.agentAccessEndSession, { sessionId: uuid() });
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe('NOT_FOUND');
+    });
+
+    it('accepts the limits at their edges and every filter, and answers the rows', async () => {
+      const full = {
+        sessionId: uuid(),
+        tokenId: uuid(),
+        connectionId: uuid(),
+        database: 'd'.repeat(256),
+        collection: 'c'.repeat(256),
+        tool: 't'.repeat(256),
+        outcome: 'refused',
+        before: { ts: 'x'.repeat(64), id: uuid() },
+        limit: 200,
+      };
+      expect(await ok(IPC_CHANNELS.agentAccessListCalls, full)).toEqual([]);
+      expect(await ok(IPC_CHANNELS.agentAccessListCalls, { outcome: 'ok', limit: 1 })).toEqual([]);
+      expect(await ok(IPC_CHANNELS.agentAccessListSessions, { includeEnded: false, limit: 1 })).toEqual([]);
+      expect(
+        await ok(IPC_CHANNELS.agentAccessListSessions, { tokenId: uuid(), includeEnded: true, before: { startedAt: 's'.repeat(64), id: uuid() }, limit: 200 }),
+      ).toEqual([]);
+    });
+
+    it('lists a live session and its calls, and ends it through the channel', async () => {
+      const socketPath = await turnOn();
+      const info = await ok<AgentTokenInfo>(IPC_CHANNELS.agentAccessAddToken, { name: 'Claude Code' });
+      const token = tokenIn(h.boxes.at(-1)!.detail!);
+      const agent = await connectAgent(socketPath, token);
+      sessions.push(() => agent.close());
+      await agent.client.callTool({ name: 'list_connections', arguments: {} });
+      const [session] = await ok<Array<{ id: string; tokenId: string; endedAt: string | null }>>(IPC_CHANNELS.agentAccessListSessions, {
+        includeEnded: false,
+        limit: 10,
+      });
+      expect(session).toMatchObject({ tokenId: info.id, endedAt: null });
+      const calls = await ok<Array<{ tool: string; sessionId: string; request: string }>>(IPC_CHANNELS.agentAccessListCalls, {
+        sessionId: session!.id,
+        outcome: 'all',
+        limit: 10,
+      });
+      expect(calls).toEqual([expect.objectContaining({ tool: 'list_connections', sessionId: session!.id, request: '{}' })]);
+      expect(await ok(IPC_CHANNELS.agentAccessEndSession, { sessionId: session!.id })).toEqual({ ok: true });
+      await agent.closed;
+    });
+  });
+
   describe('the switch', () => {
     it('starts off, with nothing listening', async () => {
       const state = await ok<AgentAccessState>(IPC_CHANNELS.agentAccessGetState, {});

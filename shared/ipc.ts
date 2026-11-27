@@ -2,6 +2,11 @@
 
 import type {
   AgentAccessState,
+  AgentCallRow,
+  AgentCallSummary,
+  AgentCallsQuery,
+  AgentSessionRow,
+  AgentSessionsQuery,
   AgentTokenInfo,
   PrivilegeResult,
   AggExplainInput,
@@ -365,6 +370,18 @@ export interface IpcApi {
     removeBridge: () => Promise<{ removed: boolean }>;
     /** Main pushes the state on every change; returns the unsubscribe. */
     onState: (cb: (state: AgentAccessState) => void) => () => void;
+    /**
+     * Agent Read Log rows, newest first, keyset-paged on `(ts, id)` (X27 §16.5).
+     * `request` is decrypted in main for this answer only. Everything that came
+     * from an Agent or the data is untrusted text.
+     */
+    listCalls: (input: AgentCallsQuery) => Promise<AgentCallRow[]>;
+    /** Stored sessions, newest first, keyset-paged on `(startedAt, id)`; the folder in display form only. */
+    listSessions: (input: AgentSessionsQuery) => Promise<AgentSessionRow[]>;
+    /** Ends one live session. Refused with NOT_FOUND when it is not live. */
+    endSession: (input: { sessionId: string }) => Promise<{ ok: true }>;
+    /** Main pushes each new Agent Read Log row, without its request; returns the unsubscribe. */
+    onCall: (cb: (row: AgentCallSummary) => void) => () => void;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -732,6 +749,9 @@ export const IPC_CHANNELS = {
   agentAccessRemoveBridge:    'agentAccess:remove-bridge',
   agentAccessStateEvent:      'agentAccess:state-event',
   agentAccessCallEvent:       'agentAccess:call-event',
+  agentAccessListCalls:       'agentAccess:list-calls',
+  agentAccessListSessions:    'agentAccess:list-sessions',
+  agentAccessEndSession:      'agentAccess:end-session',
 
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',
@@ -976,6 +996,9 @@ interface AdaptedSig {
   'agentAccess:regenerate-token': { in: ApiArg<'agentAccess', 'regenerateToken'>; out: ApiOut<'agentAccess', 'regenerateToken'> };
   'agentAccess:revoke-token':     { in: ApiArg<'agentAccess', 'revokeToken'>; out: ApiOut<'agentAccess', 'revokeToken'> };
   'agentAccess:remove-bridge':    { in: EmptyObject; out: ApiOut<'agentAccess', 'removeBridge'> };
+  'agentAccess:list-calls':       { in: ApiArg<'agentAccess', 'listCalls'>; out: ApiOut<'agentAccess', 'listCalls'> };
+  'agentAccess:list-sessions':    { in: ApiArg<'agentAccess', 'listSessions'>; out: ApiOut<'agentAccess', 'listSessions'> };
+  'agentAccess:end-session':      { in: ApiArg<'agentAccess', 'endSession'>; out: ApiOut<'agentAccess', 'endSession'> };
   'query:find':     { in: ApiArg<'query', 'find'>; out: FindResultWire };
   'agg:run':        { in: ApiArg<'agg', 'run'>; out: AggResultWire };
   'agg:runAndSave': { in: ApiArg<'agg', 'runAndSave'>; out: AggResultWire & AggSaveCounts };

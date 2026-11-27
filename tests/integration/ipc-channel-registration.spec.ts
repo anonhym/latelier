@@ -108,6 +108,7 @@ const PUSH_EVENT_CHANNELS = new Set<string>([
   IPC_CHANNELS.appFlushRequestEvent,
   IPC_CHANNELS.updatesStateEvent,
   IPC_CHANNELS.agentAccessStateEvent,
+  IPC_CHANNELS.agentAccessCallEvent,
 ]);
 
 describe('IPC channel registration — full router coverage', () => {
