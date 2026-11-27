@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { MongoClient } from 'mongodb';
-import type { AgentAccessState, AgentTokenInfo, ConnectionRuntime, PrivilegeResult } from '@shared/types';
+import type {
+  AgentAccessState,
+  AgentCallRow,
+  AgentCallSummary,
+  AgentCallsQuery,
+  AgentSessionEndReason,
+  AgentSessionInfo,
+  AgentSessionRow,
+  AgentSessionsQuery,
+  AgentTokenInfo,
+  ConnectionRuntime,
+  PrivilegeResult,
+} from '@shared/types';
 import { AGENT_ACCESS_KEY } from '../ipc/prefKeys.ts';
 import type { Logger } from '../log.ts';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.ts';
@@ -10,12 +22,14 @@ import type { BridgeHandle } from '../agent/bridgeInstall.ts';
 import { failedVerdict, privilegeVerdict } from '../agent/privilegeVerdict.ts';
 import { claudeCodeCommandTemplate, configSnippet, SNIPPET_CLIENTS } from '../agent/snippets.ts';
 import { AgentGate, type AgentPool } from '../agent/AgentGate.ts';
-import { AgentServer } from '../agent/AgentServer.ts';
+import { AgentServer, type AgentSessionEvent } from '../agent/AgentServer.ts';
+import { displayFolder } from '../agent/folderDisplay.ts';
 import { AgentToolRunner } from '../agent/AgentToolRunner.ts';
 import { AGENT_TOOLS } from '../agent/tools.ts';
 import { generateToken, hashToken } from '../agent/token.ts';
 import type { AgentTokenRepo, AgentTokenRow } from '../db/repositories/AgentTokenRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
+import type { AgentSessionRepo } from '../db/repositories/AgentSessionRepo.ts';
 import { connectionIdentityFingerprint, type ConnectionRepo } from '../db/repositories/ConnectionRepo.ts';
 import type { AppStateService } from './AppStateService.ts';
 
@@ -43,6 +57,7 @@ export interface AgentAccessDeps {
   appState: Pick<AppStateService, 'get' | 'set' | 'subscribe'>;
   tokenRepo: AgentTokenRepo;
   readLogRepo: AgentReadLogRepo;
+  sessionRepo: AgentSessionRepo;
   connRepo: ConnectionRepo;
   pool: AgentAccessPool;
   userData: string;
@@ -50,8 +65,19 @@ export interface AgentAccessDeps {
   dialogs: AgentDialogs;
   bridge: BridgeHandle;
   platform: NodeJS.Platform;
+  /** The user's home directory: a session's folder is shown with it as `~`. */
+  homedir: string;
   /** Pushes the state to the renderer. The state holds no token. */
   emit: (state: AgentAccessState) => void;
+  /** Pushes one new Agent Read Log row, without its request, to the renderer. */
+  emitCall: (row: AgentCallSummary) => void;
+}
+
+/** A live session's counts, this run only; the stored rows answer for ended ones. */
+interface SessionStats {
+  callCount: number;
+  refusedCount: number;
+  lastCallAt: string | null;
 }
 
 /** Read counts are pushed at most this often: a burst of tool calls is one update. */
@@ -79,6 +105,8 @@ export class AgentAccessService {
   private server: AgentServer;
   private unsubscribe: (() => void) | null = null;
   private readCount = 0;
+  private sessionStats = new Map<string, SessionStats>();
+  private sessionEndedHooks = new Set<(sessionId: string, reason: AgentSessionEndReason) => void>();
   /** Last privilege verdict per Connection, this run only. Display only: sharing always re-checks. */
   private privilegeByConnection = new Map<string, PrivilegeResult>();
   private enabling: Promise<{ enabled: boolean }> | null = null;
@@ -98,6 +126,9 @@ export class AgentAccessService {
 
   constructor(deps: AgentAccessDeps) {
     this.deps = deps;
+    // A session still open in the table was left by a run that crashed or was killed: nothing serves it now.
+    const orphans = deps.sessionRepo.closeOrphans(new Date().toISOString());
+    if (orphans > 0) deps.log.info('agent', 'closed Agent sessions left open by the last run', { count: orphans });
     this.gate = new AgentGate({
       accessOn: () => this.isEnabled(),
       connections: deps.connRepo,
@@ -112,11 +143,7 @@ export class AgentAccessService {
       tokens: deps.tokenRepo,
       connections: deps.connRepo,
       log: deps.log,
-      onRowWritten: (outcome) => {
-        // A paused call writes a row for its asking round and one for its retry; it is one read.
-        if (outcome !== 'INPUT_REQUIRED') this.readCount += 1;
-        this.scheduleEmit();
-      },
+      onRowWritten: (row) => this.onRowWritten(row),
     });
     this.server = new AgentServer({
       userData: deps.userData,
@@ -124,8 +151,10 @@ export class AgentAccessService {
       tools: AGENT_TOOLS,
       tokens: deps.tokenRepo,
       log: deps.log,
+      sessions: deps.sessionRepo,
+      accessOn: () => this.isEnabled(),
     });
-    this.server.setSessionsListener(() => this.emitState());
+    this.server.setSessionsListener((event) => this.onSessionEvent(event));
     deps.pool.on('connection-identity-changed', this.onIdentityChanged);
   }
 
@@ -140,7 +169,7 @@ export class AgentAccessService {
       if (value !== true) {
         // Right now, not when the queue gets to it: no read may finish after the user said stop.
         this.gate.revokeAll();
-        this.enqueue(() => this.server.stop());
+        this.enqueue(() => this.server.stop('access-off'));
       } else {
         this.enqueue(() => this.startServer());
       }
@@ -151,7 +180,7 @@ export class AgentAccessService {
       this.enqueue(async () => this.emitState());
     } else {
       // Access is off at launch: an endpoint file left by a crashed run must not outlive it, or the bridge would still read a name nothing serves.
-      this.enqueue(() => this.server.stop());
+      this.enqueue(() => this.server.stop('access-off'));
     }
   }
 
@@ -164,7 +193,7 @@ export class AgentAccessService {
     this.emitTimer = null;
     // First, so the quit teardown aborts every in-flight Agent read before anything else closes.
     this.gate.revokeAll();
-    this.enqueue(() => this.server.stop());
+    this.enqueue(() => this.server.stop('app-quit'));
     await this.chain;
     await this.gate.close();
     this.gate.dispose();
@@ -182,6 +211,53 @@ export class AgentAccessService {
 
   get sessionCount(): number {
     return this.server.sessionCount;
+  }
+
+  /**
+   * Runs whenever a counted session ends, with why. Returns the unsubscribe.
+   * For main-process consumers whose state lives and dies with a session.
+   */
+  onSessionEnded(fn: (sessionId: string, reason: AgentSessionEndReason) => void): () => void {
+    this.sessionEndedHooks.add(fn);
+    return () => this.sessionEndedHooks.delete(fn);
+  }
+
+  /** The live, counted sessions with their counts this run; the folder in display form only. */
+  liveSessions(): AgentSessionInfo[] {
+    return this.server.liveSessions().map((s) => {
+      const stats = this.sessionStats.get(s.id);
+      return {
+        ...s,
+        folder: this.displayFolder(s.folder),
+        callCount: stats?.callCount ?? 0,
+        refusedCount: stats?.refusedCount ?? 0,
+        lastCallAt: stats?.lastCallAt ?? null,
+      };
+    });
+  }
+
+  /** Agent Read Log rows, newest first. The request is opened for this answer only. */
+  listCalls(query: AgentCallsQuery): AgentCallRow[] {
+    return this.deps.readLogRepo.listCalls(query);
+  }
+
+  /**
+   * Stored sessions, newest first, with the folder in display form. The raw path never leaves main.
+   * An open row the server no longer holds is left out: its end could not be written, and showing
+   * it as live would disagree with `getState`. The next launch closes it as `unknown`.
+   */
+  listSessions(query: AgentSessionsQuery): AgentSessionRow[] {
+    const live = new Set(this.server.liveSessions().map((s) => s.id));
+    return this.deps.sessionRepo
+      .list(query)
+      .filter((row) => row.endedAt !== null || live.has(row.id))
+      .map((row) => ({ ...row, folder: this.displayFolder(row.folder) }));
+  }
+
+  /** Ends one live session at the user's request. Throws NotFoundError when it is not live. */
+  endSession(sessionId: string): { ok: true } {
+    this.server.endSession(sessionId);
+    return { ok: true };
   }
 
   /** Tool calls logged since the app started, refusals included. */
@@ -234,6 +310,7 @@ export class AgentAccessService {
 
   /** What the renderer is shown. No token, no hash: only names, times and counts. */
   getState(): AgentAccessState {
+    const sessions = this.liveSessions();
     const shared = new Set(this.deps.connRepo.listShared().map((c) => c.id));
     const privilege: Record<string, PrivilegeResult> = {};
     for (const [id, result] of this.privilegeByConnection) {
@@ -243,7 +320,8 @@ export class AgentAccessService {
       enabled: this.isEnabled(),
       socketPath: this.socketPath ?? '',
       sessionReadCount: this.readCount,
-      sessionCount: this.sessionCount,
+      sessionCount: sessions.length,
+      sessions,
       tokens: this.listTokens(),
       bridgeInstalled: this.deps.bridge.isInstalled(),
       bridgePath: this.deps.bridge.installedPath,
@@ -445,6 +523,39 @@ export class AgentAccessService {
       this.emitTimer = null;
     }
     this.deps.emit(this.getState());
+  }
+
+  private displayFolder(folder: string | null): string | null {
+    return folder === null ? null : displayFolder(folder, this.deps.homedir, this.deps.platform);
+  }
+
+  /** One Agent Read Log row was written: the counts move (coalesced) and the row goes to the renderer at once. */
+  private onRowWritten(row: AgentCallSummary): void {
+    // A paused call writes a row for its asking round and one for its retry; it is one read.
+    if (row.outcome !== 'INPUT_REQUIRED') {
+      this.readCount += 1;
+      const stats = row.sessionId === null ? undefined : this.sessionStats.get(row.sessionId);
+      if (stats) {
+        stats.callCount += 1;
+        if (row.outcome !== 'ok') stats.refusedCount += 1;
+        stats.lastCallAt = row.ts;
+      }
+    }
+    if (!this.stopped) this.deps.emitCall(row);
+    this.scheduleEmit();
+  }
+
+  /** A session opening or closing is pushed at once, not coalesced. */
+  private onSessionEvent(event: AgentSessionEvent): void {
+    const id = event.session.identity.sessionId;
+    if (event.kind === 'opened') {
+      this.sessionStats.set(id, { callCount: 0, refusedCount: 0, lastCallAt: null });
+    } else {
+      this.sessionStats.delete(id);
+      const reason = event.session.endReason ?? 'unknown';
+      for (const hook of this.sessionEndedHooks) hook(id, reason);
+    }
+    this.emitState();
   }
 
   /** Coalesces a burst of read-count changes into one push. */

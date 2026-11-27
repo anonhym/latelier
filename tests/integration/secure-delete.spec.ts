@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RecentQueryRepo } from '../../electron/db/repositories/RecentQueryRepo';
 import { RecentFieldValueRepo } from '../../electron/db/repositories/RecentFieldValueRepo';
 import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
+import { AgentSessionRepo } from '../../electron/db/repositories/AgentSessionRepo';
 import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
 import { MaintenanceService } from '../../electron/services/MaintenanceService';
 import os from 'node:os';
@@ -47,6 +48,7 @@ describe('secure_delete and WAL truncation', () => {
       recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()),
       auditRepo: new AuditRepo(tmp.db, createTempCipher()),
       agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
+      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
       checkpoint: () => void truncateWal(tmp.db),
     }).runIfNeeded({
       get: <T>(key: string) => (store.get(key) ?? null) as T | null,

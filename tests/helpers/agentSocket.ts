@@ -36,8 +36,8 @@ class SocketTransport implements Transport {
   }
 }
 
-export function handshakeLine(token: string, protocol = 1): string {
-  return `${JSON.stringify({ agentToken: token, protocol })}\n`;
+export function handshakeLine(token: string, protocol = 1, folder?: unknown): string {
+  return `${JSON.stringify({ agentToken: token, protocol, ...(folder === undefined ? {} : { folder }) })}\n`;
 }
 
 export async function openSocket(socketPath: string): Promise<net.Socket> {

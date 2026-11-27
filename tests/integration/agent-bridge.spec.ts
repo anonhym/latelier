@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
+import { createAgentHarness, type AgentHarness, type AgentHarnessOptions } from '../helpers/agentHarness';
 import { assertBridgeBuiltOnCi, bridgeBinaryPath, bridgeBinaryPresent } from '../helpers/bridgeBinary';
 import { textOf } from '../helpers/agentSocket';
 
@@ -18,6 +18,7 @@ import { textOf } from '../helpers/agentSocket';
 
 const NOT_RUNNING = "L'Atelier is not running or Agent Access is off\n";
 const TOKEN_REFUSED = "L'Atelier refused this Agent token\n";
+const RECORD_FAILED = "L'Atelier could not start this session; see its log\n";
 const present = bridgeBinaryPresent();
 const posix = process.platform !== 'win32';
 
@@ -28,10 +29,11 @@ interface Exited {
 }
 
 /** Runs the bridge with a stdin that stays open, and resolves when it exits. */
-function runBridge(env: Record<string, string>): { child: ChildProcess; exited: Promise<Exited> } {
+function runBridge(env: Record<string, string>, cwd?: string): { child: ChildProcess; exited: Promise<Exited> } {
   const child = spawn(bridgeBinaryPath(), [], {
     env: { PATH: process.env.PATH ?? '', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
+    cwd,
   });
   let stdout = '';
   let stderr = '';
@@ -71,8 +73,8 @@ describe.skipIf(!present)('Agent Bridge against the Agent server', () => {
     await h?.cleanup();
   });
 
-  async function start(shared = true) {
-    h = createAgentHarness();
+  async function start(shared = true, options: AgentHarnessOptions = {}) {
+    h = createAgentHarness(options);
     const { token, info } = h.svc.addToken('Claude Code');
     if (shared) h.addConnection('conn-1', 'prod', { shared: true, status: 'connected' });
     const socketPath = await h.enable();
@@ -106,6 +108,56 @@ describe.skipIf(!present)('Agent Bridge against the Agent server', () => {
     const rows = h.tmp.db.prepare('select tool, token_name from agent_read_log').all() as Array<{ tool: string; token_name: string }>;
     expect(rows).toEqual([{ tool: 'list_connections', token_name: 'Claude Code' }]);
     await client.close();
+  });
+
+  it('records the folder the bridge was started in, shown to the renderer with home as ~', async () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lb-folder-')));
+    temps.push(home);
+    const project = path.join(home, 'Projects', 'shop-api');
+    fs.mkdirSync(project, { recursive: true });
+    const { token, socketPath } = await start(true, { homedir: home });
+    const { child } = runBridge({ LATELIER_AGENT_TOKEN: token, LATELIER_AGENT_SOCKET: socketPath }, project);
+    children.push(child);
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })}\n`);
+    for (let i = 0; i < 200 && h.svc.sessionCount === 0; i++) await new Promise((r) => setTimeout(r, 25));
+    const [session] = h.svc.getState().sessions;
+    expect(session?.folder).toBe(`~${path.sep}Projects${path.sep}shop-api`);
+    expect(h.sessionRepo.findById(session!.id)?.folder).toBe(project);
+    expect(h.svc.listSessions({ includeEnded: false, limit: 5 })[0]!.folder).toBe(session!.folder);
+  });
+
+  it('exits 4 with its own line when the app cannot record the session, even after a discovery reply', async () => {
+    const { token, socketPath } = await start(true, {
+      makeSessionRepo: (real) =>
+        Object.assign(Object.create(real) as typeof real, {
+          insert: () => {
+            throw new Error('disk full');
+          },
+        }),
+    });
+    const { child, exited } = runBridge({ LATELIER_AGENT_TOKEN: token, LATELIER_AGENT_SOCKET: socketPath });
+    children.push(child);
+    const meta = { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} } };
+    const discovered = new Promise<void>((resolve) => {
+      let seen = '';
+      child.stdout?.on('data', (c: Buffer) => {
+        seen += c.toString('utf8');
+        if (seen.includes('\n')) resolve();
+      });
+    });
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: meta })}\n`);
+    // The discovery reply is on the bridge's stdout before the counted request goes: the refusal comes second on the socket.
+    await within(discovered, 10_000, 'the discover reply through the bridge');
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: meta })}\n`);
+    const result = await within(exited, 10_000, 'the bridge to exit after the session was refused');
+    expect(result.code).toBe(4);
+    expect(result.stderr).toBe(RECORD_FAILED);
+    const lines = result.stdout.trim().split('\n').map((l) => JSON.parse(l) as { id: number; error?: { code: number } });
+    expect(lines.map((l) => [l.id, l.error?.code ?? null])).toEqual([
+      [1, null],
+      [2, -32003],
+    ]);
+    expect(h.svc.sessionCount).toBe(0);
   });
 
   it('forwards the app\'s refusal of an unknown token, then exits 4 with one line on stderr', async () => {

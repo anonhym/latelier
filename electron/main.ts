@@ -101,6 +101,7 @@ import { BridgeInstaller } from './agent/bridgeInstall.ts';
 import { bundledBridgePath, installedBridgePath } from './agent/bridgePaths.ts';
 import { registerAgentAccessChannels } from './ipc/handlers/agentAccess.ts';
 import { AgentReadLogRepo } from './db/repositories/AgentReadLogRepo.ts';
+import { AgentSessionRepo } from './db/repositories/AgentSessionRepo.ts';
 import { AgentTokenRepo } from './db/repositories/AgentTokenRepo.ts';
 import { AuditRepo } from './db/repositories/AuditRepo.ts';
 import { AuditService } from './services/AuditService.ts';
@@ -183,12 +184,12 @@ const isTestInstance = !!testUserDataDir;
 // Storage, caches) in the real ~/Library/Application Support/L'Atelier.
 if (testUserDataDir) app.setPath('userData', testUserDataDir);
 
-if (!isTestInstance) {
-  const gotLock = app.requestSingleInstanceLock();
-  if (!gotLock) {
-    app.quit();
-  }
-}
+// A second instance must never reach the boot body: it would open the first
+// one's database and, among other things, close that instance's live Agent
+// sessions as crash leftovers. `app.quit()` is asynchronous and lets `ready`
+// fire first, so exit at once, and the boot body checks the flag as well.
+const isSecondInstance = !isTestInstance && !app.requestSingleInstanceLock();
+if (isSecondInstance) app.exit(0);
 
 // E2E runs headless-style. macOS has no xvfb-equivalent (Electron renders via
 // Quartz, not X11), so "headless" here means: never show the window (see
@@ -709,6 +710,7 @@ function loadColumnKey(database: Database, crypto: SafeStorageLike, logger: Logg
 // Boot sequence --------------------------------------------------------------
 
 app.whenReady().then(() => {
+  if (isSecondInstance) return;
   const userDataDir = resolveUserDataDir();
   // `app.isPackaged` rather than NODE_ENV: nothing in the build sets NODE_ENV,
   // and Electron does not set it for a packaged app, so a NODE_ENV test reads
@@ -845,7 +847,8 @@ app.whenReady().then(() => {
   const auditSvc = new AuditService(auditRepo, pool, new UndoStore(), log);
   // Agent Access (X27). The switch is main-only; the server starts here when it
   // is already on and follows `AGENT_ACCESS_KEY` from then on.
-  const agentReadLogRepo = new AgentReadLogRepo(db, cipher);
+  const agentReadLogRepo = new AgentReadLogRepo(db, cipher, log);
+  const agentSessionRepo = new AgentSessionRepo(db, cipher, log);
   const bridgeInstaller = new BridgeInstaller({
     sourcePath: bundledBridgePath({
       platform: process.platform,
@@ -867,12 +870,14 @@ app.whenReady().then(() => {
     appState,
     tokenRepo: new AgentTokenRepo(db),
     readLogRepo: agentReadLogRepo,
+    sessionRepo: agentSessionRepo,
     connRepo,
     pool,
     userData: userDataDir,
     log,
     bridge: bridgeInstaller,
     platform: process.platform,
+    homedir: os.homedir(),
     dialogs: {
       // The same window-or-none pattern as the quit question: a dialog that is
       // main's own, which a compromised renderer cannot answer or skip.
@@ -883,6 +888,10 @@ app.whenReady().then(() => {
     // The state holds no token; the renderer learns of every change from here.
     emit: (state) => {
       if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessStateEvent, state);
+    },
+    // One summary per new Agent Read Log row; never the request.
+    emitCall: (row) => {
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentAccessCallEvent, row);
     },
   });
   agentSvc.init();
@@ -918,6 +927,7 @@ app.whenReady().then(() => {
     recentFieldValueRepo,
     auditRepo,
     agentReadLogRepo,
+    agentSessionRepo,
     checkpoint: () => {
       if (!truncateWal(checkpointDb)) checkpointLog.warn('maintenance', 'wal checkpoint was blocked');
     },

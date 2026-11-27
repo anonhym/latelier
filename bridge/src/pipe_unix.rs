@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use crate::relay::{copy_flushing, is_closed, FirstLineTap, HandshakeVerdict, RunError};
+use crate::relay::{copy_flushing, is_closed, HandshakeVerdict, ReplyTap, RunError};
 
 /// After stdin ends, how long the app gets to answer what is in flight before the bridge leaves.
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
@@ -19,7 +19,7 @@ const DRAIN_GRACE: Duration = Duration::from_secs(2);
 pub fn run(endpoint: &str, handshake: &[u8]) -> Result<(), RunError> {
     let stream = UnixStream::connect(endpoint).map_err(|_| RunError::Unreachable)?;
     let verdict = HandshakeVerdict::default();
-    let result = relay(stream, handshake, io::stdin(), FirstLineTap::new(io::stdout(), verdict.clone()));
+    let result = relay(stream, handshake, io::stdin(), ReplyTap::new(io::stdout(), verdict.clone()));
     // A refusal wins over whatever the close after it looked like: the app sent its line and hung up.
     match verdict.get() {
         Some(refusal) => Err(RunError::Refused(refusal)),

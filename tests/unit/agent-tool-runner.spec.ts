@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { AgentCallSummary } from '@shared/types';
 import { AgentToolRunner, requestJsonOf } from '../../electron/agent/AgentToolRunner';
 import type { AgentGate, AgentSessionIdentity } from '../../electron/agent/AgentGate';
 import type { AgentReadLogEntry } from '../../electron/db/repositories/AgentReadLogRepo';
@@ -74,6 +75,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
   function pausing(opts: { token?: () => 'ok' | 'ACCESS_OFF'; name?: string | null; insert?: (row: AgentReadLogEntry) => void } = {}) {
     const rows: AgentReadLogEntry[] = [];
     const written: string[] = [];
+    const summaries: AgentCallSummary[] = [];
     let acquired = 0;
     const gate = {
       checkToken: opts.token ?? (() => 'ok'),
@@ -90,15 +92,18 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
         insert: (row) => {
           opts.insert?.(row);
           rows.push(row);
-          return 'id';
+          return `row-${rows.length}`;
         },
       },
       tokens: { touchLastUsed: () => undefined },
       connections: { findById: () => (opts.name === null ? null : { id: CONNECTION, name: opts.name ?? 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
-      onRowWritten: (outcome) => written.push(outcome),
+      onRowWritten: (row) => {
+        summaries.push(row);
+        written.push(row.outcome);
+      },
     });
-    return { r, rows, written, acquired: () => acquired };
+    return { r, rows, written, summaries, acquired: () => acquired };
   }
 
   it('asks when it may, writing an INPUT_REQUIRED row with no data first', async () => {
@@ -107,6 +112,37 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
     expect(reply).toEqual({ kind: 'ask', message: `The Connection "prod" is closed. Open it in L'Atelier, then accept to continue.` });
     expect(rows).toEqual([expect.objectContaining({ outcome: 'INPUT_REQUIRED', docCount: 0, bytes: 0, truncated: false, connectionName: 'prod' })]);
     expect(written).toEqual(['INPUT_REQUIRED']);
+  });
+
+  it('writes the session on every row, and hands the stored row, id included and request left out, to onRowWritten', async () => {
+    const { r, rows, summaries } = pausing();
+    await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'none' });
+    await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'refused' });
+    expect(rows.map((row) => row.sessionId)).toEqual(['s', 's']);
+    expect(summaries).toEqual([
+      {
+        id: 'row-1',
+        sessionId: 's',
+        ts: rows[0]!.ts,
+        tokenId: 't',
+        tokenName: 'Claude Code',
+        clientName: null,
+        clientVersion: null,
+        connectionId: CONNECTION,
+        connectionName: 'prod',
+        database: 'd',
+        collection: 'c',
+        tool: 'find',
+        docCount: 0,
+        bytes: 0,
+        durationMs: rows[0]!.durationMs,
+        outcome: 'INPUT_REQUIRED',
+        truncated: false,
+      },
+      expect.objectContaining({ id: 'row-2', sessionId: 's', outcome: 'NOT_OPEN', bytes: rows[1]!.bytes }),
+    ]);
+    expect(rows[1]!.bytes).toBeGreaterThan(0);
+    for (const summary of summaries) expect(summary).not.toHaveProperty('requestJson');
   });
 
   it('fails NOT_OPEN when it may not ask, or was already answered', async () => {

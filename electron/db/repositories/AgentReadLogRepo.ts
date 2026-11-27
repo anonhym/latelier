@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Database, Statement } from 'better-sqlite3';
+import type { AgentCallRow, AgentCallsQuery } from '@shared/types';
 import { SystemError } from '../../errors.ts';
+import type { Logger } from '../../log.ts';
 import { AGENT_ERROR_CODES, type AgentOutcome } from '../../agent/errorMap.ts';
+import { callsFilter, isTruncatedMarker } from '../../agent/callQuery.ts';
 import type { ColumnCipher } from '../columnCipher.ts';
+import { openListedCell } from './listedCell.ts';
 
 /** `request_json` is capped here (X27 §11.2): a refused, oversized request is still logged and must not grow the table. */
 export const REQUEST_JSON_MAX_BYTES = 16_384;
@@ -25,6 +29,8 @@ export function capRequestJson(json: string): string {
 }
 
 export interface AgentReadLogEntry {
+  /** The session the call came in on; absent or null for a row written outside one. */
+  sessionId?: string | null;
   ts: string;
   tokenId: string | null;
   tokenName: string | null;
@@ -46,25 +52,51 @@ export interface AgentReadLogEntry {
 
 const OUTCOMES: ReadonlySet<string> = new Set<string>(['ok', 'INPUT_REQUIRED', ...AGENT_ERROR_CODES]);
 
+interface LogDbRow {
+  id: string;
+  session_id: string | null;
+  ts: string;
+  token_id: string | null;
+  token_name: string | null;
+  client_name: string | null;
+  client_version: string | null;
+  connection_id: string | null;
+  connection_name: string | null;
+  database: string | null;
+  collection: string | null;
+  tool: string;
+  request_json: Buffer | null;
+  doc_count: number;
+  bytes: number;
+  duration_ms: number;
+  outcome: string;
+  truncated: number;
+}
+
 /**
  * The Agent Read Log (X27 §11). Only `request_json` is sealed: it holds
  * literals from the user's data. Database and collection names follow the
  * Audit Log and stay plaintext.
  */
 export class AgentReadLogRepo {
+  private db: Database;
   private cipher: ColumnCipher;
+  private log: Pick<Logger, 'warn'> | undefined;
   private insertStmt: Statement;
+  private listStmts = new Map<string, Statement>();
   private deleteOlderThanStmt: Statement<[number]>;
   private countStmt: Statement;
 
-  constructor(db: Database, cipher: ColumnCipher) {
+  constructor(db: Database, cipher: ColumnCipher, log?: Pick<Logger, 'warn'>) {
+    this.db = db;
     this.cipher = cipher;
+    this.log = log;
     this.insertStmt = db.prepare(`
       INSERT INTO agent_read_log
-        (id, ts, token_id, token_name, client_name, client_version, connection_id, connection_name,
+        (id, session_id, ts, token_id, token_name, client_name, client_version, connection_id, connection_name,
          database, collection, tool, request_json, doc_count, bytes, duration_ms, outcome, truncated)
       VALUES
-        (@id, @ts, @token_id, @token_name, @client_name, @client_version, @connection_id, @connection_name,
+        (@id, @session_id, @ts, @token_id, @token_name, @client_name, @client_version, @connection_id, @connection_name,
          @database, @collection, @tool, @request_json, @doc_count, @bytes, @duration_ms, @outcome, @truncated)
     `);
     // julianday rather than a text comparison: `ts` is ISO-8601 with a `T`
@@ -87,6 +119,7 @@ export class AgentReadLogRepo {
         : this.cipher.seal('agent_read_log', 'request_json', id, capRequestJson(entry.requestJson));
     this.insertStmt.run({
       id,
+      session_id: entry.sessionId ?? null,
       ts: entry.ts,
       token_id: entry.tokenId,
       token_name: entry.tokenName,
@@ -114,5 +147,50 @@ export class AgentReadLogRepo {
 
   count(): number {
     return (this.countStmt.get() as { n: number }).n;
+  }
+
+  /**
+   * Newest first on `(ts, id)`, keyset-paged (X27 §16.5). The request is
+   * opened here, for this answer only; one that cannot be opened reads as none.
+   */
+  listCalls(query: AgentCallsQuery): AgentCallRow[] {
+    const { where, params } = callsFilter(query);
+    const rows = this.prepared(where).all({ ...params, limit: query.limit }) as LogDbRow[];
+    return rows.map((row) => {
+      const request =
+        row.request_json === null
+          ? null
+          : openListedCell(this.cipher, this.log, 'agent_read_log', 'request_json', row.id, row.request_json);
+      return {
+        id: row.id,
+        sessionId: row.session_id,
+        ts: row.ts,
+        tokenId: row.token_id,
+        tokenName: row.token_name,
+        clientName: row.client_name,
+        clientVersion: row.client_version,
+        connectionId: row.connection_id,
+        connectionName: row.connection_name,
+        database: row.database,
+        collection: row.collection,
+        tool: row.tool,
+        docCount: row.doc_count,
+        bytes: row.bytes,
+        durationMs: row.duration_ms,
+        outcome: row.outcome,
+        truncated: row.truncated === 1,
+        request,
+        requestTruncated: request !== null && isTruncatedMarker(request, REQUEST_JSON_MAX_BYTES),
+      };
+    });
+  }
+
+  private prepared(where: string): Statement {
+    let stmt = this.listStmts.get(where);
+    if (!stmt) {
+      stmt = this.db.prepare(`SELECT * FROM agent_read_log ${where} ORDER BY ts DESC, id DESC LIMIT @limit`);
+      this.listStmts.set(where, stmt);
+    }
+    return stmt;
   }
 }

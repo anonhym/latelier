@@ -6,9 +6,29 @@ export const HANDSHAKE_TIMEOUT_MS = 5_000;
 /** JSON-RPC error codes on the refusal line. */
 export const REFUSED_CODE = -32001;
 export const UNSUPPORTED_PROTOCOL_CODE = -32002;
+/** The session's row could not be written (X27 §16.2): the bridge recognises this one at the start of any line. */
+export const SESSION_RECORD_FAILED_CODE = -32003;
+
+/**
+ * The exact start of the session-record failure line. The bridge matches these
+ * 24 bytes at the start of every line it relays (`RECORD_FAILED_PREFIX` in
+ * `bridge/src/relay.rs`), so the key order is fixed here by hand rather than
+ * left to `JSON.stringify` of an object.
+ */
+export const SESSION_RECORD_FAILED_PREFIX = `{"error":{"code":${SESSION_RECORD_FAILED_CODE},`;
+
+/**
+ * The one line main writes straight to the socket when a session's row cannot
+ * be written: `error` first, the failed request's `id` last. Never sent through
+ * the SDK transport.
+ */
+export function sessionRecordFailedLine(id: string | number): string {
+  return `${SESSION_RECORD_FAILED_PREFIX}"message":"L'Atelier could not record this session"},"jsonrpc":"2.0","id":${JSON.stringify(id)}}\n`;
+}
 
 export type HandshakeOutcome =
-  | { ok: true; token: string }
+  /** `folder` is the bridge's report, unchecked: the caller cleans it before it is stored or shown. */
+  | { ok: true; token: string; folder: string | null }
   | { ok: false; refusal: 'refused' | 'unsupported-protocol' };
 
 const NEWLINE = 0x0a;
@@ -57,7 +77,7 @@ export function readHandshake(
       const rest = buffered.subarray(end + 1);
       buffered = Buffer.alloc(0);
       const parsed = parseHandshake(line);
-      if (parsed.ok) finish({ ok: true, token: parsed.token }, rest);
+      if (parsed.ok) finish({ ok: true, token: parsed.token, folder: parsed.folder }, rest);
       else finish({ ok: false, refusal: parsed.reason === 'malformed' ? 'refused' : parsed.reason });
     };
     const onClose = (): void => finish({ ok: false, refusal: 'refused' });

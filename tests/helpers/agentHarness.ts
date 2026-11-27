@@ -7,12 +7,13 @@ import type { BridgeHandle } from '../../electron/agent/bridgeInstall';
 import type { Logger } from '../../electron/log';
 import { AppStateRepo } from '../../electron/db/repositories/AppStateRepo';
 import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
+import { AgentSessionRepo } from '../../electron/db/repositories/AgentSessionRepo';
 import { AgentTokenRepo } from '../../electron/db/repositories/AgentTokenRepo';
 import { ConnectionRepo, inputToRow } from '../../electron/db/repositories/ConnectionRepo';
 import { AppStateService } from '../../electron/services/AppStateService';
 import { AgentAccessService, type AgentAccessPool } from '../../electron/services/AgentAccessService';
 import { AGENT_ACCESS_KEY } from '../../electron/ipc/prefKeys';
-import type { AgentAccessState, ConnectionInput } from '@shared/types';
+import type { AgentAccessState, AgentCallSummary, ConnectionInput } from '@shared/types';
 import { createTempCipher, createTempDb, type TempDb } from './db';
 
 export type PoolStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -27,6 +28,12 @@ export interface AgentHarnessOptions {
   /** Replaces the fake pool, e.g. with a real `MongoPool` over a memory server. */
   makePool?: (ctx: PoolFactoryContext) => AgentAccessPool;
   platform?: NodeJS.Platform;
+  /** Wraps or replaces the session repository the service writes through, e.g. with one whose insert throws. */
+  makeSessionRepo?: (real: AgentSessionRepo) => AgentSessionRepo;
+  /** Runs on the fresh database before the service is built: what a previous run left behind. */
+  beforeService?: (ctx: { tmp: TempDb; sessionRepo: AgentSessionRepo; readLogRepo: AgentReadLogRepo }) => void;
+  /** The home directory the service shortens folders with. Default `/Users/spec`. */
+  homedir?: string;
 }
 
 /** A pool that only reports the statuses a test sets, and emits `status` like the real one. */
@@ -74,8 +81,12 @@ export interface AgentHarness {
   appState: AppStateService;
   tokenRepo: AgentTokenRepo;
   readLogRepo: AgentReadLogRepo;
+  /** The real repository, whatever `makeSessionRepo` gave the service. */
+  sessionRepo: AgentSessionRepo;
   connRepo: ConnectionRepo;
   svc: AgentAccessService;
+  /** Every Agent Read Log row the service pushed to the renderer. */
+  calls: AgentCallSummary[];
   pool: AgentAccessPool;
   log: Logger;
   /** Every state the service pushed to the renderer. */
@@ -131,6 +142,9 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
   const cipher = createTempCipher();
   const tokenRepo = new AgentTokenRepo(tmp.db);
   const readLogRepo = new AgentReadLogRepo(tmp.db, cipher);
+  const sessionRepo = new AgentSessionRepo(tmp.db, cipher);
+  options.beforeService?.({ tmp, sessionRepo, readLogRepo });
+  const calls: AgentCallSummary[] = [];
   const connRepo = new ConnectionRepo(tmp.db);
   const fake = new FakePool();
   const statuses = fake.statuses;
@@ -146,12 +160,14 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     appState,
     tokenRepo,
     readLogRepo,
+    sessionRepo: options.makeSessionRepo?.(sessionRepo) ?? sessionRepo,
     connRepo,
     pool,
     userData: tmp.dir,
     log,
     bridge,
     platform: options.platform ?? 'darwin',
+    homedir: options.homedir ?? '/Users/spec',
     dialogs: {
       // Button 0 (Cancel / Done) unless the test scripted another: a short script can never hang a spec.
       showMessageBox: async (box) => {
@@ -165,6 +181,7 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
       },
     },
     emit: (state) => void states.push(state),
+    emitCall: (row) => void calls.push(row),
   });
   svc.init();
 
@@ -173,8 +190,10 @@ export function createAgentHarness(options: AgentHarnessOptions = {}): AgentHarn
     appState,
     tokenRepo,
     readLogRepo,
+    sessionRepo,
     connRepo,
     svc,
+    calls,
     pool,
     log,
     states,

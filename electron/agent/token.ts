@@ -7,11 +7,15 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
  */
 export const TOKEN_RE = /^[A-Za-z0-9_-]{1,256}$/;
 
-/** The one handshake protocol this build speaks. */
-export const SUPPORTED_PROTOCOL = 1;
+/**
+ * The handshake protocols this build speaks. 2 adds the bridge's working
+ * folder; 1 stays accepted because a bridge started before an app update keeps
+ * speaking it until its client restarts it.
+ */
+export const SUPPORTED_PROTOCOLS: ReadonlySet<number> = new Set([1, 2]);
 
-/** A handshake line is a token plus a few keys; anything longer is not one. */
-export const HANDSHAKE_MAX_BYTES = 512;
+/** A token, a few keys and an escaped 1,024-byte folder; anything longer is not a handshake. */
+export const HANDSHAKE_MAX_BYTES = 4096;
 
 /** 32 random bytes, base64url: 43 characters, all inside `TOKEN_RE`. */
 export function generateToken(): string {
@@ -49,7 +53,8 @@ export function matchHash<T extends { token_hash: string }>(
 }
 
 export type HandshakeParse =
-  | { ok: true; token: string; protocol: number }
+  /** `folder` is what the bridge reported, unchecked and uncleaned; null when absent or not a string. */
+  | { ok: true; token: string; protocol: number; folder: string | null }
   | { ok: false; reason: 'malformed' | 'unsupported-protocol' };
 
 /**
@@ -70,13 +75,14 @@ export function parseHandshake(line: string): HandshakeParse {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return { ok: false, reason: 'malformed' };
   }
-  const { agentToken, protocol } = value as { agentToken?: unknown; protocol?: unknown };
+  const { agentToken, protocol, folder } = value as { agentToken?: unknown; protocol?: unknown; folder?: unknown };
   if (typeof agentToken !== 'string' || !TOKEN_RE.test(agentToken)) {
     return { ok: false, reason: 'malformed' };
   }
   if (typeof protocol !== 'number' || !Number.isInteger(protocol)) {
     return { ok: false, reason: 'malformed' };
   }
-  if (protocol !== SUPPORTED_PROTOCOL) return { ok: false, reason: 'unsupported-protocol' };
-  return { ok: true, token: agentToken, protocol };
+  if (!SUPPORTED_PROTOCOLS.has(protocol)) return { ok: false, reason: 'unsupported-protocol' };
+  // Display-only, so a folder of the wrong type costs the session its folder, not its handshake. Protocol 1 never sends one.
+  return { ok: true, token: agentToken, protocol, folder: protocol >= 2 && typeof folder === 'string' ? folder : null };
 }

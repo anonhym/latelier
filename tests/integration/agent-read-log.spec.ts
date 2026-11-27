@@ -1,6 +1,9 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import type { AgentCallsQuery, AgentSessionsQuery } from '@shared/types';
 import { AgentReadLogRepo, capRequestJson, REQUEST_JSON_MAX_BYTES, type AgentReadLogEntry } from '../../electron/db/repositories/AgentReadLogRepo';
-import { createTempCipher, cellType } from '../helpers/db';
+import { AgentSessionRepo, type AgentSessionEntry } from '../../electron/db/repositories/AgentSessionRepo';
+import { createTempCipher, createTempDb, cellType, type TempDb } from '../helpers/db';
 import { createAgentHarness, type AgentHarness } from '../helpers/agentHarness';
 import { connectAgent, textOf, type AgentConnection } from '../helpers/agentSocket';
 
@@ -237,5 +240,311 @@ describe('AgentReadLogRepo.insert size cap', () => {
     } finally {
       void h.cleanup();
     }
+  });
+});
+
+describe('AgentReadLogRepo.listCalls', () => {
+  let tmp: TempDb;
+  let repo: AgentReadLogRepo;
+
+  beforeEach(() => {
+    tmp = createTempDb();
+    repo = new AgentReadLogRepo(tmp.db, createTempCipher());
+  });
+  afterEach(() => tmp.cleanup());
+
+  const all = (over: Partial<AgentCallsQuery> = {}) => repo.listCalls({ outcome: 'all', limit: 200, ...over });
+
+  it('returns every column, camelCase, with the session and the request opened for this answer', () => {
+    const id = repo.insert(
+      entry({
+        sessionId: 's1',
+        ts: '2026-11-27T10:00:00.000Z',
+        tokenId: 't1',
+        tokenName: 'Claude',
+        clientName: 'claude-code',
+        clientVersion: '2.1',
+        connectionId: 'c1',
+        connectionName: 'prod',
+        database: 'shop',
+        collection: 'orders',
+        tool: 'find',
+        docCount: 3,
+        bytes: 120,
+        durationMs: 9,
+        truncated: true,
+      }),
+    );
+    expect(all()).toEqual([
+      {
+        id,
+        sessionId: 's1',
+        ts: '2026-11-27T10:00:00.000Z',
+        tokenId: 't1',
+        tokenName: 'Claude',
+        clientName: 'claude-code',
+        clientVersion: '2.1',
+        connectionId: 'c1',
+        connectionName: 'prod',
+        database: 'shop',
+        collection: 'orders',
+        tool: 'find',
+        docCount: 3,
+        bytes: 120,
+        durationMs: 9,
+        outcome: 'ok',
+        truncated: true,
+        request: '{"filter":{"ssn":"123-45-6789"}}',
+        requestTruncated: false,
+      },
+    ]);
+    // Still sealed at rest: only the answer holds the text.
+    expect(cellType(tmp.db, 'agent_read_log', 'request_json', id)).toBe('blob');
+  });
+
+  it('gives a row written outside a session a null session, and a null request as null', () => {
+    repo.insert(entry({ requestJson: null }));
+    expect(all()).toEqual([expect.objectContaining({ sessionId: null, request: null, requestTruncated: false })]);
+  });
+
+  it('flags a request stored as the over-cap marker', () => {
+    repo.insert(entry({ requestJson: JSON.stringify({ pipeline: 'z'.repeat(40_000) }) }));
+    const [row] = all();
+    expect(row!.requestTruncated).toBe(true);
+    expect(JSON.parse(row!.request!)).toMatchObject({ truncated: true });
+  });
+
+  it('does not flag an Agent request that merely says truncated', () => {
+    repo.insert(entry({ requestJson: '{"truncated":true,"bytes":99999,"head":"x","x":1}' }));
+    expect(all()[0]!.requestTruncated).toBe(false);
+  });
+
+  it('reads a request that cannot be opened as none, and keeps the other rows', () => {
+    const good = repo.insert(entry({ ts: '2026-11-27T10:00:01.000Z' }));
+    const bad = repo.insert(entry({ ts: '2026-11-27T10:00:00.000Z' }));
+    // A cell sealed for another row: authentic, but bound to the wrong id.
+    const other = (tmp.db.prepare('SELECT request_json FROM agent_read_log WHERE id = ?').get(good) as { request_json: Buffer }).request_json;
+    tmp.db.prepare('UPDATE agent_read_log SET request_json = ? WHERE id = ?').run(other, bad);
+    expect(all().map((r) => [r.id, r.request === null])).toEqual([
+      [good, false],
+      [bad, true],
+    ]);
+  });
+
+  it('filters by session, token, Connection, database, collection and tool', () => {
+    const base = { ts: '2026-11-27T10:00:00.000Z' };
+    const a = repo.insert(entry({ ...base, sessionId: 's1', tokenId: 't1', connectionId: 'c1', database: 'd1', collection: 'k1', tool: 'find' }));
+    const b = repo.insert(entry({ ...base, sessionId: 's2', tokenId: 't2', connectionId: 'c2', database: 'd2', collection: 'k2', tool: 'count' }));
+    const ids = (q: Partial<AgentCallsQuery>) => all(q).map((r) => r.id);
+    expect(ids({ sessionId: 's1' })).toEqual([a]);
+    expect(ids({ tokenId: 't2' })).toEqual([b]);
+    expect(ids({ connectionId: 'c1' })).toEqual([a]);
+    expect(ids({ database: 'd2' })).toEqual([b]);
+    expect(ids({ collection: 'k1' })).toEqual([a]);
+    expect(ids({ tool: 'count' })).toEqual([b]);
+    expect(ids({ database: 'd1', collection: 'k2' })).toEqual([]);
+    expect(ids({}).sort((x, y) => x.localeCompare(y))).toEqual([a, b].sort((x, y) => x.localeCompare(y)));
+  });
+
+  it('filters ok and refused; the asking round of a paused call is neither', () => {
+    const ok = repo.insert(entry({ ts: '2026-11-27T10:00:03.000Z', outcome: 'ok' }));
+    const notOpen = repo.insert(entry({ ts: '2026-11-27T10:00:02.000Z', outcome: 'NOT_OPEN' }));
+    const asking = repo.insert(entry({ ts: '2026-11-27T10:00:01.000Z', outcome: 'INPUT_REQUIRED' }));
+    const off = repo.insert(entry({ ts: '2026-11-27T10:00:00.000Z', outcome: 'ACCESS_OFF' }));
+    expect(all({ outcome: 'ok' }).map((r) => r.id)).toEqual([ok]);
+    expect(all({ outcome: 'refused' }).map((r) => r.id)).toEqual([notOpen, off]);
+    expect(all({ outcome: 'all' }).map((r) => r.id)).toEqual([ok, notOpen, asking, off]);
+  });
+
+  it('pages newest first on (ts, id) with no gap and no repeat, rows sharing a ts included', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 25; i++) {
+      // Five rows per timestamp, so most page edges fall inside a run of equal ts.
+      ids.push(repo.insert(entry({ ts: new Date(Date.UTC(2026, 10, 27, 10, 0, Math.floor(i / 5))).toISOString() })));
+    }
+    const seen: string[] = [];
+    let before: AgentCallsQuery['before'];
+    for (;;) {
+      const page = repo.listCalls({ outcome: 'all', limit: 7, ...(before ? { before } : {}) });
+      seen.push(...page.map((r) => r.id));
+      if (page.length < 7) break;
+      const last = page.at(-1)!;
+      before = { ts: last.ts, id: last.id };
+    }
+    const expected = tmp.db.prepare('SELECT id FROM agent_read_log ORDER BY ts DESC, id DESC').all() as { id: string }[];
+    expect(seen).toEqual(expected.map((r) => r.id));
+    expect(new Set(seen).size).toBe(25);
+  });
+
+  it('caps the page at the limit', () => {
+    for (let i = 0; i < 5; i++) repo.insert(entry());
+    expect(repo.listCalls({ outcome: 'all', limit: 2 })).toHaveLength(2);
+  });
+});
+
+describe('AgentSessionRepo', () => {
+  let tmp: TempDb;
+  let repo: AgentSessionRepo;
+  let logRepo: AgentReadLogRepo;
+
+  beforeEach(() => {
+    tmp = createTempDb();
+    repo = new AgentSessionRepo(tmp.db, createTempCipher());
+    logRepo = new AgentReadLogRepo(tmp.db, createTempCipher());
+  });
+  afterEach(() => tmp.cleanup());
+
+  const session = (over: Partial<AgentSessionEntry> = {}): AgentSessionEntry => ({
+    id: randomUUID(),
+    tokenId: 't1',
+    tokenName: 'Claude',
+    clientName: null,
+    clientVersion: null,
+    folder: '/Users/ann/Projects/shop',
+    startedAt: '2026-11-27T10:00:00.000Z',
+    ...over,
+  });
+
+  it('stores the folder sealed and opens it on read', () => {
+    const s = session();
+    repo.insert(s);
+    expect(cellType(tmp.db, 'agent_sessions', 'folder', s.id)).toBe('blob');
+    const raw = (tmp.db.prepare('SELECT folder FROM agent_sessions WHERE id = ?').get(s.id) as { folder: Buffer }).folder;
+    expect(raw.toString('latin1')).not.toContain('shop');
+    expect(repo.findById(s.id)).toMatchObject({ id: s.id, folder: '/Users/ann/Projects/shop', endedAt: null, endReason: null });
+  });
+
+  it('stores no folder as null', () => {
+    const s = session({ folder: null });
+    repo.insert(s);
+    expect(cellType(tmp.db, 'agent_sessions', 'folder', s.id)).toBe('null');
+    expect(repo.findById(s.id)?.folder).toBeNull();
+    expect(repo.findById('nope')).toBeNull();
+  });
+
+  it('refuses a plaintext folder planted in the sealed column', () => {
+    const s = session();
+    repo.insert(s);
+    tmp.db.prepare("UPDATE agent_sessions SET folder = '/planted' WHERE id = ?").run(s.id);
+    expect(() => repo.findById(s.id)).toThrow();
+  });
+
+  it('throws when the row cannot be written, so the caller can refuse the session', () => {
+    const s = session();
+    repo.insert(s);
+    expect(() => repo.insert(s)).toThrow(/UNIQUE/);
+  });
+
+  it('writes client info once', () => {
+    const s = session();
+    repo.insert(s);
+    expect(repo.setClientInfoOnce(s.id, 'claude-code', '2.1')).toBe(true);
+    expect(repo.setClientInfoOnce(s.id, 'other', '9')).toBe(false);
+    expect(repo.findById(s.id)).toMatchObject({ clientName: 'claude-code', clientVersion: '2.1' });
+    const named = session({ clientName: 'cursor', clientVersion: null });
+    repo.insert(named);
+    expect(repo.setClientInfoOnce(named.id, 'other', '9')).toBe(false);
+    const versioned = session({ clientName: null, clientVersion: '1' });
+    repo.insert(versioned);
+    expect(repo.setClientInfoOnce(versioned.id, 'other', '9')).toBe(false);
+  });
+
+  it('closes once: the first reason stays', () => {
+    const s = session();
+    repo.insert(s);
+    expect(repo.close(s.id, '2026-11-27T11:00:00.000Z', 'user-ended')).toBe(true);
+    expect(repo.close(s.id, '2026-11-27T12:00:00.000Z', 'client-closed')).toBe(false);
+    expect(repo.findById(s.id)).toMatchObject({ endedAt: '2026-11-27T11:00:00.000Z', endReason: 'user-ended' });
+  });
+
+  it('closes every row a crash left open as unknown, and leaves closed ones alone', () => {
+    const open1 = session();
+    const open2 = session();
+    const done = session();
+    for (const s of [open1, open2, done]) repo.insert(s);
+    repo.close(done.id, '2026-11-27T11:00:00.000Z', 'app-quit');
+    expect(repo.closeOrphans('2026-11-28T08:00:00.000Z')).toBe(2);
+    expect(repo.findById(open1.id)).toMatchObject({ endedAt: '2026-11-28T08:00:00.000Z', endReason: 'unknown' });
+    expect(repo.findById(done.id)).toMatchObject({ endedAt: '2026-11-27T11:00:00.000Z', endReason: 'app-quit' });
+  });
+
+  it('prunes sessions that ended over 90 days ago; a live session is never pruned', () => {
+    const day = 86_400_000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const old = session({ startedAt: iso(Date.now() - 200 * day) });
+    const recent = session({ startedAt: iso(Date.now() - 200 * day) });
+    const live = session({ startedAt: iso(Date.now() - 200 * day) });
+    for (const s of [old, recent, live]) repo.insert(s);
+    repo.close(old.id, iso(Date.now() - 91 * day), 'client-closed');
+    repo.close(recent.id, iso(Date.now() - 89 * day), 'client-closed');
+    expect(repo.deleteEndedOlderThan(90)).toBe(1);
+    expect(repo.findById(old.id)).toBeNull();
+    expect(repo.findById(recent.id)).not.toBeNull();
+    expect(repo.findById(live.id)).not.toBeNull();
+  });
+
+  it('counts calls and refusals per session; the asking round counts as neither', () => {
+    const s = session();
+    repo.insert(s);
+    for (const [outcome, ts] of [
+      ['ok', '2026-11-27T10:00:01.000Z'],
+      ['INPUT_REQUIRED', '2026-11-27T10:00:05.000Z'],
+      ['NOT_OPEN', '2026-11-27T10:00:02.000Z'],
+      ['ok', '2026-11-27T10:00:03.000Z'],
+    ] as const) {
+      logRepo.insert(entry({ sessionId: s.id, outcome, ts }));
+    }
+    logRepo.insert(entry({ sessionId: 'another', outcome: 'ok' }));
+    expect(repo.findById(s.id)).toMatchObject({ callCount: 3, refusedCount: 1, lastCallAt: '2026-11-27T10:00:03.000Z' });
+    expect(repo.list({ includeEnded: true, limit: 10 })[0]).toMatchObject({ callCount: 3, refusedCount: 1 });
+  });
+
+  it('a session with no calls has zero counts and no last call', () => {
+    const s = session();
+    repo.insert(s);
+    expect(repo.findById(s.id)).toMatchObject({ callCount: 0, refusedCount: 0, lastCallAt: null });
+  });
+
+  it('lists live sessions only unless ended ones are asked for, and filters by token', () => {
+    const live = session({ tokenId: 't1' });
+    const ended = session({ tokenId: 't1' });
+    const otherToken = session({ tokenId: 't2' });
+    for (const s of [live, ended, otherToken]) repo.insert(s);
+    repo.close(ended.id, '2026-11-27T11:00:00.000Z', 'client-closed');
+    const ids = (q: AgentSessionsQuery) => repo.list(q).map((r) => r.id).sort((a, b) => a.localeCompare(b));
+    expect(ids({ includeEnded: false, limit: 10 })).toEqual([live.id, otherToken.id].sort((a, b) => a.localeCompare(b)));
+    expect(ids({ includeEnded: true, tokenId: 't1', limit: 10 })).toEqual([live.id, ended.id].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it('pages past 200 sessions of one token on (started_at, id), sessions sharing a start included', () => {
+    for (let i = 0; i < 230; i++) {
+      // Ten sessions per start time.
+      repo.insert(session({ startedAt: new Date(Date.UTC(2026, 10, 27, 10, 0, Math.floor(i / 10))).toISOString() }));
+    }
+    const seen: string[] = [];
+    let before: AgentSessionsQuery['before'];
+    for (;;) {
+      const page = repo.list({ tokenId: 't1', includeEnded: true, limit: 200, ...(before ? { before } : {}) });
+      seen.push(...page.map((r) => r.id));
+      if (page.length < 200) break;
+      const last = page.at(-1)!;
+      before = { startedAt: last.startedAt, id: last.id };
+    }
+    const expected = tmp.db.prepare('SELECT id FROM agent_sessions ORDER BY started_at DESC, id DESC').all() as { id: string }[];
+    expect(seen).toEqual(expected.map((r) => r.id));
+    expect(new Set(seen).size).toBe(230);
+  });
+
+  it('reads a listed folder that cannot be opened as none, and keeps the row', () => {
+    const a = session();
+    const b = session({ startedAt: '2026-11-27T09:00:00.000Z' });
+    repo.insert(a);
+    repo.insert(b);
+    const cellA = (tmp.db.prepare('SELECT folder FROM agent_sessions WHERE id = ?').get(a.id) as { folder: Buffer }).folder;
+    tmp.db.prepare('UPDATE agent_sessions SET folder = ? WHERE id = ?').run(cellA, b.id);
+    expect(repo.list({ includeEnded: true, limit: 10 }).map((r) => [r.id, r.folder])).toEqual([
+      [a.id, '/Users/ann/Projects/shop'],
+      [b.id, null],
+    ]);
   });
 });

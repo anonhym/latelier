@@ -192,6 +192,14 @@ const api: IpcApi = {
       ipcRenderer.on(IPC_CHANNELS.agentAccessStateEvent, listener);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.agentAccessStateEvent, listener);
     },
+    listCalls: (input) => call(IPC_CHANNELS.agentAccessListCalls, input),
+    listSessions: (input) => call(IPC_CHANNELS.agentAccessListSessions, input),
+    endSession: (input) => call(IPC_CHANNELS.agentAccessEndSession, input),
+    onCall: (cb) => {
+      const listener = (_evt: unknown, row: unknown) => cb(row as Parameters<typeof cb>[0]);
+      ipcRenderer.on(IPC_CHANNELS.agentAccessCallEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.agentAccessCallEvent, listener);
+    },
   },
 
   secrets: {

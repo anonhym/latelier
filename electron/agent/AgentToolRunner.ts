@@ -1,3 +1,4 @@
+import type { AgentCallSummary } from '@shared/types';
 import type { AgentGate, AgentSessionIdentity } from './AgentGate.ts';
 import type { AgentReadLogEntry } from '../db/repositories/AgentReadLogRepo.ts';
 import type { Logger } from '../log.ts';
@@ -25,8 +26,12 @@ export interface AgentToolRunnerDeps {
   tokens: { touchLastUsed(id: string, at: string): void };
   connections: { findById(id: string): { id: string; name: string } | null };
   log: Pick<Logger, 'warn' | 'error'>;
-  /** Called once per Agent Read Log row written, with its outcome, for the session read count. */
-  onRowWritten?: (outcome: AgentOutcome) => void;
+  /**
+   * Called once per Agent Read Log row written, with the row as stored minus
+   * its request: for the read counts and the live call feed. One object, so a
+   * consumer that needs more of the call can be given it without a new argument.
+   */
+  onRowWritten?: (row: AgentCallSummary) => void;
   now?: () => number;
 }
 
@@ -135,23 +140,25 @@ export class AgentToolRunner {
     let rowOutcome: AgentOutcome = 'ok';
     if (question !== null) rowOutcome = 'INPUT_REQUIRED';
     else if (failure) rowOutcome = failure.code;
+    const summary: Omit<AgentCallSummary, 'id'> = {
+      sessionId: session.sessionId,
+      ts: new Date(t0).toISOString(),
+      tokenId: session.tokenId,
+      tokenName: session.tokenName,
+      clientName: session.clientName,
+      clientVersion: session.clientVersion,
+      ...target,
+      tool: name.slice(0, MAX_LOGGED_TOOL),
+      docCount: failure ? 0 : outcome!.count,
+      // The asking round returns no data: nothing of the refusal text it replaces reaches the Agent.
+      bytes: question === null ? Buffer.byteLength(text) : 0,
+      durationMs,
+      outcome: rowOutcome,
+      truncated: failure ? false : outcome!.truncated === true,
+    };
+    let rowId: string;
     try {
-      this.deps.readLog.insert({
-        ts: new Date(t0).toISOString(),
-        tokenId: session.tokenId,
-        tokenName: session.tokenName,
-        clientName: session.clientName,
-        clientVersion: session.clientVersion,
-        ...target,
-        tool: name.slice(0, MAX_LOGGED_TOOL),
-        requestJson: requestJsonOf(rawArgs),
-        docCount: failure ? 0 : outcome!.count,
-        // The asking round returns no data: nothing of the refusal text it replaces reaches the Agent.
-        bytes: question === null ? Buffer.byteLength(text) : 0,
-        durationMs,
-        outcome: rowOutcome,
-        truncated: failure ? false : outcome!.truncated === true,
-      });
+      rowId = this.deps.readLog.insert({ ...summary, outcome: rowOutcome, requestJson: requestJsonOf(rawArgs) });
     } catch (err) {
       // Fail closed: a read the user cannot see afterwards does not happen.
       this.deps.log.error('agent', 'could not write the Agent Read Log row', {
@@ -160,7 +167,7 @@ export class AgentToolRunner {
       const refused = toAgentError(new AgentToolError('DB_ERROR'));
       return { kind: 'result', result: { isError: true, content: [{ type: 'text', text: errorText(refused) }] }, closeSession };
     }
-    this.deps.onRowWritten?.(rowOutcome);
+    this.deps.onRowWritten?.({ id: rowId, ...summary });
 
     if (question !== null) return { kind: 'ask', message: question };
     if (failure) {
