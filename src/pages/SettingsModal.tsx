@@ -482,7 +482,7 @@ export function SettingsModal({ initialSection = 'appearance', onClose }: Settin
 
           <Section value="agents">
             {/* Mounted on demand: it subscribes to main's state only while open. */}
-            {section === 'agents' && <AgentAccessSection />}
+            {section === 'agents' && <AgentAccessSection onLeave={close} />}
           </Section>
 
           <Section value="about">

@@ -21,7 +21,6 @@ import { useTroubleshooting } from '../troubleshooting/TroubleshootingContext';
 import { relativeTime } from '../utils/relativeTime';
 import { ownGet } from '../utils/ownProperty';
 import { humanBytes } from '../utils/humanBytes';
-import { AGENT_ACCESS_COPY } from '../features/agentAccess/agentAccessCopy';
 import { ShareMarker } from '../features/agentAccess/ShareMarker';
 
 const TABS = ['Overview', 'Monitor', 'Collections', 'Users', 'Roles'] as const;
@@ -553,15 +552,12 @@ function CollectionsTab({ conn, runtime }: {
   );
 }
 
-export function DetailPanel({ selected, loading, onDelete, onDisconnect, onShareWithAgents, onStopSharing, section, onSectionChange, onCloseTab }: {
+export function DetailPanel({ selected, loading, onDelete, onDisconnect, section, onSectionChange, onCloseTab }: {
   selected: ConnectionSummary | null;
   // Also null for one beat on first mount before the IPC round-trip resolves; loading distinguishes that from a dead id.
   loading: boolean;
   onDelete: (id: string) => void;
   onDisconnect: (id: string) => void;
-  /** Agent Access (X27 §12.3): the Server Tab passes them; a panel without them offers neither. */
-  onShareWithAgents?: (id: string) => void;
-  onStopSharing?: (id: string) => void;
   /** The section in view, owned by the server tab's state; unset keeps it in local state. */
   section?: ServerSection;
   onSectionChange?: (section: ServerSection) => void;
@@ -669,19 +665,6 @@ export function DetailPanel({ selected, loading, onDelete, onDisconnect, onShare
             </div>
           </div>
           {activeTab === 'Overview' && <div style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
-            {selected.shareWithAgents ? (
-              onStopSharing && (
-                <Button variant="subtle" size="compact-xs" onClick={() => onStopSharing(selected.id)}>
-                  {AGENT_ACCESS_COPY.stopShareAction}
-                </Button>
-              )
-            ) : (
-              onShareWithAgents && (
-                <Button variant="subtle" size="compact-xs" onClick={() => onShareWithAgents(selected.id)}>
-                  {AGENT_ACCESS_COPY.shareAction}
-                </Button>
-              )
-            )}
             <Button variant="subtle" size="compact-xs" leftSection={I.edit} onClick={() => navigate(`/connections/${selected.id}/edit`)}>
               Edit
             </Button>

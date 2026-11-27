@@ -4,7 +4,7 @@ import { Button, Group, Kbd, Popover, Text, TextInput, VisuallyHidden } from '@m
 import { ContextMenu, type ContextMenuState } from '../../components/ContextMenu';
 import { isContextMenuKey } from '../../utils/contextMenuKey';
 import { connectionRowMenu } from './connectionRowMenu';
-import { shareWithAgents, stopSharingWithAgents } from '../agentAccess/useShareWithAgents';
+import { ShareMarker } from '../agentAccess/ShareMarker';
 import { themeVars } from '../../theme/themeVars';
 import { I } from '../../icons';
 import { STATUS_PRESENTATION, matchesConnectionQuery } from './connectionStatus';
@@ -238,6 +238,8 @@ function ConnectionRow({
           gives way first. serverVersion is runtime-only and cleared on
           disconnect, so a stale one can never show next to a dead connection. */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: T.gapXs }}>
+        {/* Shared with Agents, before the name as on the navigator root (X30 §10.2). */}
+        <ShareMarker connection={conn} />
         <Text
           truncate
           style={{ fontSize: T.fsSm, fontWeight: 600, color: T.text, flexShrink: 0, maxWidth: '60%' }}
@@ -478,14 +480,6 @@ export function ConnectionSwitcher({
           onDisconnect(id);
         },
         onDelete: handleDelete,
-        onShareWithAgents: (id) => {
-          close();
-          void shareWithAgents(id);
-        },
-        onStopSharing: (id) => {
-          close();
-          void stopSharingWithAgents(id);
-        },
       }),
       // Escape hands the keyboard back to the search field, where ↑↓ and ↵ live.
       returnFocusTo: searchRef.current,

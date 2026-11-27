@@ -72,18 +72,8 @@ describe('Share actions in the connection menu', () => {
   const labels = (items: ReturnType<typeof connectionRowMenu>) =>
     items.flatMap((i) => (i.kind === 'item' ? [i.label] : []));
 
-  it('offers Share when not shared, Stop sharing when shared, neither without the callbacks', () => {
-    const onShareWithAgents = vi.fn();
-    const onStopSharing = vi.fn();
-    const withActions = { ...base, onShareWithAgents, onStopSharing };
-    expect(labels(connectionRowMenu(unshared, withActions))).toContain('Share with Agents…');
-    expect(labels(connectionRowMenu(unshared, withActions))).not.toContain('Stop sharing with Agents');
-    expect(labels(connectionRowMenu(shared, withActions))).toContain('Stop sharing with Agents');
-    expect(labels(connectionRowMenu(shared, withActions))).not.toContain('Share with Agents…');
-    expect(labels(connectionRowMenu(unshared, base)).join()).not.toMatch(/Agents/);
-    const item = connectionRowMenu(unshared, withActions).find((i) => i.kind === 'item' && i.label === 'Share with Agents…');
-    if (item?.kind === 'item') item.onClick();
-    expect(onShareWithAgents).toHaveBeenCalledWith('c2');
+  it('the Switcher and Connections table menu offers no Share entry, shared or not (X30 §10.2)', () => {
+    for (const conn of [unshared, shared]) expect(labels(connectionRowMenu(conn, base)).join()).not.toMatch(/Agents/);
   });
 
   it('shareWithAgents / stopSharing ask main with the right flag', async () => {

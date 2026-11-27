@@ -1,142 +1,98 @@
+// Settings → Agent Access (X30 §11): the switch, one status line and Open
+// Agents. Everything else lives in Agents mode.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor, within } from '../helpers/render';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock, AGENT_ACCESS_OFF } from '../helpers/atelierMock';
 import { HintsProvider } from '../../src/hints/HintsProvider';
 import { SettingsModal } from '../../src/pages/SettingsModal';
+import { takeAgentsPageRequest } from '../../src/features/agents/agentsNav';
 import type { AgentAccessState } from '../../shared/types';
 
-afterEach(uninstallAtelierMock);
+afterEach(() => {
+  uninstallAtelierMock();
+  takeAgentsPageRequest();
+});
 
 const ON: AgentAccessState = {
   ...AGENT_ACCESS_OFF,
   enabled: true,
+  bridgeInstalled: true,
   socketPath: '/tmp/latelier-agent.sock',
   sessionReadCount: 3,
   sessionCount: 1,
-  tokens: [
-    { id: 't2', name: 'Zed', createdAt: '2026-11-18T00:00:00.000Z' },
-    { id: 't1', name: 'Claude Code', createdAt: '2026-11-18T00:00:00.000Z', lastUsedAt: '2026-11-19T00:00:00.000Z' },
-  ],
+  claudeCodeCommand: 'claude mcp add latelier -- YOUR_TOKEN',
+  tokens: [{ id: 't1', name: 'Claude Code', createdAt: '2026-11-18T00:00:00.000Z' }],
 };
 
-function mount(state: AgentAccessState, agentAccess: Record<string, unknown> = {}) {
+function settings(onClose: () => void) {
+  return (
+    <HintsProvider>
+      <SettingsModal initialSection="agents" onClose={onClose} />
+    </HintsProvider>
+  );
+}
+
+function mount(state: AgentAccessState, agentAccess: Record<string, unknown> = {}, onClose = () => {}) {
   installAtelierMock({
     prefs: { get: async () => null, set: async (_k: string, v: unknown) => v } as never,
     agentAccess: { getState: async () => state, ...agentAccess } as never,
   });
-  return render(
-    <HintsProvider>
-      <SettingsModal initialSection="agents" onClose={() => {}} />
-    </HintsProvider>,
-  );
+  return render(settings(onClose));
 }
 
 describe('Settings: Agent Access', () => {
-  it('off: the switch is unchecked, no socket or read count, and turning it on asks main', async () => {
+  it('off: the switch is unchecked, the status line says so, and turning it on asks main', async () => {
     const requestEnable = vi.fn(async () => ({ enabled: false }));
     mount(AGENT_ACCESS_OFF, { requestEnable });
     const sw = await screen.findByRole('switch', { name: 'Agent Access' });
     expect((sw as HTMLInputElement).checked).toBe(false);
-    expect(screen.queryByText('Agents can connect')).toBeNull();
-    expect(screen.queryByText(/reads? this session/)).toBeNull();
+    expect(screen.getByTestId('agent-access-status').textContent).toBe('Agent Access is off');
     await userEvent.click(sw);
     expect(requestEnable).toHaveBeenCalledTimes(1);
     // A cancelled dialog leaves it off: the switch follows the state, not the click.
     expect((sw as HTMLInputElement).checked).toBe(false);
   });
 
-  it('on: shows the socket path, the read count and the tokens sorted by name', async () => {
-    mount(ON);
-    expect(await screen.findByText('Agents can connect')).toBeTruthy();
-    expect(screen.getByText('/tmp/latelier-agent.sock')).toBeTruthy();
-    expect(screen.getByText('3 Agent reads this session')).toBeTruthy();
-    const rows = within(screen.getByRole('table', { name: 'Agents' })).getAllByRole('row').slice(1);
-    expect(rows.map((r) => within(r).getAllByRole('cell')[0].textContent)).toEqual(['Claude Code', 'Zed']);
-    expect(within(rows[1]).getByText('Never')).toBeTruthy();
-    expect((screen.getByRole('switch', { name: 'Agent Access' }) as HTMLInputElement).checked).toBe(true);
-  });
-
-  it('Copy setup, Revoke and turning off go to main by token id, with the chosen client', async () => {
-    const copySetup = vi.fn(async ({ id }: { id: string }) => ({ tokenId: id, copiedAt: '2026-11-27T00:00:00.000Z' }));
-    const revokeToken = vi.fn(async () => ({ ok: true as const }));
+  it('on: one status line and nothing of what moved to Agents mode', async () => {
     const disable = vi.fn(async () => ({ enabled: false as const }));
-    mount(ON, { copySetup, revokeToken, disable });
-    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Client' }), 'cursor');
-    await userEvent.click(screen.getByRole('button', { name: 'Copy setup: Zed' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Revoke Claude Code' }));
-    await userEvent.click(screen.getByRole('switch', { name: 'Agent Access' }));
-    await waitFor(() => expect(disable).toHaveBeenCalled());
-    expect(copySetup).toHaveBeenCalledWith({ id: 't2', client: 'cursor' });
-    expect(revokeToken).toHaveBeenCalledWith({ id: 't1' });
+    mount(ON, { disable });
+    const sw = await screen.findByRole('switch', { name: 'Agent Access' });
+    expect((sw as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByTestId('agent-access-status').textContent).toBe('Agent Access is on · no live sessions');
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText('/tmp/latelier-agent.sock')).toBeNull();
+    expect(screen.queryByText(/YOUR_TOKEN/)).toBeNull();
+    expect(screen.queryByText(/reads? this session/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Add Agent|Copy setup|Revoke|Remove bridge/ })).toBeNull();
+    await userEvent.click(sw);
+    expect(disable).toHaveBeenCalledTimes(1);
   });
 
-  it('offers the four clients, the Claude Code command first', async () => {
-    mount(ON);
-    const select = await screen.findByRole('combobox', { name: 'Client' });
-    expect((select as HTMLSelectElement).value).toBe('claude-code-cli');
-    expect(within(select).getAllByRole('option').map((o) => [(o as HTMLOptionElement).value, o.textContent])).toEqual([
-      ['claude-code-cli', 'Claude Code (command)'],
-      ['claude-code', 'Claude Code (JSON)'],
-      ['claude-desktop', 'Claude Desktop'],
-      ['cursor', 'Cursor'],
-    ]);
+  it('Open Agents asks for Setup & capabilities and closes Settings', async () => {
+    const onClose = vi.fn();
+    mount(ON, {}, onClose);
+    await userEvent.click(await screen.findByRole('button', { name: 'Open Agents' }));
+    expect(takeAgentsPageRequest()).toEqual({ kind: 'setup' });
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('Add Agent sends the trimmed name and the client, offers no empty submit, and closes once copied', async () => {
-    const connectClient = vi.fn(async () => ({ tokenId: 'n', copiedAt: '2026-11-27T00:00:00.000Z' }));
-    mount(ON, { connectClient });
-    await userEvent.click(await screen.findByRole('button', { name: 'Add Agent' }));
-    const add = screen.getByRole('button', { name: 'Add' });
-    expect((add as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), '  Cursor  ');
-    await userEvent.click(add);
-    await waitFor(() => expect(connectClient).toHaveBeenCalledWith({ name: 'Cursor', client: 'claude-code-cli' }));
-    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Agent name' })).toBeNull());
-  });
-
-  it('keeps the name when main’s confirm was cancelled', async () => {
-    const connectClient = vi.fn(async () => ({ cancelled: true as const }));
-    mount(ON, { connectClient });
-    await userEvent.click(await screen.findByRole('button', { name: 'Add Agent' }));
-    await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), 'Cursor');
-    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
-    await waitFor(() => expect(connectClient).toHaveBeenCalled());
-    expect((screen.getByRole('textbox', { name: 'Agent name' }) as HTMLInputElement).value).toBe('Cursor');
-  });
-
-  it('never renders a token: the DOM carries only what getState returned', async () => {
-    const SECRET = 'tok_SECRET_abcdefghijklmnop';
-    // A token reaching the renderer would have to arrive on a state object or a copy result.
-    const connectClient = vi.fn(async () => ({ tokenId: 'n', copiedAt: '', token: SECRET }));
-    const { baseElement } = mount({ ...ON, tokens: [{ ...ON.tokens[0], token: SECRET } as never] }, { connectClient });
-    await screen.findByText('Agents can connect');
-    await userEvent.click(screen.getByRole('button', { name: 'Add Agent' }));
-    await userEvent.type(screen.getByRole('textbox', { name: 'Agent name' }), 'Cursor');
-    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
-    await waitFor(() => expect(connectClient).toHaveBeenCalled());
-    expect(baseElement.innerHTML).not.toContain(SECRET);
-  });
-
-  it('Windows caveat shows only on the pipe platform; Remove bridge only while off and installed', async () => {
-    const removeBridge = vi.fn(async () => ({ removed: true }));
-    const view = mount({ ...AGENT_ACCESS_OFF, platformCaveat: 'windows-pipe', bridgeInstalled: true }, { removeBridge });
-    expect(await screen.findByTestId('agent-windows-caveat')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Remove bridge' }));
-    expect(removeBridge).toHaveBeenCalledTimes(1);
-    view.unmount();
-    uninstallAtelierMock();
-    mount({ ...ON, bridgeInstalled: true });
-    await screen.findByText('Agents can connect');
-    expect(screen.queryByRole('button', { name: 'Remove bridge' })).toBeNull();
-    expect(screen.queryByTestId('agent-windows-caveat')).toBeNull();
-  });
-
-  it('states what Agents can and cannot do, in the agreed terms', async () => {
-    mount(AGENT_ACCESS_OFF);
-    await screen.findByText('What Agents can do');
-    expect(screen.getByText('What Agents cannot do')).toBeTruthy();
-    expect(screen.getByText(/read-only database user/)).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/assistant|\bbot\b|AI mode/i);
+  it('Open Agents from another screen goes to the Workspace, where the Agents tab lives', async () => {
+    installAtelierMock({
+      prefs: { get: async () => null, set: async (_k: string, v: unknown) => v } as never,
+      agentAccess: { getState: async () => ON } as never,
+    });
+    render(
+      <MemoryRouter initialEntries={['/connections/c1']}>
+        <Routes>
+          <Route path="/connections/:id" element={settings(() => {})} />
+          <Route path="/workspace" element={<p>workspace route</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Open Agents' }));
+    expect(await screen.findByText('workspace route')).toBeTruthy();
+    expect(takeAgentsPageRequest()).toEqual({ kind: 'setup' });
   });
 });

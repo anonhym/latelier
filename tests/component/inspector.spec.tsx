@@ -384,6 +384,7 @@ describe('every shortcut is in the cheat sheet', () => {
     expect(rows).toContain('⌘↓ From the filter, move to the first result row');
     expect(rows).toContain('Esc From the results, back to the filter');
     expect(rows).toContain('Esc Close the Inspector');
+    expect(rows).toContain('⌘⇧A Switch the sidebar between Databases and Agents');
   });
 
   it('offers Copy query as… for the three targets, beside the Run menu', async () => {

@@ -1,6 +1,6 @@
-// The agents.share hint (X06 §4, X27 §12.2): offered on a collection tab of an
+// The agents.share hint (X06 §4, X30 §12): offered on a collection tab of an
 // open Connection while Agent Access is off and nothing is shared, anchored on
-// the status bar's Agents control and drawn above it.
+// the sidebar's Agents mode switch; its Set up opens Agents mode on Home.
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { render, screen, fireEvent, waitFor, within } from '../helpers/render';
@@ -90,21 +90,24 @@ function mount({ state = AGENT_ACCESS_OFF, connection = conn() }: { state?: Agen
 }
 
 describe('agents.share hint', () => {
-  it('shows on a collection tab of an open Connection, anchored on the Agents control and drawn above it', async () => {
+  it('shows on a collection tab of an open Connection, anchored on the Agents side of the mode switch', async () => {
     mount();
     const dialog = await waitFor(() => screen.getByRole('dialog', { name: TITLE }), { timeout: 3000 });
-    expect(document.querySelector('[data-hint-anchor="agents.share"]')).toBe(screen.getByTestId('agent-status'));
-    // Above the status bar: pinned from the bottom edge, never from the top, so it cannot fall off-screen.
-    expect(dialog.style.bottom).not.toBe('');
-    expect(dialog.style.top).toBe('');
+    const anchor = document.querySelector('[data-hint-anchor="agents.share"]');
+    expect(anchor).toBe(within(screen.getByRole('tablist', { name: 'Sidebar mode' })).getByRole('tab', { name: /Agents/ }));
+    // Below the switch, which sits at the top of the sidebar.
+    expect(dialog.style.top).not.toBe('');
+    expect(screen.queryByTestId('agent-status')).toBeNull();
   });
 
-  it('opens Settings on Agent Access from its call to action, and stays dismissed', async () => {
+  it('opens Agents mode on Home from its call to action, and stays dismissed', async () => {
     const prefs = mount();
     const dialog = await waitFor(() => screen.getByRole('dialog', { name: TITLE }), { timeout: 3000 });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Set up' }));
-    const tab = await screen.findByRole('tab', { name: 'Agent Access' });
-    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect((await screen.findByTestId('agents-tab')).getAttribute('aria-label')).toBe('Agents · Home');
+    const modes = screen.getByRole('tablist', { name: 'Sidebar mode' });
+    expect(within(modes).getByRole('tab', { name: /Agents/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
     await waitFor(() => expect(hint()).toBeNull());
     await waitFor(() =>
       expect(prefs.set).toHaveBeenCalledWith(HINTS_KEY, expect.objectContaining({ dismissedIds: expect.arrayContaining(['agents.share']) })),
@@ -113,14 +116,14 @@ describe('agents.share hint', () => {
 
   it('stays hidden while Agent Access is on', async () => {
     mount({ state: { ...AGENT_ACCESS_OFF, enabled: true } });
-    await screen.findByTestId('agent-status');
+    await screen.findByRole('tablist', { name: 'Sidebar mode' });
     await settle();
     expect(hint()).toBeNull();
   });
 
   it('stays hidden once a Connection is shared', async () => {
     mount({ connection: conn({ shareWithAgents: true }) });
-    await screen.findByTestId('agent-status');
+    await screen.findByRole('tablist', { name: 'Sidebar mode' });
     await settle();
     expect(hint()).toBeNull();
   });

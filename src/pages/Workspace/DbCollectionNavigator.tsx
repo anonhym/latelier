@@ -1265,7 +1265,7 @@ export function DbCollectionNavigator({
         : {
             kind: 'item',
             label: AGENT_ACCESS_COPY.shareAction,
-            icon: I.link,
+            icon: I.plug,
             onClick: () => void shareWithAgents(id),
             disabled: !row.isConnected,
             disabledTitle: AGENT_ACCESS_COPY.openFirst,
@@ -2051,6 +2051,8 @@ function ConnectionRow({
       >
         {I.chevD}
       </span>
+      {/* Before the name, so the row's hover buttons never cover it (X30 §10.2). */}
+      <ShareMarker connection={conn} />
       <span
         style={{
           flex: 1,
@@ -2061,7 +2063,6 @@ function ConnectionRow({
       >
         {conn.name}
       </span>
-      <ShareMarker connection={conn} />
       {conn.readOnly && (
         <span
           style={{

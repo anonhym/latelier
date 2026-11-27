@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Workspace from '../../src/pages/Workspace';
 import {
+  AGENT_ACCESS_OFF,
   collectionTabFixture,
   installAtelierMock,
   multiConnectionMock,
@@ -1470,5 +1471,30 @@ describe('the tab context menu closes in bulk and reveals a tab in the sidebar',
     await waitFor(() =>
       expect(screen.getByRole('tree').getAttribute('aria-activedescendant')).toBe(bravo.id),
     );
+  });
+});
+
+describe('the shared marker on a group header (X30 §10.2)', () => {
+  it('sits before the Connection name, on the shared Connection only', async () => {
+    const mock = multiConnectionMock({
+      connections: [
+        { id: 'c1', name: 'Prod', shareWithAgents: true },
+        { id: 'c2', name: 'Staging' },
+      ],
+      tabs: [
+        { id: 'a', connectionId: 'c1', collection: 'alpha', isActive: true },
+        { id: 'x', connectionId: 'c2', collection: 'xray' },
+      ],
+    });
+    installAtelierMock({ ...mock, agentAccess: { getState: async () => ({ ...AGENT_ACCESS_OFF, enabled: true }) } });
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <Workspace />
+      </MemoryRouter>,
+    );
+    const prod = await screen.findByRole('group', { name: 'Prod' });
+    const marker = await within(prod).findByTestId('share-marker');
+    expect(marker.compareDocumentPosition(within(prod).getByText('Prod')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: 'Staging' })).queryByTestId('share-marker')).toBeNull();
   });
 });
