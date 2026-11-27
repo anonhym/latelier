@@ -113,6 +113,7 @@ The project started as **MongoLab**. Iteration 1 — F01–F06, C01–C08, W01�
 | [X25](./X25-cross-connection-paste.md) | Cross-Connection Paste warning: Copy Origin and an inline strip on query surfaces | renderer |
 | [X26](./X26-reference-discovery.md) | Reference discovery: suggest a Reference Rule when a copied value is found in another Collection | renderer |
 | [X27](./X27-agent-access.md) | Agent Access: read-only MCP access to shared Connections through a local socket and stdio bridge | main + renderer + build |
+| [X29](./X29-agent-access-mcp-2026.md) | Agent Access on MCP 2026-07-28: protocol negotiation and a pause for a closed Connection | main + build |
 
 ### Plans
 
