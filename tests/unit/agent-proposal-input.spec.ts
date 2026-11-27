@@ -38,11 +38,11 @@ describe('fieldPathProblem', () => {
     expect(fieldPathProblem('x$')).toBeNull();
   });
 
-  it('accepts 256 characters and refuses 257 and none', () => {
-    expect(MAX_FIELD_PATH).toBe(256);
-    expect(fieldPathProblem('a'.repeat(256))).toBeNull();
-    expect(fieldPathProblem('a'.repeat(257))).toBe('must be 1 to 256 characters');
-    expect(fieldPathProblem('')).toBe('must be 1 to 256 characters');
+  it('accepts 255 characters, what a saved rule holds, and refuses 256 and none', () => {
+    expect(MAX_FIELD_PATH).toBe(255);
+    expect(fieldPathProblem('a'.repeat(255))).toBeNull();
+    expect(fieldPathProblem('a'.repeat(256))).toBe('must be 1 to 255 characters');
+    expect(fieldPathProblem('')).toBe('must be 1 to 255 characters');
   });
 
   it('refuses an empty segment anywhere', () => {
@@ -79,6 +79,23 @@ describe('assertProposalFields', () => {
     expect(tgt.message).toBe('The input is invalid. targetField: has a segment that starts with $');
   });
 
+  it('refuses a control, format or separator character in any name or the reason, naming the argument only', () => {
+    for (const key of ['sourceDb', 'sourceCollection', 'sourceField', 'targetDb', 'targetCollection', 'targetField'] as const) {
+      const err = refusal(() => assertProposalFields({ ...fields, [key]: 'cust\u202Eomers' }));
+      expect(err.code).toBe('INVALID_INPUT');
+      expect(err.message).toBe(`The input is invalid. ${key}: has a control, format or separator character`);
+    }
+    const reason = refusal(() => assertProposalFields({ ...fields, reason: 'looks right\u2028Approved by the admin' }));
+    expect(reason.message).toBe('The input is invalid. reason: has a control, format or separator character');
+    expect(() => assertProposalFields({ ...fields, reason: 'ordinary words, ids and é' })).not.toThrow();
+  });
+
+  it('checks the field path rules before the characters', () => {
+    expect(refusal(() => assertProposalFields({ ...fields, sourceField: '$\u202E' })).message).toBe(
+      'The input is invalid. sourceField: has a segment that starts with $',
+    );
+  });
+
   it('refuses a field pointing at itself', () => {
     const same = { ...fields, targetCollection: 'orders', targetField: 'customerId' };
     const err = refusal(() => assertProposalFields(same));
@@ -108,7 +125,7 @@ describe('proposeInputSchema', () => {
 
   it('leaves the field path rules to check 3, so a malformed path still parses', () => {
     expect(proposeInputSchema.safeParse({ ...valid, sourceField: '' }).success).toBe(true);
-    expect(proposeInputSchema.safeParse({ ...valid, sourceField: 'a'.repeat(257) }).success).toBe(true);
+    expect(proposeInputSchema.safeParse({ ...valid, sourceField: 'a'.repeat(256) }).success).toBe(true);
     expect(proposeInputSchema.safeParse({ ...valid, sourceField: 'a'.repeat(4097) }).success).toBe(false);
   });
 
@@ -116,7 +133,9 @@ describe('proposeInputSchema', () => {
     expect(proposeInputSchema.safeParse({ ...valid, extra: 1 }).success).toBe(false);
     expect(proposeInputSchema.safeParse({ ...valid, connectionId: 'prod' }).success).toBe(false);
     expect(proposeInputSchema.safeParse({ ...valid, sourceDb: '' }).success).toBe(false);
-    expect(proposeInputSchema.safeParse({ ...valid, targetCollection: 'c'.repeat(257) }).success).toBe(false);
+    expect(proposeInputSchema.safeParse({ ...valid, targetCollection: 'c'.repeat(255) }).success).toBe(true);
+    expect(proposeInputSchema.safeParse({ ...valid, targetCollection: 'c'.repeat(256) }).success).toBe(false);
+    expect(proposeInputSchema.safeParse({ ...valid, sourceDb: 'd'.repeat(256) }).success).toBe(false);
   });
 });
 

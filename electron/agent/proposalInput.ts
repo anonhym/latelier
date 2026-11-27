@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { pairKey, type RulePair } from '../../src/utils/referenceDiscovery.ts';
+import { MAX_NAME } from '../services/familyExportFormat.ts';
 import { AgentToolError, defaultAgentMessage } from './errorMap.ts';
+import { hasUnsafeChars } from './safeText.ts';
 
 /**
  * The input of the two Proposal tools (X28 §4). The schema checks only the
@@ -9,14 +11,14 @@ import { AgentToolError, defaultAgentMessage } from './errorMap.ts';
  * Connection still reports the Connection first.
  */
 
-/** The longest field path a Proposal names, as in X26. */
-export const MAX_FIELD_PATH = 256;
+/** The longest name or field path a Proposal holds: what a saved Reference Rule accepts, so an accepted Proposal always fits one. */
+export const MAX_FIELD_PATH = MAX_NAME;
 /** The longest reason an Agent may give. */
 export const MAX_REASON = 500;
 /** A bound on what the schema accepts before check 3 refuses it: no Agent input is unbounded. */
 const MAX_RAW_FIELD = 4096;
 
-const name = z.string().min(1).max(256);
+const name = z.string().min(1).max(MAX_NAME);
 const field = z.string().max(MAX_RAW_FIELD);
 
 export const proposeInputSchema = z.strictObject({
@@ -51,14 +53,23 @@ export function fieldPathProblem(path: string): string | null {
   return null;
 }
 
+function refuse(key: string, problem: string): never {
+  throw new AgentToolError('INVALID_INPUT', `${defaultAgentMessage('INVALID_INPUT')} ${key}: ${problem}`);
+}
+
 /**
- * Check 3: both field paths name a field, and the pair does not point a field
- * at itself. Throws INVALID_INPUT naming the argument, never its value.
+ * Check 3: both field paths name a field, no name or the reason carries a
+ * character that could disguise what the user reads, and the pair does not
+ * point a field at itself. Throws INVALID_INPUT naming the argument, never its value.
  */
-export function assertProposalFields(input: PairFields): void {
+export function assertProposalFields(input: PairFields & Pick<ProposeInput, 'reason'>): void {
   for (const key of ['sourceField', 'targetField'] as const) {
     const problem = fieldPathProblem(input[key]);
-    if (problem !== null) throw new AgentToolError('INVALID_INPUT', `${defaultAgentMessage('INVALID_INPUT')} ${key}: ${problem}`);
+    if (problem !== null) refuse(key, problem);
+  }
+  // Every one of these is shown to the user: a bidi override or a line separator would let the Agent reorder or forge what they read.
+  for (const key of ['sourceDb', 'sourceCollection', 'sourceField', 'targetDb', 'targetCollection', 'targetField', 'reason'] as const) {
+    if (hasUnsafeChars(input[key])) refuse(key, 'has a control, format or separator character');
   }
   if (
     input.sourceDb === input.targetDb &&

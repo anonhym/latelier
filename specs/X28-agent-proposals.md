@@ -118,7 +118,7 @@ X27 §8 says every tool is `readOnlyHint: true`. `propose_reference_rule` is the
 - **Checks, in order**, each refusing with a §9.4 code:
   1. The three gates and the token (X27 §2): `ACCESS_OFF`, `NOT_SHARED`, `NOT_OPEN`. Like every tool that names a Connection, a call on a shared, closed Connection may first pause and ask the user to open it ([X29 §4](./X29-agent-access-mcp-2026.md)).
   2. Both namespaces against X27 §7.4: `NAMESPACE_DENIED`.
-  3. Both field paths: 1 to 256 characters, dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. Source and target the same field of the same collection: `INVALID_INPUT`.
+  3. Both field paths: 1 to 255 characters, what a saved Reference Rule holds, in dotted segments that are non-empty, do not start with `$`, and are not all digits (an array index names no field, X26 §1): `INVALID_INPUT`. A database, collection or field name, or the reason, holding a control, format (bidi or zero-width) or line or paragraph separator character: `INVALID_INPUT`, since each is shown to the user. Source and target the same field of the same collection: `INVALID_INPUT`. Database and collection names are 1 to 255 characters too.
   4. The pair key is on the Never list: the new code `PROPOSAL_DECLINED`, "The user declined this relation. Do not propose it again."
   5. The source field already has an effective rule: the new code `ALREADY_CONFIGURED`, naming no rule.
   6. This token already backs an open Proposal for the same pair: nothing is written, and the call returns that Proposal's id. This comes before the cap, so a retry whose first response was lost always recovers its id.
@@ -197,7 +197,7 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 **Unit**
 
-- `agent-proposal-input.spec.ts`: field path rules (empty segment, `$` prefix, numeric segment, 256 characters), same-field refusal, reason length.
+- `agent-proposal-input.spec.ts`: field path rules (empty segment, `$` prefix, numeric segment, 255 characters), unsafe characters in a name and the reason, same-field refusal, reason length.
 - `agent-proposal-lifecycle.spec.ts`: each transition in §3, expiry with an injected clock, obsolete on an effective rule, deleted Connection.
 - `pair-key.spec.ts` (extend X26's): the Proposal's key equals X26's for the same pair.
 
