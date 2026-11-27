@@ -12,6 +12,8 @@ const NOT_RUNNING: &str = "L'Atelier is not running or Agent Access is off\n";
 const TOKEN_REFUSED: &str = "L'Atelier refused this Agent token\n";
 #[cfg(unix)]
 const PROTOCOL_REFUSED: &str = "L'Atelier does not support this bridge's protocol version\n";
+#[cfg(unix)]
+const RECORD_FAILED: &str = "L'Atelier could not start this session; see its log\n";
 const SECRET: &str = "s3cret-Token_0123456789";
 
 #[cfg(unix)]
@@ -153,8 +155,10 @@ mod over_a_socket {
         let dir = TempDir::new("echo");
         let sock = dir.path().join("a.sock");
         let server = echo_server(UnixListener::bind(&sock).unwrap());
+        // The folder the client started the bridge in, with a quote to escape.
+        let cwd = TempDir::new("pro\"ject");
         let mut cmd = bridge();
-        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock).current_dir(cwd.path());
         let mut child = spawn_with(&mut cmd);
         let mut stdin = child.stdin.take().unwrap();
         // No trailing newline: a flush bug would hold this back.
@@ -163,7 +167,12 @@ mod over_a_socket {
         let out = child.wait_with_output().unwrap();
         assert_eq!(out.status.code(), Some(0));
         assert_eq!(out.stdout, b"{\"jsonrpc\":\"2.0\"}");
-        assert_eq!(server.join().unwrap(), format!("{{\"agentToken\":\"{SECRET}\",\"protocol\":1}}\n"));
+        // The OS reports the working directory resolved: on macOS /var is /private/var.
+        let reported = std::fs::canonicalize(cwd.path()).unwrap().to_str().unwrap().replace('"', "\\\"");
+        assert_eq!(
+            server.join().unwrap(),
+            format!("{{\"agentToken\":\"{SECRET}\",\"protocol\":2,\"folder\":\"{reported}\"}}\n")
+        );
         assert!(!String::from_utf8_lossy(&out.stderr).contains(SECRET));
     }
 
@@ -253,6 +262,39 @@ mod over_a_socket {
         server.join().unwrap();
         assert_eq!(out.status.code(), Some(4));
         assert_eq!(stderr(&out), PROTOCOL_REFUSED);
+    }
+
+    const DISCOVER_REPLY: &str = "{\"result\":{\"resultType\":\"complete\"},\"jsonrpc\":\"2.0\",\"id\":1}\n";
+    const RECORD_FAILED_LINE: &str =
+        "{\"error\":{\"code\":-32003,\"message\":\"L'Atelier could not record this session\"},\"jsonrpc\":\"2.0\",\"id\":2}\n";
+
+    #[test]
+    fn a_session_the_app_could_not_record_exits_4_with_its_own_line_after_a_discovery_reply() {
+        let dir = TempDir::new("record");
+        let sock = dir.path().join("a.sock");
+        let both: &'static str = Box::leak(format!("{DISCOVER_REPLY}{RECORD_FAILED_LINE}").into_boxed_str());
+        let server = refusing_server(UnixListener::bind(&sock).unwrap(), both);
+        let mut cmd = bridge();
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        let out = run(cmd);
+        server.join().unwrap();
+        assert_eq!(out.status.code(), Some(4));
+        assert_eq!(stderr(&out), RECORD_FAILED);
+        // Both lines still reach the Agent client.
+        assert_eq!(out.stdout, both.as_bytes());
+    }
+
+    #[test]
+    fn a_session_the_app_could_not_record_exits_4_when_it_is_the_first_line() {
+        let dir = TempDir::new("record1");
+        let sock = dir.path().join("a.sock");
+        let server = refusing_server(UnixListener::bind(&sock).unwrap(), RECORD_FAILED_LINE);
+        let mut cmd = bridge();
+        cmd.env("LATELIER_AGENT_TOKEN", SECRET).env("LATELIER_AGENT_SOCKET", &sock);
+        let out = run(cmd);
+        server.join().unwrap();
+        assert_eq!(out.status.code(), Some(4));
+        assert_eq!(stderr(&out), RECORD_FAILED);
     }
 
     #[test]

@@ -16,7 +16,7 @@
 // A stalled relay never finishes, so the run is bounded by a timeout.
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -28,7 +28,8 @@ const defaultBinary = join(root, 'bridge', 'target', 'release', exe);
 const binary = resolve(process.argv[2] ?? defaultBinary);
 
 const TOKEN = randomBytes(24).toString('base64url');
-const EXPECTED_HANDSHAKE = `{"agentToken":"${TOKEN}","protocol":1}\n`;
+// Protocol 2 carries the folder the bridge was started in; the duplex run starts it in `scratch`.
+const PROTOCOL = 2;
 const MEGABYTE = 1024 * 1024;
 const TIMEOUT_MS = 20_000;
 
@@ -73,8 +74,8 @@ const endpoint =
 const toApp = randomBytes(MEGABYTE);
 const toClient = randomBytes(MEGABYTE);
 
-function spawnBridge(env, label) {
-  const child = spawn(binary, [], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+function spawnBridge(env, label, cwd = undefined) {
+  const child = spawn(binary, [], { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'], cwd });
   const record = { index: diag.children.length + 1, label, child, stderr: [], stdoutBytes: 0, exitCode: null, signalCode: null };
   diag.children.push(record);
   child.stderr.on('data', (c) => record.stderr.push(c));
@@ -100,6 +101,29 @@ function exited(child) {
     child.once('error', rej);
     child.once('close', (code) => res(code));
   });
+}
+
+/**
+ * The handshake byte for byte, given the folder it reports. The OS may report
+ * the working directory resolved (macOS: /var is /private/var) or in another
+ * case (Windows), so the folder must be `scratch` as spawned or as resolved,
+ * and the line must then be exactly what JSON.stringify writes for it.
+ */
+function checkHandshake(line) {
+  const shown = JSON.stringify(line.replace(TOKEN, '<token>'));
+  let parsed;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    fail(`duplex: handshake is not JSON: ${shown}`);
+  }
+  const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const folders = [scratch, realpathSync.native(scratch)];
+  if (typeof parsed.folder !== 'string' || !folders.some((f) => same(f, parsed.folder))) {
+    fail(`duplex: handshake folder is not the working directory ${JSON.stringify(folders)}: ${shown}`);
+  }
+  const expected = `${JSON.stringify({ agentToken: TOKEN, protocol: PROTOCOL, folder: parsed.folder })}\n`;
+  if (line !== expected) fail(`duplex: handshake was ${shown}`);
 }
 
 // 1. Unreachable endpoint: exit 3 with the one documented line.
@@ -179,7 +203,7 @@ async function duplex() {
     server.listen(endpoint, res);
   });
 
-  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: endpoint }, 'duplex');
+  const child = spawnBridge({ LATELIER_AGENT_TOKEN: TOKEN, LATELIER_AGENT_SOCKET: endpoint }, 'duplex', scratch);
   const stdout = collect(child.stdout);
   const stderr = collect(child.stderr);
   diag.phase = 'duplex: bridge spawned, request written, waiting for the handshake';
@@ -206,7 +230,7 @@ async function duplex() {
   server.close();
 
   if (code !== 0) fail(`duplex: expected exit 0, got ${code} (stderr ${JSON.stringify(stderr().toString())})`);
-  if (handshakeSeen !== EXPECTED_HANDSHAKE) fail(`duplex: handshake was ${JSON.stringify(handshakeSeen.replace(TOKEN, '<token>'))}`);
+  checkHandshake(handshakeSeen);
   if (sha(receivedFromBridge) !== sha(toApp)) fail(`duplex: the app received ${receivedFromBridge.length} bytes that differ from what stdin sent`);
   if (sha(stdout()) !== sha(Buffer.concat([PONG, toClient]))) fail(`duplex: stdout carried ${stdout().length} bytes that differ from what the app sent`);
   if (stderr().toString().includes(TOKEN)) fail('duplex: the token reached stderr');

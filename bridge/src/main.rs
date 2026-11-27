@@ -1,14 +1,15 @@
 //! `latelier-agent-bridge`: pipes an Agent client's stdio to L'Atelier's local socket (X27 section 4.2).
 //!
-//! Reads `LATELIER_AGENT_TOKEN`, finds the endpoint, sends one handshake line,
-//! then copies bytes both ways until either side closes. It opens no window,
-//! database or Mongo client, never starts the app, and never prints the token.
+//! Reads `LATELIER_AGENT_TOKEN`, finds the endpoint, sends one handshake line
+//! carrying the token and the working folder, then copies bytes both ways until
+//! either side closes. It opens no window, database or Mongo client, never
+//! starts the app, and never prints the token.
 //!
 //! Exit codes: 0 a clean close, 1 the stream broke after it connected, 2 the
 //! token is missing or malformed, 3 the app is not reachable, 4 the app
-//! refused the handshake (an unknown or revoked token, or a protocol it does
-//! not speak), 5 the pipe is not served by the current user's process (Windows
-//! only; the token was not sent).
+//! refused the session (an unknown or revoked token, a protocol it does not
+//! speak, or a session it could not record), 5 the pipe is not served by the
+//! current user's process (Windows only; the token was not sent).
 
 mod endpoint;
 mod peer;
@@ -41,6 +42,8 @@ const NOT_RUNNING: &str = "L'Atelier is not running or Agent Access is off";
 /// Printed on exit 4. Never names the token, or why the app refused it.
 const TOKEN_REFUSED: &str = "L'Atelier refused this Agent token";
 const PROTOCOL_REFUSED: &str = "L'Atelier does not support this bridge's protocol version";
+/// Also exit 4, but the token is fine: the app could not record the session (X27 section 16.2).
+const RECORD_FAILED: &str = "L'Atelier could not start this session; see its log";
 
 fn main() -> ExitCode {
     // `var` fails on a value that is not valid Unicode; a token never is.
@@ -68,14 +71,23 @@ fn main() -> ExitCode {
         }
     };
 
-    match transport::run(&endpoint, token.handshake().as_bytes()) {
+    // Display-only in the app, so a path that is not valid Unicode is sent lossily rather than not at all.
+    let folder = std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned());
+    match transport::run(&endpoint, token.handshake(folder.as_deref()).as_bytes()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(RunError::Unreachable) => {
             eprintln!("{NOT_RUNNING}");
             ExitCode::from(3)
         }
         Err(RunError::Refused(refusal)) => {
-            eprintln!("{}", if refusal == Refusal::Token { TOKEN_REFUSED } else { PROTOCOL_REFUSED });
+            eprintln!(
+                "{}",
+                match refusal {
+                    Refusal::Token => TOKEN_REFUSED,
+                    Refusal::Protocol => PROTOCOL_REFUSED,
+                    Refusal::SessionRecord => RECORD_FAILED,
+                }
+            );
             ExitCode::from(4)
         }
         Err(RunError::PeerRejected(reason)) => {
