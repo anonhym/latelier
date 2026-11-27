@@ -7,6 +7,16 @@ import type { AgentReadLogEntry } from '../../electron/db/repositories/AgentRead
 import { AGENT_TOOLS } from '../../electron/agent/tools';
 import { AgentToolError, defaultAgentMessage, NOT_OPEN_DECLINED_MESSAGE } from '../../electron/agent/errorMap';
 
+/** No test here files or reads a Proposal: a call that reaches one is a bug in the test. */
+const NO_PROPOSALS = {
+  propose: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+  statusFor: (): never => {
+    throw new Error('no Proposals in this test');
+  },
+};
+
 const session: AgentSessionIdentity = {
   sessionId: 's',
   tokenId: 't',
@@ -33,6 +43,7 @@ function runner(rows: AgentReadLogEntry[]) {
     connections: { findById: () => null },
     log: { warn: () => undefined, error: () => undefined },
     refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
   });
 }
 
@@ -108,6 +119,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       connections: { findById: () => (opts.name === null ? null : { id: CONNECTION, name: opts.name ?? 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
       refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
       onRowWritten: (row) => {
         summaries.push(row);
         written.push(row.outcome);
@@ -250,6 +262,7 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
       connections: { findById: () => ({ id: CONNECTION, name: 'prod' }) },
       log: { warn: () => undefined, error: () => undefined },
       refs: { effective: () => [] },
+      proposals: NO_PROPOSALS,
     });
     const reply = await r.call(session, 'find', findArgs, signal, { canAsk: true, answer: 'none' });
     expect(reply.kind).toBe('result');
@@ -258,9 +271,10 @@ describe('AgentToolRunner pausing for a closed Connection', () => {
 });
 
 describe('AgentToolRunner tool context', () => {
-  it('hands a tool the Reference Rules it was built with', async () => {
+  it('hands a tool the Reference Rules and the Proposals it was built with', async () => {
     const refs = { effective: () => [] };
-    let seen: unknown = null;
+    const proposals = { ...NO_PROPOSALS };
+    let seen: { refs: unknown; proposals: unknown } | null = null;
     const r = new AgentToolRunner({
       gate: { checkToken: () => 'ok' } as unknown as AgentGate,
       tools: [
@@ -268,8 +282,9 @@ describe('AgentToolRunner tool context', () => {
           name: 'probe',
           description: 'probe',
           inputSchema: z.strictObject({}),
+          annotations: { readOnlyHint: true, openWorldHint: false },
           run: (_input, ctx) => {
-            seen = ctx.refs;
+            seen = { refs: ctx.refs, proposals: ctx.proposals };
             return { text: 'x', count: 0 };
           },
         },
@@ -279,8 +294,37 @@ describe('AgentToolRunner tool context', () => {
       connections: { findById: () => null },
       log: { warn: () => undefined, error: () => undefined },
       refs,
+      proposals,
     });
     await r.call(session, 'probe', {}, new AbortController().signal);
-    expect(seen).toBe(refs);
+    expect(seen).toEqual({ refs, proposals });
+    expect(seen!.refs).toBe(refs);
+    expect(seen!.proposals).toBe(proposals);
+  });
+
+  it("logs a Proposal under its source namespace, which the call names as sourceDb and sourceCollection", async () => {
+    const CONNECTION = '2b1f6a3e-6f0e-4c1e-9b7a-0d6f7b5e9a11';
+    const rows: AgentReadLogEntry[] = [];
+    const r = new AgentToolRunner({
+      gate: { checkToken: () => 'ok', assertConnection: () => undefined } as unknown as AgentGate,
+      tools: AGENT_TOOLS,
+      readLog: { insert: (row) => (rows.push(row), 'id') },
+      tokens: { touchLastUsed: () => undefined },
+      connections: { findById: () => ({ id: CONNECTION, name: 'prod' }) },
+      log: { warn: () => undefined, error: () => undefined },
+      refs: { effective: () => [] },
+      proposals: { ...NO_PROPOSALS, propose: () => ({ id: '9b2f5c0e-8c1d-4b8e-9a39-1c3f9d2e7a10' }) },
+    });
+    const args = {
+      connectionId: CONNECTION,
+      sourceDb: 'shop',
+      sourceCollection: 'orders',
+      sourceField: 'customerId',
+      targetDb: 'shop',
+      targetCollection: 'customers',
+      reason: 'ids match',
+    };
+    await r.call(session, 'propose_reference_rule', args, new AbortController().signal);
+    expect(rows[0]).toMatchObject({ tool: 'propose_reference_rule', outcome: 'ok', database: 'shop', collection: 'orders', connectionName: 'prod' });
   });
 });

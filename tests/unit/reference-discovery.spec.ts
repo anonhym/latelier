@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { prefSetSchema } from '../../electron/ipc/prefKeys';
+import { proposalPair, proposalPairKey } from '../../electron/agent/proposalInput';
 import { EJSON, Binary, Decimal128, Int32, Double, Long, ObjectId, UUID } from 'bson';
 import {
   findValueMatch,
@@ -283,6 +284,19 @@ describe('pairKey and pairLabel', () => {
 
   it('labels the rule without the Database', () => {
     expect(pairLabel(pair)).toBe('orders.customerId → customers._id');
+  });
+
+  // X28 §2: an Agent Proposal is keyed by this same function, so Never and the strip see one pair.
+  it("gives an Agent Proposal the discovery strip's key for the same pair", () => {
+    const fields = { sourceDb: 'shop', sourceCollection: 'orders', sourceField: 'customerId', targetDb: 'crm', targetCollection: 'customers', targetField: '_id' };
+    expect(proposalPair(fields)).toEqual(pair);
+    expect(proposalPairKey('c1', fields)).toBe(pairKey('c1', pair));
+    expect(proposalPairKey('c1', fields)).toBe('c1|["shop","orders","customerId","crm","customers","_id"]');
+  });
+
+  it('gives a long-named Proposal the same hashed key', () => {
+    const fields = { sourceDb: 'shop', sourceCollection: 'orders', sourceField: 'x'.repeat(1100), targetDb: 'crm', targetCollection: 'customers', targetField: '_id' };
+    expect(proposalPairKey('c1', fields)).toBe('c1|#vs.muvph3rdxc');
   });
 });
 

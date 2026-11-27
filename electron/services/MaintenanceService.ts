@@ -3,6 +3,7 @@ import type { RecentFieldValueRepo } from '../db/repositories/RecentFieldValueRe
 import type { AuditRepo } from '../db/repositories/AuditRepo.ts';
 import type { AgentReadLogRepo } from '../db/repositories/AgentReadLogRepo.ts';
 import type { AgentSessionRepo } from '../db/repositories/AgentSessionRepo.ts';
+import type { AgentProposalRepo } from '../db/repositories/AgentProposalRepo.ts';
 import type { AppStateService } from './AppStateService.ts';
 
 const MAINTENANCE_KEY = 'maintenance.lastRunAt';
@@ -12,6 +13,8 @@ const AUDIT_RETENTION_DAYS = 90;
 const AGENT_READ_LOG_RETENTION_DAYS = 90;
 /** Ended sessions go with the log they group (X27 §16.2); a live one never does. */
 const AGENT_SESSION_RETENTION_DAYS = 90;
+/** Decided Proposals are kept as long as the log that explains them (X28 §2). */
+const AGENT_PROPOSAL_RETENTION_DAYS = 90;
 
 export class MaintenanceService {
   private recentRepo: RecentQueryRepo;
@@ -19,6 +22,7 @@ export class MaintenanceService {
   private auditRepo: AuditRepo;
   private agentReadLogRepo: AgentReadLogRepo;
   private agentSessionRepo: Pick<AgentSessionRepo, 'deleteEndedOlderThan'>;
+  private agentProposalRepo: Pick<AgentProposalRepo, 'expireDue' | 'deleteDecidedOlderThan'>;
   private checkpoint: () => void;
   constructor(deps: {
     recentRepo: RecentQueryRepo;
@@ -26,6 +30,7 @@ export class MaintenanceService {
     auditRepo: AuditRepo;
     agentReadLogRepo: AgentReadLogRepo;
     agentSessionRepo: Pick<AgentSessionRepo, 'deleteEndedOlderThan'>;
+    agentProposalRepo: Pick<AgentProposalRepo, 'expireDue' | 'deleteDecidedOlderThan'>;
     /** Flushes purged pages out of the WAL; owns reporting a blocked checkpoint. */
     checkpoint: () => void;
   }) {
@@ -34,6 +39,7 @@ export class MaintenanceService {
     this.auditRepo = deps.auditRepo;
     this.agentReadLogRepo = deps.agentReadLogRepo;
     this.agentSessionRepo = deps.agentSessionRepo;
+    this.agentProposalRepo = deps.agentProposalRepo;
     this.checkpoint = deps.checkpoint;
   }
 
@@ -46,16 +52,19 @@ export class MaintenanceService {
       if (now - lastRunMs < INTERVAL_MS) return;
     }
 
-    this.purgeExpired();
+    this.purgeExpired(now);
     this.checkpoint();
     appState.set(MAINTENANCE_KEY, new Date(now).toISOString());
   }
 
-  private purgeExpired(): void {
+  private purgeExpired(now: number): void {
     this.recentRepo.deleteOlderThan(RECENT_RETENTION_DAYS);
     this.recentFieldValueRepo.deleteOlderThan(RECENT_RETENTION_DAYS);
     this.auditRepo.deleteOlderThan(AUDIT_RETENTION_DAYS);
     this.agentReadLogRepo.deleteOlderThan(AGENT_READ_LOG_RETENTION_DAYS);
     this.agentSessionRepo.deleteEndedOlderThan(AGENT_SESSION_RETENTION_DAYS);
+    // Expired first, so a Proposal past its 30 days starts its 90 from today rather than lingering open.
+    this.agentProposalRepo.expireDue(new Date(now).toISOString());
+    this.agentProposalRepo.deleteDecidedOlderThan(AGENT_PROPOSAL_RETENTION_DAYS);
   }
 }

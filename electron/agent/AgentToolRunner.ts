@@ -12,7 +12,7 @@ import {
 } from './errorMap.ts';
 import { metaLine } from './envelope.ts';
 import { openConnectionMessage, type OpenConnectionAnswer } from './openConnectionPause.ts';
-import type { AgentReferenceRules, AgentTool, ToolOutcome } from './tools.ts';
+import type { AgentProposals, AgentReferenceRules, AgentTool, ToolOutcome } from './tools.ts';
 
 export interface AgentCallResult {
   [key: string]: unknown;
@@ -29,6 +29,8 @@ export interface AgentToolRunnerDeps {
   log: Pick<Logger, 'warn' | 'error'>;
   /** The Reference Rules the relation tools read (X27 §16.7). */
   refs: AgentReferenceRules;
+  /** The Proposals the X28 tools file and read. */
+  proposals: AgentProposals;
   /**
    * Called once per Agent Read Log row written, with the row as stored minus
    * its request: for the read counts and the live call feed. One object, so a
@@ -125,7 +127,7 @@ export class AgentToolRunner {
       const input = tool.inputSchema.parse(rawArgs ?? {});
       // Declined, cancelled or garbled: the user did not open it, so the gate is not run again.
       if (ask.answer === 'refused' && takesConnection(input)) throw new AgentToolError('NOT_OPEN', NOT_OPEN_DECLINED_MESSAGE);
-      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs });
+      outcome = await tool.run(input, { gate: this.deps.gate, session, signal, log: this.deps.log, refs: this.deps.refs, proposals: this.deps.proposals });
     } catch (err) {
       failure = toAgentError(err);
       if (failure.code === 'DB_ERROR') {
@@ -219,8 +221,9 @@ export class AgentToolRunner {
     return {
       connectionId,
       connectionName: found?.name ?? null,
-      database: stringField(rawArgs, 'database'),
-      collection: stringField(rawArgs, 'collection'),
+      // A Proposal names its source namespace, which is the one its row and any Connection request show.
+      database: stringField(rawArgs, 'database') ?? stringField(rawArgs, 'sourceDb'),
+      collection: stringField(rawArgs, 'collection') ?? stringField(rawArgs, 'sourceCollection'),
     };
   }
 }

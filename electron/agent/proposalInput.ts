@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pairKey, type RulePair } from '../../src/utils/referenceDiscovery.ts';
 import { AgentToolError, defaultAgentMessage } from './errorMap.ts';
 
 /**
@@ -54,7 +55,7 @@ export function fieldPathProblem(path: string): string | null {
  * Check 3: both field paths name a field, and the pair does not point a field
  * at itself. Throws INVALID_INPUT naming the argument, never its value.
  */
-export function assertProposalFields(input: Pick<ProposeInput, 'sourceDb' | 'sourceCollection' | 'sourceField' | 'targetDb' | 'targetCollection' | 'targetField'>): void {
+export function assertProposalFields(input: PairFields): void {
   for (const key of ['sourceField', 'targetField'] as const) {
     const problem = fieldPathProblem(input[key]);
     if (problem !== null) throw new AgentToolError('INVALID_INPUT', `${defaultAgentMessage('INVALID_INPUT')} ${key}: ${problem}`);
@@ -66,4 +67,22 @@ export function assertProposalFields(input: Pick<ProposeInput, 'sourceDb' | 'sou
   ) {
     throw new AgentToolError('INVALID_INPUT', `${defaultAgentMessage('INVALID_INPUT')} the source and target are the same field`);
   }
+}
+
+type PairFields = Pick<ProposeInput, 'sourceDb' | 'sourceCollection' | 'sourceField' | 'targetDb' | 'targetCollection' | 'targetField'>;
+
+/** The pair in X26's shape. */
+export function proposalPair(input: PairFields): RulePair {
+  return {
+    source: { dbName: input.sourceDb, collection: input.sourceCollection, field: input.sourceField },
+    target: { dbName: input.targetDb, collection: input.targetCollection, field: input.targetField },
+  };
+}
+
+/**
+ * The Proposal's pair key: X26's own `pairKey`, so Never for this pair, the
+ * discovery strip and the one-open-Proposal-per-pair rule all read one key.
+ */
+export function proposalPairKey(connectionId: string, input: PairFields): string {
+  return pairKey(connectionId, proposalPair(input));
 }

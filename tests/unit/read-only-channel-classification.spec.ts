@@ -84,6 +84,8 @@ const READ_CHANNELS = new Set<string>([
   IPC_CHANNELS.refsAutodetect,
   // Runs `connectionStatus` on the Connection to check the user's privileges before sharing; reads only.
   IPC_CHANNELS.agentAccessSetShared,
+  // X28 §5: samples up to three documents of each side, only on an open Connection; never changes anything.
+  IPC_CHANNELS.agentProposalsCheck,
 ]);
 
 const NON_MONGO_CHANNELS = new Set<string>([
@@ -140,6 +142,13 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.agentAccessListCalls,
   IPC_CHANNELS.agentAccessListSessions,
   IPC_CHANNELS.agentAccessEndSession,
+  // Agent Proposals live in SQLite; accepting one writes a Reference Rule, also SQLite only.
+  IPC_CHANNELS.agentProposalsList,
+  IPC_CHANNELS.agentProposalsAccept,
+  IPC_CHANNELS.agentProposalsLater,
+  IPC_CHANNELS.agentProposalsReopen,
+  IPC_CHANNELS.agentProposalsDecline,
+  IPC_CHANNELS.agentProposalsEvent,
   IPC_CHANNELS.savedList,
   IPC_CHANNELS.savedGet,
   IPC_CHANNELS.savedCreate,

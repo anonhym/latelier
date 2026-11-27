@@ -4,6 +4,7 @@ import { RecentFieldValueRepo } from '../../electron/db/repositories/RecentField
 import { AuditRepo } from '../../electron/db/repositories/AuditRepo';
 import { AgentReadLogRepo } from '../../electron/db/repositories/AgentReadLogRepo';
 import { AgentSessionRepo } from '../../electron/db/repositories/AgentSessionRepo';
+import { AgentProposalRepo } from '../../electron/db/repositories/AgentProposalRepo';
 import { MaintenanceService } from '../../electron/services/MaintenanceService';
 import { createTempDb, type TempDb, createTempCipher } from '../helpers/db';
 
@@ -92,7 +93,8 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
     };
 
     const svc = new MaintenanceService({ recentRepo: repo, recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
-      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()), checkpoint: () => {} });
+      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()), checkpoint: () => {} });
 
     // First run — old row gone, lastRunAt set.
     svc.runIfNeeded(appState);
@@ -124,6 +126,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
       auditRepo: new AuditRepo(tmp.db, createTempCipher()),
       agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
       agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()),
       checkpoint: () => {},
     }).runIfNeeded({
       get: <T>(key: string) => (store.get(key) ?? null) as T | null,
@@ -149,6 +152,7 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
       auditRepo: new AuditRepo(tmp.db, createTempCipher()),
       agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
       agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()),
       checkpoint: () => {},
     }).runIfNeeded({
       get: <T>(key: string) => (store.get(key) ?? null) as T | null,
@@ -156,6 +160,47 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
     });
     const ids = (tmp.db.prepare('SELECT id FROM agent_sessions ORDER BY id').all() as { id: string }[]).map((r) => r.id);
     expect(ids).toEqual(['ended-89d', 'live-300d']);
+  });
+
+  it('the same sweep expires Proposals past their 30 days, and deletes those decided over 90 days ago with their backers', () => {
+    const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const insertProposal = (id: string, status: string, decidedAt: string | null, expiresAt: string) => {
+      tmp.db
+        .prepare(
+          `INSERT INTO agent_proposals (id, kind, status, connection_id, connection_name, source_db, source_collection, source_field,
+            target_db, target_collection, target_field, pair_key, created_at, decided_at, expires_at)
+           VALUES (?, 'reference_rule', ?, 'c', 'prod', 'shop', 'orders', 'customerId', 'shop', 'customers', '_id', ?, ?, ?, ?)`,
+        )
+        .run(id, status, `pair-${id}`, daysAgo(200), decidedAt, expiresAt);
+      tmp.db
+        .prepare("INSERT INTO agent_proposal_backers (id, proposal_id, token_id, reason, created_at) VALUES (?, ?, 't', x'01', ?)")
+        .run(`b-${id}`, id, daysAgo(200));
+    };
+    insertProposal('declined-91d', 'declined', daysAgo(91), daysAgo(170));
+    insertProposal('accepted-89d', 'accepted', daysAgo(89), daysAgo(170));
+    insertProposal('pending-due', 'pending', null, daysAgo(1));
+    insertProposal('later-live', 'later', null, new Date(Date.now() + 86_400_000).toISOString());
+    const store = new Map<string, unknown>();
+    new MaintenanceService({
+      recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()),
+      recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()),
+      auditRepo: new AuditRepo(tmp.db, createTempCipher()),
+      agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
+      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()),
+      checkpoint: () => {},
+    }).runIfNeeded({
+      get: <T>(key: string) => (store.get(key) ?? null) as T | null,
+      set: <T>(key: string, value: T) => void store.set(key, value),
+    });
+    const rows = tmp.db.prepare('SELECT id, status, decided_at IS NOT NULL AS decided FROM agent_proposals ORDER BY id').all();
+    expect(rows).toEqual([
+      { id: 'accepted-89d', status: 'accepted', decided: 1 },
+      { id: 'later-live', status: 'later', decided: 0 },
+      { id: 'pending-due', status: 'expired', decided: 1 },
+    ]);
+    const backers = (tmp.db.prepare('SELECT proposal_id FROM agent_proposal_backers ORDER BY proposal_id').all() as { proposal_id: string }[]).map((r) => r.proposal_id);
+    expect(backers).toEqual(['accepted-89d', 'later-live', 'pending-due']);
   });
 
   it('the sweep deletes audit rows past 90 days and keeps newer ones', () => {
@@ -175,7 +220,8 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
     };
 
     new MaintenanceService({ recentRepo: new RecentQueryRepo(tmp.db, createTempCipher()), recentFieldValueRepo: new RecentFieldValueRepo(tmp.db, createTempCipher()), auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
-      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
+      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
 
     const ids = (tmp.db.prepare('SELECT id FROM audit_log ORDER BY id').all() as { id: string }[]).map((r) => r.id);
     expect(ids).toEqual(['audit-89d', 'audit-now']);
@@ -216,7 +262,8 @@ describe('RecentQueryRepo.deleteOlderThan + MaintenanceService.purgeExpired', ()
       };
 
       new MaintenanceService({ recentRepo: queryRepo, recentFieldValueRepo: fieldValueRepo, auditRepo: new AuditRepo(tmp.db, createTempCipher()), agentReadLogRepo: new AgentReadLogRepo(tmp.db, createTempCipher()),
-      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
+      agentSessionRepo: new AgentSessionRepo(tmp.db, createTempCipher()),
+      agentProposalRepo: new AgentProposalRepo(tmp.db, createTempCipher()), checkpoint: () => {} }).runIfNeeded(appState);
 
       const remaining = fieldValueRepo.list({ connectionId: CONNECTION_ID, dbName: 'mydb', collection: 'items', field: 'status' });
       expect(remaining.map((r) => r.id)).toEqual(['field-fresh']);
