@@ -71,6 +71,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere, onLoad,
   // X30 §9: the user's runs and the Agents' finds and counts, by time.
   const all = React.useMemo(() => mergeHistory(mergeConsecutive(items), calls, filter), [items, calls, filter]);
   const rows = React.useMemo(() => searchHistory(all, search), [all, search]);
+  const agentsUnread = filter === 'agents' && agentErr;
   // Enter does what the row offers: run the user's, load an Agent's, nothing for Copy only.
   const enter = (row: HistoryRow) => {
     const action = rowAction(row);
@@ -278,7 +279,14 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere, onLoad,
         </Text>
       )}
 
-      {!loading && !err && all.length === 0 && (
+      {/* Agents only, and the Read Log could not be read: that is the state, not an empty list. */}
+      {!loading && !err && agentsUnread && (
+        <Text fz={T.fsSm} c={T.warn} px={10} pt={4} pb={10}>
+          Agent calls could not be read.
+        </Text>
+      )}
+
+      {!loading && !err && !agentsUnread && all.length === 0 && (
         <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
           {filter === 'agents'
             ? `No Agent has run a find or a count on ${collection}.`
@@ -433,7 +441,7 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere, onLoad,
 
       {/* X30 §9: the session pages hold every Agent call; this list only the newest finds and counts. */}
       <div style={{ padding: '6px 10px 8px', borderTop: `1px solid ${T.border}`, fontSize: T.fsXs, color: T.textMuted }}>
-        {agentErr && <div style={{ color: T.warn, marginBottom: 4 }}>Agent calls could not be read.</div>}
+        {agentErr && filter === 'all' && <div style={{ color: T.warn, marginBottom: 4 }}>Agent calls could not be read.</div>}
         <div>Agent calls are listed from the Agent Read Log — Load fills the editor, it never runs.</div>
         <UnstyledButton
           onClick={onAgentActivity}

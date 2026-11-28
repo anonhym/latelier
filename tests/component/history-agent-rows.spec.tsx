@@ -174,6 +174,14 @@ describe('History with Agent rows', () => {
     expect(screen.getByText('Agent calls could not be read.')).toBeTruthy();
   });
 
+  it('says the Agent Read Log could not be read under Agents, never that no Agent ran anything', async () => {
+    mount({ runs: [mine('r1', 10, '{"a":1}')], failCalls: true });
+    await screen.findByTestId('recent-row');
+    fireEvent.click(screen.getByRole('radio', { name: 'Agents' }));
+    expect(screen.queryByText('No Agent has run a find or a count on orders.')).toBeNull();
+    expect(screen.getAllByText('Agent calls could not be read.')).toHaveLength(1);
+  });
+
   it('links to All activity on the collection', async () => {
     const m = mount();
     fireEvent.click(await screen.findByRole('button', { name: 'All Agent activity on orders' }));
