@@ -175,6 +175,9 @@ test('Needs you in Databases mode: a request toast connects, and Proposals are d
 
       // The new rule is live on orders: the first order's customerId follows to its customer.
       const ws = new WorkspacePage(win);
+      await expect(win.getByRole('button', { name: 'References (1)' })).toBeVisible({ timeout: 10_000 });
+      // The tab's rows predate the reconnect above; run the query so they are fresh.
+      await ws.queryBarRunButton.click();
       await ws.viewTreeButton.click();
       await win.getByRole('button', { name: 'Expand document' }).first().click();
       await win.getByRole('button', { name: 'Open reference to customers' }).first().click();
