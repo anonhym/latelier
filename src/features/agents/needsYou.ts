@@ -145,9 +145,21 @@ export function forSession<T extends NeedsYouItem>(items: readonly T[], sessionI
   );
 }
 
-/** Open requests per session, for the sidebar's session badge. */
-export function requestsBySession(state: Pick<AgentAccessState, 'connectionRequests'> | null): Map<string, number> {
+/**
+ * What Needs you holds per session, for the sidebar's session badge: its open
+ * requests and the `pending` Proposals it backs, as a session page lists them.
+ */
+export function needsYouBySession(
+  state: Pick<AgentAccessState, 'connectionRequests'> | null,
+  proposals: readonly AgentProposal[],
+): Map<string, number> {
   const out = new Map<string, number>();
-  for (const r of state?.connectionRequests ?? []) out.set(r.sessionId, (out.get(r.sessionId) ?? 0) + 1);
+  const add = (sessionId: string) => out.set(sessionId, (out.get(sessionId) ?? 0) + 1);
+  for (const r of state?.connectionRequests ?? []) add(r.sessionId);
+  for (const p of proposals) {
+    if (p.status !== 'pending') continue;
+    // Backers are one per Agent, so a session backs a Proposal once.
+    for (const b of p.backers) if (b.sessionId) add(b.sessionId);
+  }
   return out;
 }

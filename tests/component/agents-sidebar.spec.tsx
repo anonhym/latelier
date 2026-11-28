@@ -2,14 +2,17 @@
 // to five ended ones, Show all, the tree's keys, Agent-supplied text as text,
 // and the Agent row's menu.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '../helpers/render';
+import { act, fireEvent, render, screen, waitFor, within } from '../helpers/render';
 import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock';
 import { agentState, liveSession, token } from '../helpers/agentsWorkspace';
 import { AgentsSidebar } from '../../src/features/agents/AgentsSidebar';
+import { resetProposalStore, setOpenProposals } from '../../src/features/agents/proposalStore';
+import { backer, proposal } from '../helpers/agentProposalFixture';
 import type { AgentAccessState, AgentSessionRow, AgentSessionsQuery } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
+  resetProposalStore();
   vi.restoreAllMocks();
 });
 
@@ -95,6 +98,20 @@ describe('the Agents sidebar', () => {
     expect(live[1]!.textContent).toContain('shop-api · 34 min');
     expect(within(live[1]!).getByTestId('needs-you-badge').textContent).toBe('1');
     expect(within(live[0]!).queryByTestId('needs-you-badge')).toBeNull();
+  });
+
+  it('counts the pending Proposals a live session backs in its badge, beside its requests', () => {
+    mount();
+    act(() =>
+      setOpenProposals([
+        proposal({ id: 'p1', backers: [backer({ sessionId: 'new' })] }),
+        proposal({ id: 'p2', backers: [backer({ sessionId: 'old' })] }),
+        proposal({ id: 'p3', status: 'later', backers: [backer({ sessionId: 'new' })] }),
+      ]),
+    );
+    const live = screen.getAllByTestId('agents-sidebar-live-session');
+    expect(within(live[0]!).getByTestId('needs-you-badge').textContent).toBe('1');
+    expect(within(live[1]!).getByTestId('needs-you-badge').textContent).toBe('2');
   });
 
   it('its chevron is a native button out of the Tab order, and toggles without opening the Agent', () => {

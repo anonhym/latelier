@@ -7,7 +7,7 @@ import type { AgentAccessState, AgentSessionInfo, AgentSessionRow, AgentTokenInf
 import type { AgentsPage } from './agentsPage';
 import { sessionWhere } from './agentsPage';
 import { NeedsYouBadge } from './AgentsModeSwitch';
-import { needsYouCount, requestsBySession } from './needsYou';
+import { needsYouBySession, needsYouCount } from './needsYou';
 import { useOpenProposals } from './proposalStore';
 import { agentRows, endedSessionLine, endedSlice, isExpanded, liveSessionLine, type AgentRow } from './sidebarModel';
 import { useEndedSessions } from './useEndedSessions';
@@ -97,8 +97,8 @@ export function AgentsSidebar({
   // A session starting or ending changes what the log holds for its Agent.
   const liveKey = (state?.sessions ?? []).map((s) => s.id).join(',');
   const ended = useEndedSessions(expandedIds, liveKey);
-  const requests = requestsBySession(state);
   const proposals = useOpenProposals().list;
+  const requests = needsYouBySession(state, proposals);
   const tokenName = (id: string) => tokens.find((t) => t.id === id)?.name ?? 'Agent';
 
   const items: Item[] = [];
