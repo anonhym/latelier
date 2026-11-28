@@ -1,6 +1,6 @@
 # W01 — Workspace shell + tab management
 
-> **Status: Implemented.** §1–§13 shipped, with Aggregation as a sub-view of the collection tab (§5), not the separate tab kind §2 lists. §14, the One Spine shell, shipped; where §14 names a part of §7, §10 or §11, §14 is what ships.
+> **Status: Implemented.** §1–§13 shipped, with Aggregation as a sub-view of the collection tab (§5), not the separate tab kind §2 lists. §14, the One Spine shell, shipped; where §14 names a part of §7, §10 or §11, §14 is what ships. §15, Agents mode, shipped with X30.
 
 ## Purpose
 
@@ -241,7 +241,7 @@ Format: `{connection.name} / {dbName} / {collection}  [· kind]` where kind is r
 
 ## 14. Amendment — One Spine shell
 
-> **Accepted, not built.** It supersedes the parts of §7, §10 and §11 it names and leaves the rest standing.
+> **Implemented.** It supersedes the parts of §7, §10 and §11 it names and leaves the rest standing.
 
 ### 14.1 Why, and the bands
 
@@ -392,7 +392,7 @@ A fourth tab kind, `server`, hosts a Connection's Overview, Monitor, Collections
 
 ## 15. Amendment — Agents mode
 
-> **Accepted, not built.** Specified in [X30](./X30-agents-mode.md); this section records what it adds to §14.
+> **Implemented (with X30).** Specified in [X30](./X30-agents-mode.md); this section records what it adds to §14.
 
 - **Sidebar.** A two-segment switch, Databases | Agents, sits at the top of the sidebar above the navigator's filter ([X30 §2](./X30-agents-mode.md)). Databases is the navigator of [W02](./W02-db-collection-navigator.md).
 - **Tab strip.** A new tab kind, the **Agents tab**: at most one, renderer-only, never stored in `workspace_tabs` ([X30 §4](./X30-agents-mode.md)). Its breadcrumb reads `Agents › {page}`.

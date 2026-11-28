@@ -1,6 +1,6 @@
 # X30 — Agents mode: a sidebar for Agents and their sessions
 
-> **Status: Accepted.** Nothing has shipped. The design was reviewed and approved in Claude Design on 2026-11-27 (canvas "Atelier — Agents, first class", page "Agents mode").
+> **Status: Implemented.** The design was reviewed and approved in Claude Design on 2026-11-27 (canvas "Atelier — Agents, first class", page "Agents mode").
 
 ## Purpose
 

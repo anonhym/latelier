@@ -1,6 +1,6 @@
 # X27 — Agent Access: read-only MCP access to shared Connections
 
-> **Status: Implemented.** §1–§15 shipped. §16 (Agent sessions, Connection requests, reading the log, relation tools, the clipboard setup flow) is accepted, not built; where it names a part of §4.5, §5.2, §8, §11 or the Scope, §16 is what ships. The UI of §11.3 and §12 is superseded by [X30](./X30-agents-mode.md).
+> **Status: Implemented.** §1–§16 shipped; where §16 names a part of §4.5, §5.2, §8, §11 or the Scope, §16 is what ships. The UI of §11.3 and §12 is superseded by [X30](./X30-agents-mode.md).
 
 ## Purpose
 
@@ -501,7 +501,7 @@ All eight gates in `CLAUDE.md` § Definition of done apply. This is code, a migr
 
 ## 16. Amendment — sessions, Connection requests, the log as a source, relation tools
 
-> **Accepted, not built.** Agreed on 2026-11-27 with the Agents mode design ([X30](./X30-agents-mode.md)). It supersedes §4.5's handshake line, §5.2's token window, §11.3, and the Scope bullets "A viewer for the Agent Read Log" (out) and "a status-bar Agents control … share actions on the navigator root" (in). Everything else in §1–§15 stands. The rule that an Agent never writes is unchanged: nothing here lets an Agent change a database, and app-state changes an Agent can ask for are [X28](./X28-agent-proposals.md)'s.
+> **Implemented.** Agreed on 2026-11-27 with the Agents mode design ([X30](./X30-agents-mode.md)). It supersedes §4.5's handshake line, §5.2's token window, §11.3, and the Scope bullets "A viewer for the Agent Read Log" (out) and "a status-bar Agents control … share actions on the navigator root" (in). Everything else in §1–§15 stands. The rule that an Agent never writes is unchanged: nothing here lets an Agent change a database, and app-state changes an Agent can ask for are [X28](./X28-agent-proposals.md)'s.
 
 ### 16.1 Why
 
@@ -538,7 +538,7 @@ Rules:
 The best way to tell two sessions of one client apart is the folder the client was started in (`~/Projects/shop-api` against `~/Projects/admin`). The client does not send it, but it launches the bridge with that folder as its working directory in the common case.
 
 - **Handshake protocol 2.** The bridge's first line becomes `{"agentToken":"<token>","protocol":2,"folder":"<cwd>"}\n`. `folder` is the bridge process's working directory as the OS reports it, cut by the bridge to 1,024 bytes at a character boundary, and omitted when the OS cannot report it. Main accepts `protocol` 1 and 2: a bridge process started before an app update keeps speaking 1 until its client restarts it, and its session has no folder. `HANDSHAKE_MAX_BYTES` goes from 512 to 4,096 so an escaped 1,024-byte folder fits; the line is still refused past it.
-- **Reported, not proven.** The bridge runs as the user, and anything running as the user can start a bridge with any working directory. The folder is display-only: no decision reads it, and the UI labels it "reported by the bridge". Some clients start their MCP servers from their own install folder or from `/`; the folder is then shown as it is, without meaning, and a manual check (below) records what each supported client actually does.
+- **Reported, not proven.** The bridge runs as the user, and anything running as the user can start a bridge with any working directory. The folder is display-only: no decision reads it, and the UI labels it "reported by the bridge". Some clients start their MCP servers from their own install folder or from `/`; the folder is then shown as it is, without meaning, and a manual check (§16.11) is to record what each supported client actually does. That check has not been done yet: the working folder that Claude Code (CLI and desktop), Claude Desktop and Cursor give the bridge has not been verified by hand.
 - **Stored sealed.** The path names the OS user and the user's projects, so it goes through `ColumnCipher` like `request_json`. Main strips control characters, cuts it to 1,024 characters, and sends the renderer a display form with the user's home directory replaced by `~`. The renderer never receives the raw path.
 
 ### 16.4 Live state
@@ -625,7 +625,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 
 **Unit**
 
-- `agent-handshake.spec.ts` (extend): protocol 1 without a folder and protocol 2 with one are accepted; protocol 3 is refused; a 4,097-byte line is refused; a folder with control characters is cleaned.
+- `agent-token.spec.ts` (the handshake parser's spec): protocol 1 without a folder and protocol 2 with one are accepted; protocol 3 is refused; a 4,097-byte line is refused. A folder with control characters is cleaned: `agent-folder-display.spec.ts`.
 - `agent-folder-display.spec.ts`: the home directory becomes `~` on each platform's path form; a path outside home is shown as it is; the cut happens at a character boundary.
 - `agent-connection-requests.spec.ts`: one request per (session, Connection), from a `NOT_OPEN` row or an `INPUT_REQUIRED` row; a paused call's two rows make one request; a repeat bumps `count`; `NOT_SHARED` makes none; each ending condition removes it; after a dismissal the same pair makes none for that session; the 30-minute expiry uses an injected clock.
 - `reference-candidates.spec.ts`: the split-out stem matching gives the same candidates `autodetect` gave on the existing fixtures.
@@ -639,7 +639,7 @@ Added, through the 5-file contract and `registerAgentAccessChannels`: `agentAcce
 
 **Integration**
 
-- `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session with the fixed `-32003` line, both as the first request and after a `server/discover` on the same socket; a crash-left row closed at launch; pruning at 90 days; log rows carry `session_id`.
+- `agent-sessions.spec.ts`: rows written on the first non-discovery request in both eras, and none for a discovery-only probe; client info from `initialize` or the first envelope carrying it; rows closed; the session-row write failing refuses the session with the fixed `-32003` line, both as the first request and after a `server/discover` on the same socket; a crash-left row closed at launch; log rows carry `session_id`. Pruning sessions at 90 days is in `agent-read-log.spec.ts`.
 - `agent-read-log.spec.ts` (extend): `list-calls` filters and keyset paging; `list-sessions` paging past 200 sessions of one token, including sessions sharing a `started_at`; `request` decrypted only in the response, and a truncated request flagged.
 - `agent-tools.spec.ts` (extend): `list_references` with Connection and Family rules and a denied namespace; `suggest_references` on a sampled collection; with the Connection closed it returns `NOT_OPEN` and the pool's status never changes to connecting.
 - `agent-access-handlers.spec.ts` (extend): validation of the new channels; `connect-client` with a stubbed confirm creates and copies on yes and does nothing on no; the clipboard clear leaves a changed clipboard alone.

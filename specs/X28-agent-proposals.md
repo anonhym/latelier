@@ -1,6 +1,6 @@
 # X28 — Agent Proposals: an Agent suggests a Reference Rule, the user decides
 
-> **Status: Accepted.** Nothing has shipped.
+> **Status: Implemented.**
 
 ## Purpose
 
@@ -199,7 +199,7 @@ No channel takes a secret. `agentProposals:accept` adds no power the renderer la
 
 - `agent-proposal-input.spec.ts`: field path rules (empty segment, `$` prefix, numeric segment, 255 characters), unsafe characters in a name and the reason (a line feed and a tab allowed in the reason only), same-field refusal, reason length.
 - `agent-proposal-lifecycle.spec.ts`: each transition in §3, expiry with an injected clock, obsolete on an effective rule, deleted Connection.
-- `pair-key.spec.ts` (extend X26's): the Proposal's key equals X26's for the same pair.
+- `reference-discovery.spec.ts` (X26's pair-key cases): the Proposal's key equals X26's for the same pair.
 
 **Integration**
 
