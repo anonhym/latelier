@@ -2027,10 +2027,13 @@ export interface AgentProposalsQuery {
  * The check a user runs on an opened Proposal (X28 §5). `not-open`: the
  * Connection is not open, so nothing was read and nothing was connected.
  * `sampled`: up to three source documents that have the field were read, and
- * `resolved` of them found a target document.
+ * `resolved` of them found a target document. `closed`: the Proposal is no
+ * longer open (it expired, became obsolete, or was decided), so there is
+ * nothing to check and nothing was read.
  */
 export type AgentProposalCheck =
   | { kind: 'not-open'; connectionName: string }
+  | { kind: 'closed'; status: Exclude<AgentProposalStatus, 'pending' | 'later'> }
   | {
       kind: 'sampled';
       sampled: number;
@@ -2041,7 +2044,7 @@ export type AgentProposalCheck =
       targetField: string;
     };
 
-/** What `agentProposals:event` pushes: a Proposal was added or changed status. The renderer lists again. */
+/** What `agentProposals:changed-event` pushes: a Proposal was added or changed status. The renderer lists again. */
 export interface AgentProposalEvent {
   id: string;
   status: AgentProposalStatus;

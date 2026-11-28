@@ -189,7 +189,10 @@ describe('Agent sessions (X27 §16.2–§16.4)', () => {
         [session!.id, 'ok'],
         [session!.id, 'NOT_SHARED'],
       ]);
-      for (const c of h!.calls) expect(c).not.toHaveProperty('request');
+      for (const c of h!.calls) {
+        expect(c).not.toHaveProperty('request');
+        expect(c).not.toHaveProperty('requestJson');
+      }
       // And the log reads back by session.
       expect(h!.svc.listCalls({ sessionId: session!.id, outcome: 'refused', limit: 10 }).map((r) => r.tool)).toEqual(['find']);
       expect(h!.svc.listSessions({ includeEnded: false, limit: 10 })).toEqual([

@@ -24,7 +24,7 @@ describe('a Proposal toast in Databases mode', () => {
       overrides: {
         agentProposals: {
           list,
-          onEvent: (cb: () => void) => {
+          onChanged: (cb: () => void) => {
             events.add(cb);
             return () => events.delete(cb);
           },
@@ -58,7 +58,7 @@ describe('a Proposal toast in Databases mode', () => {
       overrides: {
         agentProposals: {
           list,
-          onEvent: (cb: () => void) => {
+          onChanged: (cb: () => void) => {
             events.add(cb);
             return () => events.delete(cb);
           },

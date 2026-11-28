@@ -91,16 +91,25 @@ describe('the check', () => {
     expect(checkText({ kind: 'not-open', connectionName: 'Shop (prod)' })).toBe('Open Shop (prod) to check this relation');
   });
 
+  it('says why there is nothing to check once the Proposal is no longer open', () => {
+    expect(checkSegments({ kind: 'closed', status: 'expired' })).toEqual([{ text: 'This Proposal expired' }]);
+    expect(checkText({ kind: 'closed', status: 'obsolete' })).toBe('A Reference Rule already covers this field');
+    expect(checkText({ kind: 'closed', status: 'accepted' })).toBe('This Proposal was added');
+    expect(checkText({ kind: 'closed', status: 'declined' })).toBe('This Proposal was declined');
+  });
+
   it('tones: green when one resolved, warning when none did, neutral when nothing was read', () => {
     expect(checkTone(sampled(3, 1))).toBe('ok');
     expect(checkTone(sampled(3, 0))).toBe('warn');
     expect(checkTone(sampled(0, 0))).toBe('warn');
     expect(checkTone({ kind: 'not-open', connectionName: 'x' })).toBe('neutral');
+    expect(checkTone({ kind: 'closed', status: 'expired' })).toBe('neutral');
   });
 
   it('reads Add anyway only after a check that read and found nothing resolving', () => {
     expect(addLabel(null)).toBe('Add Reference Rule');
     expect(addLabel({ kind: 'not-open', connectionName: 'x' })).toBe('Add Reference Rule');
+    expect(addLabel({ kind: 'closed', status: 'obsolete' })).toBe('Add Reference Rule');
     expect(addLabel(sampled(3, 1))).toBe('Add Reference Rule');
     expect(addLabel(sampled(3, 0))).toBe('Add anyway');
     expect(addLabel(sampled(0, 0))).toBe('Add anyway');

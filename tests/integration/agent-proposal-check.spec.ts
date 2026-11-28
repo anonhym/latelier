@@ -24,8 +24,11 @@ describe('the Proposal check', () => {
     return (JSON.parse(textOf(r).split('\n')[1]!) as { proposalId: string }).proposalId;
   }
 
+  let clock = Date.parse('2026-11-27T10:00:00.000Z');
+
   async function seed() {
-    f = await createReadFixture();
+    clock = Date.parse('2026-11-27T10:00:00.000Z');
+    f = await createReadFixture({ proposalsNow: () => clock });
     await f.db.collection('customers').insertMany([{ _id: 1 }, { _id: 2 }, { _id: 3 }] as never);
     await f.db.collection('orders').insertMany([
       { _id: 'o1', customerId: 1 },
@@ -165,6 +168,44 @@ describe('the Proposal check', () => {
     expect(lookups).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
     expect(f.m.pool.status(f.connectionId).status).toBe('disconnected');
+  });
+
+  // X28 §3: a Proposal becomes expired or obsolete when it is shown, and the check is part of showing it.
+  it('expires a Proposal past its 30 days before checking it, and reads nothing', async () => {
+    await seed();
+    const id = await proposal('orders', 'customerId');
+    clock += 30 * 24 * 60 * 60 * 1000;
+    const readClient = vi.spyOn(f.m.pool, 'readClient');
+    expect(await f.h.proposals.check(id)).toEqual({ kind: 'closed', status: 'expired' });
+    expect(readClient).not.toHaveBeenCalled();
+    expect(f.h.proposalRepo.findById(id)!.status).toBe('expired');
+    expect(f.h.proposalEvents.at(-1)).toEqual({ id, status: 'expired' });
+  });
+
+  it('makes a Proposal obsolete once a rule covers its source field, before checking it, and reads nothing', async () => {
+    await seed();
+    const id = await proposal('orders', 'customerId');
+    f.h.refs.create({
+      owner: { connectionId: f.connectionId },
+      sourceDb: f.dbName,
+      sourceCollection: 'orders',
+      sourceField: 'customerId',
+      targetDb: f.dbName,
+      targetCollection: 'clients',
+    });
+    const readClient = vi.spyOn(f.m.pool, 'readClient');
+    expect(await f.h.proposals.check(id)).toEqual({ kind: 'closed', status: 'obsolete' });
+    expect(readClient).not.toHaveBeenCalled();
+    expect(f.h.proposalRepo.findById(id)!.status).toBe('obsolete');
+  });
+
+  it('reads nothing for a Proposal already decided', async () => {
+    await seed();
+    const id = await proposal('orders', 'customerId');
+    f.h.proposals.decline(id);
+    const readClient = vi.spyOn(f.m.pool, 'readClient');
+    expect(await f.h.proposals.check(id)).toEqual({ kind: 'closed', status: 'declined' });
+    expect(readClient).not.toHaveBeenCalled();
   });
 
   it('refuses an unknown Proposal', async () => {

@@ -192,10 +192,13 @@ export class AgentProposalService {
   /**
    * X28 §5: does the relation hold on a few documents? Reads on the user's own
    * client and only while the Connection is open; a closed one is never
-   * connected. Read-only: the Proposal does not change.
+   * connected. It reads nothing for a Proposal that is no longer open. Showing
+   * a Proposal applies expiry and the obsolete rule first (X28 §3), as `list`
+   * and `get_proposal` do; otherwise the check leaves the Proposal as it was.
    */
   async check(id: string): Promise<AgentProposalCheck> {
-    const row = this.found(id);
+    const row = this.refresh(this.found(id));
+    if (!isOpen(row.status)) return { kind: 'closed', status: row.status as Extract<AgentProposalCheck, { kind: 'closed' }>['status'] };
     const connectionId = row.connectionId;
     const connectionName = this.deps.connections.findById(connectionId)?.name ?? row.connectionName;
     const notOpen: AgentProposalCheck = { kind: 'not-open', connectionName };
