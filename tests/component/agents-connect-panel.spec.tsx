@@ -157,7 +157,7 @@ describe('the Connect an Agent panel', () => {
     expect(connected.textContent).toContain('Connected: cursor 1.4');
     expect(screen.queryByTestId('connect-waiting')).toBeNull();
     fireEvent.click(within(connected).getByRole('button', { name: 'View session' }));
-    expect(onNavigate).toHaveBeenCalledWith({ kind: 'session', sessionId: 'mine', agentName: 'Work laptop', where: 'cursor' });
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'session', sessionId: 'mine', agentName: 'Work laptop', where: 'cursor' }));
   });
 
   it("shows the client's setup with the placeholder, and no token ever", async () => {

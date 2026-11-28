@@ -4,12 +4,31 @@ import { api, getErrorMessage } from '../../../api/atelier';
 import { relativeTime } from '../../../utils/relativeTime';
 import { copyToClipboard } from '../../../utils/clipboard';
 import { confirmDestructive } from '../../../utils/confirm';
-import { ActionIcon, Box, Button, Group, Text, TextInput, Tooltip, VisuallyHidden } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, SegmentedControl, Text, TextInput, Tooltip, UnstyledButton, VisuallyHidden } from '@mantine/core';
 import { themeVars } from '../../../theme/themeVars';
 import { SubmitButton } from '../../../components/SubmitButton';
-import type { RecentQuery } from '@shared/types';
-import { mergeConsecutive, queryPreview, type MergedRecentQuery } from './recentRuns';
+import { logFailure } from '../../../utils/rendererLog';
+import type { AgentCallRow, RecentQuery } from '@shared/types';
+import type { LegacySavedFindPayload } from '../legacyBuilder';
+import { findSeedPayload, requestText, resultText } from '../../../features/agents/activityRow';
+import {
+  DOCUMENTS_HISTORY_TOOLS,
+  HISTORY_FILTERS,
+  agentChip,
+  agentChipTooltip,
+  historyRowText,
+  mergeHistory,
+  rowAction,
+  searchHistory,
+  type AgentHistoryRow,
+  type HistoryFilter,
+  type HistoryRow,
+} from '../../../features/agents/historyMerge';
+import { mergeConsecutive, type MergedRecentQuery } from './recentRuns';
 import { useListPreview } from './useListPreview';
+
+/** Agent calls read per tool: the newest, as the user's own history keeps its newest. */
+const AGENT_ROWS = 50;
 
 // Stable, so it runs once per mount: an inline ref would refocus on every render.
 const focusOnMount = (el: HTMLInputElement | null) => el?.focus();
@@ -19,6 +38,10 @@ interface RecentTabProps {
   dbName: string;
   collection: string;
   onRunHere: (recent: RecentQuery) => void;
+  /** Fills the editor with an Agent's find or count; never runs it. */
+  onLoad: (payload: LegacySavedFindPayload) => void;
+  /** Opens All activity filtered to this collection. */
+  onAgentActivity: () => void;
 }
 
 /**
@@ -35,21 +58,29 @@ function previewOf(item: RecentQuery): string | null {
     : null;
 }
 
-export function RecentTab({ connectionId, dbName, collection, onRunHere }: RecentTabProps) {
+export function RecentTab({ connectionId, dbName, collection, onRunHere, onLoad, onAgentActivity }: RecentTabProps) {
   const T = themeVars;
   const [items, setItems] = React.useState<RecentQuery[]>([]);
+  const [calls, setCalls] = React.useState<AgentCallRow[]>([]);
+  const [agentErr, setAgentErr] = React.useState(false);
+  const [filter, setFilter] = React.useState<HistoryFilter>('all');
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [search, setSearch] = React.useState('');
-  const rows = React.useMemo(() => {
-    const merged = mergeConsecutive(items);
-    const needle = search.trim().toLowerCase();
-    return needle ? merged.filter((item) => (queryPreview(item.payload) ?? '').toLowerCase().includes(needle)) : merged;
-  }, [items, search]);
+  // X30 §9: the user's runs and the Agents' finds and counts, by time.
+  const all = React.useMemo(() => mergeHistory(mergeConsecutive(items), calls, filter), [items, calls, filter]);
+  const rows = React.useMemo(() => searchHistory(all, search), [all, search]);
+  const agentsUnread = filter === 'agents' && agentErr;
+  // Enter does what the row offers: run the user's, load an Agent's, nothing for Copy only.
+  const enter = (row: HistoryRow) => {
+    const action = rowAction(row);
+    if (row.kind === 'mine') onRunHere(row.item);
+    else if (action === 'load' && row.seed) onLoad(findSeedPayload(row.seed));
+  };
   // W05 §9.6: ↑↓ in the search box move the highlight, Enter loads it.
-  const list = useListPreview(rows, onRunHere);
-  const activePreview = list.active ? queryPreview(list.active.payload) : null;
+  const list = useListPreview(rows, enter);
+  const activePreview = list.active ? historyRowText(list.active) || null : null;
 
   // A reviewer flagged that this instance is reused when the active collection
   // changes, and two `recent.list` calls can be in flight at once. If the older
@@ -64,9 +95,24 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
     setLoading(true);
     setErr(null);
     try {
+      // The Agent Read Log is read apart: a failure there leaves the user's own runs listed.
+      const agentCalls = Promise.all(
+        DOCUMENTS_HISTORY_TOOLS.map((tool) =>
+          api.agentAccess.listCalls({ connectionId, database: dbName, collection, tool, outcome: 'all', limit: AGENT_ROWS }),
+        ),
+      ).then(
+        (pages) => ({ ok: true as const, rows: pages.flat() }),
+        (e: unknown) => {
+          logFailure('reading Agent calls for a History', e);
+          return { ok: false as const, rows: [] as AgentCallRow[] };
+        },
+      );
       const list = await api.recent.list({ connectionId, dbName, collection, kind: 'find' });
+      const agent = await agentCalls;
       if (token !== loadToken.current) return;
       setItems(list);
+      setCalls(agent.rows);
+      setAgentErr(!agent.ok);
     } catch (e) {
       if (token !== loadToken.current) return;
       setErr(getErrorMessage(e, 'Failed to load recent queries'));
@@ -190,6 +236,20 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </Tooltip>
       </Group>
 
+      <SegmentedControl
+        size="xs"
+        mx={10}
+        mb={6}
+        fullWidth
+        aria-label="Who ran it"
+        value={filter}
+        data={HISTORY_FILTERS as Array<{ value: HistoryFilter; label: string }>}
+        onChange={(v) => {
+          setFilter(v as HistoryFilter);
+          list.highlight(0);
+        }}
+      />
+
       <TextInput
         size="xs"
         mx={10}
@@ -219,24 +279,45 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
         </Text>
       )}
 
-      {!loading && !err && items.length === 0 && (
-        <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
-          No recent queries yet. Anything you run in this collection shows up here.
+      {/* Agents only, and the Read Log could not be read: that is the state, not an empty list. */}
+      {!loading && !err && agentsUnread && (
+        <Text fz={T.fsSm} c={T.warn} px={10} pt={4} pb={10}>
+          Agent calls could not be read.
         </Text>
       )}
 
-      {!loading && !err && items.length > 0 && rows.length === 0 && (
+      {!loading && !err && !agentsUnread && all.length === 0 && (
+        <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
+          {filter === 'agents'
+            ? `No Agent has run a find or a count on ${collection}.`
+            : 'No recent queries yet. Anything you run in this collection shows up here.'}
+        </Text>
+      )}
+
+      {!loading && !err && all.length > 0 && rows.length === 0 && (
         <Text fz={T.fsSm} c={T.textMuted} px={10} pt={4} pb={10}>
           No run matches this search.
         </Text>
       )}
 
-      {!loading && !err && rows.map((item, index) => {
+      {!loading && !err && rows.map((row, index) => {
+        const highlighted = row === list.active;
+        if (row.kind === 'agent') {
+          return (
+            <AgentRow
+              key={row.key}
+              row={row}
+              highlighted={highlighted}
+              onHover={() => list.highlight(index)}
+              onLoad={onLoad}
+            />
+          );
+        }
+        const item = row.item;
         const preview = previewOf(item);
-        const highlighted = item === list.active;
         return (
           <Group
-            key={item.id}
+            key={row.key}
             gap={themeVars.gapXs}
             wrap="nowrap"
             px={10}
@@ -357,6 +438,111 @@ export function RecentTab({ connectionId, dbName, collection, onRunHere }: Recen
           {activePreview ?? 'no stored query'}
         </div>
       )}
+
+      {/* X30 §9: the session pages hold every Agent call; this list only the newest finds and counts. */}
+      <div style={{ padding: '6px 10px 8px', borderTop: `1px solid ${T.border}`, fontSize: T.fsXs, color: T.textMuted }}>
+        {agentErr && filter === 'all' && <div style={{ color: T.warn, marginBottom: 4 }}>Agent calls could not be read.</div>}
+        <div>Agent calls are listed from the Agent Read Log — Load fills the editor, it never runs.</div>
+        <UnstyledButton
+          onClick={onAgentActivity}
+          style={{ marginTop: 4, fontSize: T.fsXs, color: T.accentInk, textDecoration: 'underline' }}
+        >
+          All Agent activity on {collection}
+        </UnstyledButton>
+      </div>
     </div>
+  );
+}
+
+/**
+ * An Agent's find or count (X30 §9): its chip, what it ran, and Load, which
+ * fills the editor and never runs. A refused or cut call offers Copy only.
+ * Every string on it came from an Agent and shows as text.
+ */
+function AgentRow({
+  row,
+  highlighted,
+  onHover,
+  onLoad,
+}: {
+  row: AgentHistoryRow;
+  highlighted: boolean;
+  onHover: () => void;
+  onLoad: (payload: LegacySavedFindPayload) => void;
+}) {
+  const T = themeVars;
+  const { call, seed, preview } = row;
+  const request = requestText(call);
+  const tooltip = agentChipTooltip(call);
+  return (
+    <Group
+      gap={themeVars.gapXs}
+      wrap="nowrap"
+      px={10}
+      py={7}
+      fz={T.fsSm}
+      data-testid="recent-agent-row"
+      data-call-id={call.id}
+      data-highlighted={highlighted || undefined}
+      onMouseEnter={onHover}
+      style={{ borderBottom: `1px solid ${T.border}`, background: highlighted ? T.accentSoft : undefined }}
+    >
+      <Box style={{ flex: 1, overflow: 'hidden' }}>
+        <Text
+          title={preview || undefined}
+          fz={T.fsXs}
+          c={preview ? T.text : T.textGhost}
+          truncate="end"
+          style={{ fontFamily: '"JetBrains Mono", monospace' }}
+        >
+          {preview || 'no stored query'}
+        </Text>
+        <Text fz={T.fsXs} c={T.textGhost} mt={1} component="div" style={{ display: 'flex', gap: themeVars.gapXs, alignItems: 'center' }}>
+          <Tooltip label={tooltip} withArrow openDelay={400}>
+            <span
+              data-testid="recent-agent-chip"
+              style={{ padding: '0 5px', borderRadius: T.rs, background: T.accentSoft, color: T.accentInk, whiteSpace: 'nowrap' }}
+            >
+              {agentChip(call)}
+              <VisuallyHidden>, {tooltip}</VisuallyHidden>
+            </span>
+          </Tooltip>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {relativeTime(call.ts, call.ts)} — {call.tool} · {resultText(call)}
+          </span>
+        </Text>
+      </Box>
+      {seed && (
+        <Tooltip label="Load into the editor; it does not run" withArrow openDelay={400}>
+          <Button
+            variant="light"
+            size="compact-xs"
+            h={20}
+            px={7}
+            fz={T.fsXs}
+            onClick={() => onLoad(findSeedPayload(seed))}
+            aria-label={`Load ${preview || 'this Agent query'} into the editor`}
+          >
+            Load
+          </Button>
+        </Tooltip>
+      )}
+      <Tooltip label={request ? 'Copy the request' : 'This call has no stored request to copy'} withArrow openDelay={400}>
+        <span style={{ display: 'inline-flex' }}>
+          <ActionIcon
+            variant="default"
+            size={22}
+            c={request ? T.textMuted : undefined}
+            onClick={() => {
+              if (request) void copyToClipboard(request, 'Request copied to the clipboard');
+            }}
+            disabled={!request}
+            aria-label={request ? "Copy the Agent's request to the clipboard" : 'Copy — this call has no stored request'}
+          >
+            {I.copy}
+          </ActionIcon>
+        </span>
+      </Tooltip>
+    </Group>
   );
 }

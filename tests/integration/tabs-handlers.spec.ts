@@ -280,6 +280,28 @@ describe('tabs:update — the filter draft, via router and SQLite', () => {
     expect(state.queryRaw).toBe(DRAFT.queryRaw);
   });
 
+  it('persists the Agent-seeded mark, lists it back, and clears it; a tab stored without it has none', async () => {
+    const listedState = async () => {
+      const listed = await shim.invoke<CollectionTab[]>(IPC_CHANNELS.tabsList, undefined);
+      if (!listed.ok) throw new Error(listed.error.message);
+      return listed.data.find((t) => t.id === tabId)!.state;
+    };
+    // Stored before the field existed: absent, so the tab restores as before.
+    expect('agentSeeded' in (await listedState())).toBe(false);
+
+    expect((await update({ queryRaw: '{"status":"shipped"}', agentSeeded: true })).ok).toBe(true);
+    expect(storedState().agentSeeded).toBe(true);
+    expect((await listedState()).agentSeeded).toBe(true);
+
+    expect((await update({ agentSeeded: undefined })).ok).toBe(true);
+    expect('agentSeeded' in storedState()).toBe(false);
+    expect(storedState().queryRaw).toBe('{"status":"shipped"}');
+
+    const wrong = await update({ agentSeeded: 'yes' });
+    expect(wrong.ok).toBe(false);
+    if (!wrong.ok) expect(wrong.error.code).toBe('VALIDATION');
+  });
+
   it('round-trips the aggregation tab\'s several-open toggle and its open stages', async () => {
     const aggregation = { stages: [], activeStageId: 2, multiOpen: true, openStageIds: [1, 2] };
     expect((await update({ aggregation })).ok).toBe(true);

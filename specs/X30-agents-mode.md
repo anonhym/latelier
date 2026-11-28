@@ -113,7 +113,7 @@ From top to bottom:
 - **Needs you** for this session.
 - **Activity**: `agentAccess:list-calls` for the session, newest first, appended live from `agentAccess:call-event`. Columns: time, tool, target, result (`50 docs · 38 ms`, `refused · not open`, `truncated · bytes`, and `asked you to open {Connection}` for an `INPUT_REQUIRED` asking round, [X29 §5](./X29-agent-access-mcp-2026.md)). A refused row has the warning tint. **Refused only** filters; paging loads older rows on scroll. A row opens a detail panel:
   - the request as sent, as JSON text, with the limits applied and the outcome;
-  - **Open as query** on an `ok` row of `find`, `count` or `aggregate` whose request was not cut at 16 KiB. It opens a collection tab with the filter, sort and projection, or the pipeline, in place and **does not run it**: it would run with the user's permissions, so the user reads it and presses Run;
+  - **Open as query** on an `ok` row of `find`, `count` or `aggregate` whose request was not cut at 16 KiB. It opens a collection tab with the filter, sort and projection, or the pipeline, in place and **does not run it**: it would run with the user's permissions, so the user reads it and presses Run. A find or count marks the tab Agent-seeded in its stored state (`agentSeeded`), and an Agent-seeded query never runs automatically: not on landing, not when its Connection connects later, and not after a relaunch as the tab restored in front (W01 §14.10). The user's first Run in that tab clears the mark, and the tab restores as any other from then on. A pipeline opens on the Aggregation view, which never runs by itself;
   - **Copy** on every row. A refused or cut request gets Copy only, because a document can steer an Agent into asking for `$out` or `$merge`, and that must never be one click from running.
 - An ended session's page shows the same sections, read-only.
 
@@ -168,7 +168,7 @@ Agent calls on a collection appear in its Saved | History popover ([W10 §6](./W
 - A segmented filter, **All · Mine · Agents**, defaulting to All.
 - Agent rows come from `agentAccess:list-calls` filtered to the tab's Connection, database and collection: finds and counts in the Documents history. The Aggregation tab has no history yet, so Agent aggregations are not shown there; that waits for an Aggregation history, a separate piece of work. They merge with the user's rows by time. Nothing is written to `recent_queries` (X27 §6.3).
 - Each Agent row carries a chip, "Agent · {client name}", and its tooltip names the Agent and session.
-- Agent rows offer **Load**, which fills the editor without running, never "Run here". Refused and cut rows offer Copy only, for the reason in §5.2.
+- Agent rows offer **Load**, which fills the editor without running, never "Run here". Load marks the tab Agent-seeded as Open as query does (§5.2), so the loaded query never runs automatically, on a later connect or after a relaunch, until the user runs it. Refused and cut rows offer Copy only, for the reason in §5.2.
 - The footer links to the session pages: "All Agent activity on {collection}" opens All activity filtered to it.
 
 ## 10. Databases mode
@@ -236,6 +236,7 @@ Settled at the canvas review on 2026-11-27, with the proposed defaults:
 - The setup checklist ticks each step from real state, shows while any step is not true, and is absent while all three are.
 - A session page shows the Agent, the client as reported, the folder as reported (or "not reported"), the Connections reached, and its Activity, live.
 - Open as query fills a tab without running, only for an `ok`, uncut `find`, `count` or `aggregate`. Refused and cut requests offer Copy only.
+- An Agent-seeded query (Open as query, History Load) never runs automatically: not on landing, not on a later connect, not after a relaunch. The user's first Run clears the mark.
 - Connect an Agent reports "copied" only after main resolves, never shows a token, and turns to "Connected" on the token's first session.
 - In Databases mode each new request toasts once, stays until acted on or dismissed, and folds into one from the fourth. In Agents mode nothing toasts.
 - The status-bar Agents control is gone. The Switcher, Connections table and Server Tab have no Share entries. The navigator root keeps them, and the marker sits before the name.

@@ -301,7 +301,7 @@ export function ConnectAgentPanel({
                 variant="default"
                 style={{ marginLeft: 'auto' }}
                 onClick={() =>
-                  onNavigate({ kind: 'session', sessionId: session.id, agentName: session.tokenName, where: sessionWhere(session) })
+                  onNavigate({ kind: 'session', sessionId: session.id, agentName: session.tokenName, where: sessionWhere(session), tokenId: session.tokenId })
                 }
               >
                 View session

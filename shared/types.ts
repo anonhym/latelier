@@ -919,6 +919,14 @@ export interface CollectionTabState {
   lastRunQueryKey?: string;
   /** The last query the server answered in this tab: what "Revert to last valid query" loads. */
   lastValidQuery?: LastQuery;
+  /**
+   * The tab's query was loaded from an Agent's call, by Open as query or a
+   * History Load (X30 §5.2, §9), and the user has not run it since. Such a
+   * tab never runs by itself: not on landing, not on a connect, and not as
+   * the tab restored in front at launch. The user's first Run clears it.
+   * Absent on tabs persisted before it, which restore as before.
+   */
+  agentSeeded?: boolean;
   /** Never persisted — see the interface doc. Absent on a restored tab. */
   lastRun?: LastRun;
   columns?: Record<string, { width: number }>;

@@ -76,8 +76,11 @@ import { needsYouCount } from '../features/agents/needsYou';
 import { onAgentsPageRequest, takeAgentsPageRequest } from '../features/agents/agentsNav';
 import { AgentsSidebar } from '../features/agents/AgentsSidebar';
 import { AgentsTab } from '../features/agents/AgentsTab';
+import { AgentToastStack } from '../features/agents/AgentToastStack';
 import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
+import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
+import { findSeedPayload, type QuerySeed } from '../features/agents/activityRow';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -360,6 +363,9 @@ function WorkspaceInner() {
   if (agentsTab.open && !agentsSeen) setAgentsSeen(true);
   const connectionIds = React.useMemo(() => connections.map((c) => c.id), [connections]);
   const connectionActivity = useConnectionActivity(connectionIds, agentsSeen);
+  // X28: the open Proposals, read once here for every surface that shows one.
+  useProposalSync();
+  const openProposals = useOpenProposals();
   const agentsShareHint = useFeatureHint(
     'agents.share',
     activeCollection !== null &&
@@ -481,7 +487,8 @@ function WorkspaceInner() {
   // until the render after `openCollection` settles, so the load waits for it
   // there; until then the tab must not auto-run its default `{}` query.
   const pendingSavedRef = React.useRef<
-    | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean }
+    // `agentSeeded`: an Agent's query (X30 §5.2), marked on the tab so it never runs by itself.
+    | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean; agentSeeded?: true }
     | { kind: 'filter'; tabId: string; request: FilterRequest }
     | { kind: 'rename'; tabId: string; savedId: string }
     // `before` is the tab list the open was asked against: the run waits for a newer one.
@@ -510,6 +517,11 @@ function WorkspaceInner() {
       return;
     }
     if (activeCollection.state.lastRun) return;
+    // An Agent's query waits for the user's Run, even in the launch-restored tab, on a connect, after a relaunch.
+    if (activeCollection.state.agentSeeded) {
+      if (restoredTabRef.current === activeCollection.id) restoredTabRef.current = null;
+      return;
+    }
     // A restored query is the user's own, so it runs only against a
     // Connection known to be connected and only when it can run as written.
     const restored =
@@ -1787,11 +1799,34 @@ function WorkspaceInner() {
       tabs.setActiveView(tab.id, 'documents');
     }
     // The draft belongs to the filter being replaced: drop it with it.
-    tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
+    tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined, ...(pending.agentSeeded ? { agentSeeded: true } : {}) });
     // The saved list's `onLoaded`: clears the query bar's held complaints and reseeds the drawer.
     setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
   }, [tabs, pendingSavedTick, run, expandBuilder]);
+  // X30 §5.2 Open as query: an Agent's find or count lands in its collection's
+  // tab through the saved-query load, without the run; a pipeline opens on the
+  // Aggregation view, which never runs by itself. The user reads it and runs it.
+  const openAgentQuery = React.useCallback(
+    async (seed: QuerySeed) => {
+      const t = tabsRef.current;
+      const target = { connectionId: seed.connectionId, dbName: seed.database, collection: seed.collection };
+      try {
+        if (seed.kind === 'aggregate') {
+          await t.openAggregation({ ...target, initialState: { stages: seed.stages, activeStageId: null, dirty: true } });
+          return;
+        }
+        const tab = await t.openCollection({ ...target, reuseExisting: true });
+        // From here on the tab runs only on the user's Run; the load below marks it so for good.
+        if (restoredTabRef.current === tab.id) restoredTabRef.current = null;
+        pendingSavedRef.current = { kind: 'saved', tabId: tab.id, payload: findSeedPayload(seed), run: false, agentSeeded: true };
+        setPendingSavedTick((n) => n + 1);
+      } catch (e) {
+        notify.error(getErrorMessage(e, String(e)), { title: 'Could not open the query' });
+      }
+    },
+    [tabsRef, setPendingSavedTick],
+  );
   // Rename… opens the collection's Saved list with the entry in its rename
   // input. A Connection that is not connected shows its Connect pane instead.
   const renameSaved = React.useCallback(
@@ -1943,7 +1978,7 @@ function WorkspaceInner() {
   const agentsShell = {
     mode: sidebarMode,
     onMode: (mode: SidebarMode) => changeSidebarMode(mode),
-    needsYou: needsYouCount(agentAccess),
+    needsYou: needsYouCount(agentAccess, openProposals.list),
     sidebar: (
       <AgentsSidebar state={agentAccess} page={agentsTab.open ? agentsTab.page : null} onNavigate={agentsTab.show} />
     ),
@@ -1968,6 +2003,7 @@ function WorkspaceInner() {
       connectDrafts={agentsTab.connectDrafts}
       onConnectAction={agentsTab.connectAction}
       activity={connectionActivity}
+      onOpenQuery={(seed) => void openAgentQuery(seed)}
     />
   ) : null;
 
@@ -2078,6 +2114,32 @@ function WorkspaceInner() {
           <StatusBar connection={focusedConnection} />
         </AppShell.Footer>
       )}
+
+      {/* X30 §10.1: Agent requests in Databases mode, above the status bar. */}
+      <AgentToastStack
+        state={agentAccess}
+        proposals={openProposals.list}
+        proposalsLoaded={openProposals.loaded}
+        agentsMode={sidebarMode === 'agents'}
+        handlers={{
+          onOpenConnection: openConnection,
+          onViewSession: (item) =>
+            showAgentsPage({ kind: 'session', sessionId: item.sessionId, agentName: item.agent }),
+          onReview: (item) =>
+            showAgentsPage(
+              item.sessionId
+                ? {
+                    kind: 'session',
+                    sessionId: item.sessionId,
+                    agentName: item.agent,
+                    tokenId: item.proposal.backers[0]?.tokenId ?? null,
+                    proposalId: item.proposal.id,
+                  }
+                : { kind: 'home', proposalId: item.proposal.id },
+            ),
+          onOpenAgents: () => showAgentsPage(HOME_PAGE),
+        }}
+      />
 
       <FeatureHint
         id="agents.share"

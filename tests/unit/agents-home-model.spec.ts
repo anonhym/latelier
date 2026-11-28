@@ -11,8 +11,9 @@ import {
   showSetup,
   usedNowText,
 } from '../../src/features/agents/homeModel';
-import { needsYouCount, needsYouItems, needsYouLabel, requestMeta, requestsBySession } from '../../src/features/agents/needsYou';
+import { needsYouBySession, needsYouCount, needsYouItems, needsYouLabel, requestMeta } from '../../src/features/agents/needsYou';
 import { ago, clock, dayWord, elapsedShort } from '../../src/features/agents/agentsTime';
+import { backer, proposal } from '../helpers/agentProposalFixture';
 import type { AgentConnectionRequest, AgentSessionInfo } from '@shared/types';
 
 const NOW = Date.parse('2026-11-27T12:00:00.000Z');
@@ -270,8 +271,8 @@ describe('privilegePill', () => {
 
 describe('needsYou', () => {
   it('counts open Connection requests for the badge, with its accessible text', () => {
-    expect(needsYouCount(null)).toBe(0);
-    expect(needsYouCount({ connectionRequests: [request(), request({ sessionId: 's2' })] })).toBe(2);
+    expect(needsYouCount(null, [])).toBe(0);
+    expect(needsYouCount({ connectionRequests: [request(), request({ sessionId: 's2' })] }, [])).toBe(2);
     expect(needsYouLabel(1)).toBe('1 Agent request');
     expect(needsYouLabel(3)).toBe('3 Agent requests');
   });
@@ -294,8 +295,10 @@ describe('needsYou', () => {
         ],
       },
       NOW,
+      [],
+      [],
     );
-    expect(items.map((i) => [i.sessionId, i.agent, i.outcome])).toEqual([
+    expect(items.map((i) => [i.sessionId, i.agent, i.kind === 'connection-request' ? i.outcome : null])).toEqual([
       ['new', 'An Agent', 'waiting'],
       ['old', 'laptop-claude', 'refused'],
     ]);
@@ -308,15 +311,27 @@ describe('needsYou', () => {
       at: minutesAgo(1),
       meta: 'claude-code · ~/Projects/shop-api · 1m ago · find on shop.orders',
     });
-    expect(needsYouItems(null, NOW)).toEqual([]);
+    expect(needsYouItems(null, NOW, [], [])).toEqual([]);
   });
 
   it('counts requests per session', () => {
-    const by = requestsBySession({
-      connectionRequests: [request(), request({ connectionId: 'c2' }), request({ sessionId: 's2' })],
-    });
+    const by = needsYouBySession(
+      { connectionRequests: [request(), request({ connectionId: 'c2' }), request({ sessionId: 's2' })] },
+      [],
+    );
     expect(by.get('s1')).toBe(2);
     expect(by.get('s2')).toBe(1);
-    expect(requestsBySession(null).size).toBe(0);
+    expect(needsYouBySession(null, []).size).toBe(0);
+  });
+
+  it('counts the pending Proposals each session backs, beside its requests', () => {
+    const by = needsYouBySession({ connectionRequests: [request()] }, [
+      proposal({ id: 'p1', backers: [backer({ sessionId: 's1' }), backer({ tokenId: 't2', sessionId: 's2' }), backer({ tokenId: 't3', sessionId: null })] }),
+      proposal({ id: 'p2', status: 'later', backers: [backer({ sessionId: 's1' })] }),
+    ]);
+    expect([...by.entries()]).toEqual([
+      ['s1', 2],
+      ['s2', 1],
+    ]);
   });
 });

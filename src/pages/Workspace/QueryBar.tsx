@@ -55,6 +55,8 @@ import { FieldsControl } from './FieldsControl';
 import { useProjectionDraft } from './useProjectionDraft';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
+import { requestAgentsPage } from '../../features/agents/agentsNav';
+import { AgentProposalStrip } from '../../features/agents/AgentProposalStrip';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import type {
   BuilderState,
@@ -539,11 +541,16 @@ function QueryBarInner({
   };
   const loadFind = (payload: SavedPayload) => {
     if (payload.kind !== 'find') return;
-    const patch = hydrateFindPayload(payload as unknown as LegacySavedFindPayload, builder);
-    // The draft belongs to the filter being replaced: drop it with it.
-    onPatch({ ...patch, filterDraft: undefined });
+    const patch = fillFind(payload as unknown as LegacySavedFindPayload);
     onRun(patch);
     onLoaded?.();
+  };
+  // An Agent's query (X30 §9): it fills the editor and never runs.
+  const fillFind = (payload: LegacySavedFindPayload, extra: Partial<CollectionTabState> = {}) => {
+    const patch = hydrateFindPayload(payload, builder);
+    // The draft belongs to the filter being replaced: drop it with it.
+    onPatch({ ...patch, filterDraft: undefined, ...extra });
+    return patch;
   };
 
   const findOptionsHint = useFeatureHint('find.options', !!builder.collation?.trim() || !!builder.hint?.trim());
@@ -1292,6 +1299,16 @@ function QueryBarInner({
                       closeQueries();
                       loadFind(recent.payload);
                     }}
+                    onLoad={(payload) => {
+                      closeQueries();
+                      // Marked, so the tab never runs it by itself, now or after a relaunch.
+                      fillFind(payload, { agentSeeded: true });
+                      onLoaded?.();
+                    }}
+                    onAgentActivity={() => {
+                      closeQueries();
+                      requestAgentsPage({ kind: 'activity', connectionId: meta.connectionId, database: meta.dbName, collection: meta.collection });
+                    }}
                   />
                 </Tabs.Panel>
               </Tabs>
@@ -1504,6 +1521,7 @@ function QueryBarInner({
         surfaces={['filter', 'sort', 'projection']}
       />
       <ReferenceDiscoveryStrip tabId={meta.tabId} />
+      <AgentProposalStrip tabId={meta.tabId} connectionId={meta.connectionId} dbName={meta.dbName} collection={meta.collection} />
 
       {expandOpen && (
         <QueryExpandModal
