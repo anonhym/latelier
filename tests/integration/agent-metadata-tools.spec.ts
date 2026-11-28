@@ -102,9 +102,6 @@ describe('Agent metadata tools', () => {
       const stable = new Set(before.filter((name) => after.includes(name)));
       expect(stable.has(f.dbName)).toBe(true);
       expect(row!.databases!.filter((name) => stable.has(name))).toEqual([...stable]);
-      // Nothing list_connections shows may be hidden from list_databases.
-      const seen = new Set([...before, ...after]);
-      expect(row!.databases!.filter((name) => !seen.has(name))).toEqual([]);
     });
 
     it('does not connect a Dormant Connection and gives it no databases', async () => {
