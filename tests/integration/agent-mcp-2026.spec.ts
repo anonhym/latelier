@@ -435,12 +435,35 @@ describe('X29 pause on a real Connection', () => {
       isError: result.isError === true,
       text: textOf(result).split('\n').slice(0, -1).join('\n').replaceAll(/untrusted-data-[0-9a-f]{32}/g, 'untrusted-data-TAG').replace(/"(executionTimeMillis\w*|millis|works|advanced|needTime|saveState|restoreState)":\s*\d+/g, '"$1":0'),
     });
+    // Other integration files create and drop databases on the same server
+    // between the two calls, so for the two tools that list databases keep
+    // only the names both answers carry. The fixture's own must be one of them.
+    const listsDatabases = new Set(['list_connections', 'list_databases']);
+    const databasesOf = (name: string, parsed: unknown): string[] =>
+      name === 'list_databases'
+        ? (parsed as string[])
+        : (parsed as { connections: Array<{ databases?: string[] | null }> }).connections[0]!.databases ?? [];
+    const keepOnly = (name: string, parsed: unknown, keep: Set<string>): unknown => {
+      if (name === 'list_databases') return (parsed as string[]).filter((db) => keep.has(db));
+      const listed = parsed as { connections: Array<{ databases?: string[] | null }> };
+      return { ...listed, connections: listed.connections.map((c) => ({ ...c, databases: c.databases?.filter((db) => keep.has(db)) ?? null })) };
+    };
     try {
       expect(calls).toHaveLength(13);
       for (const [name, args] of calls) {
-        const legacy = stable(await f.call(name, args));
-        const current = stable(await modern.client.callTool({ name, arguments: args }));
+        const legacyRaw = await f.call(name, args);
+        const currentRaw = await modern.client.callTool({ name, arguments: args });
+        let legacy = stable(legacyRaw);
+        let current = stable(currentRaw);
         expect(legacy.isError, name).toBe(false);
+        if (listsDatabases.has(name)) {
+          const [legacyBody, currentBody] = [envelopeBody(textOf(legacyRaw)), envelopeBody(textOf(currentRaw))];
+          const [legacyParsed, currentParsed] = [JSON.parse(legacyBody) as unknown, JSON.parse(currentBody) as unknown];
+          const both = new Set(databasesOf(name, legacyParsed).filter((db) => databasesOf(name, currentParsed).includes(db)));
+          expect(both.has(f.dbName), name).toBe(true);
+          legacy = { ...legacy, text: legacy.text.replace(legacyBody, JSON.stringify(keepOnly(name, legacyParsed, both))) };
+          current = { ...current, text: current.text.replace(currentBody, JSON.stringify(keepOnly(name, currentParsed, both))) };
+        }
         expect(current, name).toEqual(legacy);
       }
       // get_proposal needs the id the proposal call returned.
