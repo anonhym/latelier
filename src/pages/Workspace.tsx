@@ -81,7 +81,6 @@ import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
 import { findSeedPayload, type QuerySeed } from '../features/agents/activityRow';
-import { isAgentSeeded, markAgentSeeded } from '../features/agents/agentSeededTabs';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -488,7 +487,8 @@ function WorkspaceInner() {
   // until the render after `openCollection` settles, so the load waits for it
   // there; until then the tab must not auto-run its default `{}` query.
   const pendingSavedRef = React.useRef<
-    | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean }
+    // `agentSeeded`: an Agent's query (X30 §5.2), marked on the tab so it never runs by itself.
+    | { kind: 'saved'; tabId: string; payload: LegacySavedFindPayload; run: boolean; agentSeeded?: true }
     | { kind: 'filter'; tabId: string; request: FilterRequest }
     | { kind: 'rename'; tabId: string; savedId: string }
     // `before` is the tab list the open was asked against: the run waits for a newer one.
@@ -517,8 +517,8 @@ function WorkspaceInner() {
       return;
     }
     if (activeCollection.state.lastRun) return;
-    // An Agent's query waits for the user's Run, even in the launch-restored tab.
-    if (isAgentSeeded(activeCollection.id)) {
+    // An Agent's query waits for the user's Run, even in the launch-restored tab, on a connect, after a relaunch.
+    if (activeCollection.state.agentSeeded) {
       if (restoredTabRef.current === activeCollection.id) restoredTabRef.current = null;
       return;
     }
@@ -1799,7 +1799,7 @@ function WorkspaceInner() {
       tabs.setActiveView(tab.id, 'documents');
     }
     // The draft belongs to the filter being replaced: drop it with it.
-    tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined });
+    tabs.patchCollectionState(tab.id, { ...patch, filterDraft: undefined, ...(pending.agentSeeded ? { agentSeeded: true } : {}) });
     // The saved list's `onLoaded`: clears the query bar's held complaints and reseeds the drawer.
     setSavedLoadGen((n) => n + 1);
     if (pending.run) void run(patch, { ...tab, state: { ...tab.state, ...patch } });
@@ -1817,10 +1817,9 @@ function WorkspaceInner() {
           return;
         }
         const tab = await t.openCollection({ ...target, reuseExisting: true });
-        // Before the load lands: from here on the tab runs only on the user's Run.
-        markAgentSeeded(tab.id);
+        // From here on the tab runs only on the user's Run; the load below marks it so for good.
         if (restoredTabRef.current === tab.id) restoredTabRef.current = null;
-        pendingSavedRef.current = { kind: 'saved', tabId: tab.id, payload: findSeedPayload(seed), run: false };
+        pendingSavedRef.current = { kind: 'saved', tabId: tab.id, payload: findSeedPayload(seed), run: false, agentSeeded: true };
         setPendingSavedTick((n) => n + 1);
       } catch (e) {
         notify.error(getErrorMessage(e, String(e)), { title: 'Could not open the query' });

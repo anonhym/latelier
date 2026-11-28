@@ -36,6 +36,7 @@ const TabStateShape = z
     lastRunHasMore: z.boolean().optional(),
     lastRunQueryKey: z.string().optional(),
     lastValidQuery: z.object({ queryRaw: z.string(), builder: z.record(z.string(), z.unknown()) }).optional(),
+    agentSeeded: z.boolean().optional(),
     lastRun: z.record(z.string(), z.unknown()).optional(),
     columns: z.record(z.string(), z.object({ width: z.number() })).optional(),
     expandedRows: z.record(z.string(), z.boolean()).optional(),

@@ -56,7 +56,6 @@ import { useProjectionDraft } from './useProjectionDraft';
 import { SavedTab } from './views/SavedTab';
 import { RecentTab } from './views/RecentTab';
 import { requestAgentsPage } from '../../features/agents/agentsNav';
-import { markAgentSeeded } from '../../features/agents/agentSeededTabs';
 import { AgentProposalStrip } from '../../features/agents/AgentProposalStrip';
 import { hydrateFindPayload, type LegacySavedFindPayload } from './legacyBuilder';
 import type {
@@ -547,10 +546,10 @@ function QueryBarInner({
     onLoaded?.();
   };
   // An Agent's query (X30 §9): it fills the editor and never runs.
-  const fillFind = (payload: LegacySavedFindPayload) => {
+  const fillFind = (payload: LegacySavedFindPayload, extra: Partial<CollectionTabState> = {}) => {
     const patch = hydrateFindPayload(payload, builder);
     // The draft belongs to the filter being replaced: drop it with it.
-    onPatch({ ...patch, filterDraft: undefined });
+    onPatch({ ...patch, filterDraft: undefined, ...extra });
     return patch;
   };
 
@@ -1302,8 +1301,8 @@ function QueryBarInner({
                     }}
                     onLoad={(payload) => {
                       closeQueries();
-                      markAgentSeeded(meta.tabId);
-                      fillFind(payload);
+                      // Marked, so the tab never runs it by itself, now or after a relaunch.
+                      fillFind(payload, { agentSeeded: true });
                       onLoaded?.();
                     }}
                     onAgentActivity={() => {

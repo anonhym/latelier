@@ -198,6 +198,9 @@ export function useQueryRunner({
         builder = { ...builder, projectionRaw: next };
       });
       if (builder !== requested.builder) patch.builder = builder;
+      // An Agent's query stays unrun until the user's Run, which this is: an
+      // automatic run never reaches an Agent-seeded tab. Normal restore resumes.
+      if (requested.agentSeeded) patch.agentSeeded = undefined;
       const state: CollectionTabState =
         Object.keys(patch).length === 0 ? requested : { ...requested, ...patch };
       if (Object.keys(patch).length > 0) patchState(target.id, patch);

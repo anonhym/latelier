@@ -10,7 +10,6 @@ import { RecentTab } from '../../src/pages/Workspace/views/RecentTab';
 import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { takeAgentsPageRequest } from '../../src/features/agents/agentsNav';
-import { isAgentSeeded, resetAgentSeeded } from '../../src/features/agents/agentSeededTabs';
 import { _resetTabRequestsForTests } from '../../src/pages/Workspace/tabRequest';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { LegacySavedFindPayload } from '../../src/pages/Workspace/legacyBuilder';
@@ -20,7 +19,6 @@ afterEach(() => {
   uninstallAtelierMock();
   _resetTabRequestsForTests();
   takeAgentsPageRequest();
-  resetAgentSeeded();
   vi.restoreAllMocks();
 });
 
@@ -231,10 +229,9 @@ describe('History in the Filter Bar', () => {
   it('Load fills the filter and runs nothing', async () => {
     const actions = await openHistory([agentFind('k1', 5, { status: 'shipped' })]);
     fireEvent.click(await screen.findByRole('button', { name: 'Load {"status":"shipped"} into the editor' }));
-    await waitFor(() => expect(actions.patch).toHaveBeenCalledWith(expect.objectContaining({ queryRaw: '{"status":"shipped"}' })));
+    // Marked in the tab's state, so the tab never runs it by itself, now or after a relaunch.
+    await waitFor(() => expect(actions.patch).toHaveBeenCalledWith(expect.objectContaining({ queryRaw: '{"status":"shipped"}', agentSeeded: true })));
     expect(actions.run).not.toHaveBeenCalled();
-    // Marked, so the Workspace never runs it by itself later, on a connect or as the restored tab.
-    expect(isAgentSeeded('hist')).toBe(true);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 

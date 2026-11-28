@@ -2,19 +2,17 @@
 // and never runs it, even when the query is the tab's own default `{}`, which
 // a fresh tab would otherwise run on landing.
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor, within } from '../helpers/render';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '../helpers/render';
 import { collectionTabFixture, connectionFixture, uninstallAtelierMock, watchServerCalls } from '../helpers/atelierMock';
 import { agentState, liveSession, mountAgentsWorkspace, token } from '../helpers/agentsWorkspace';
 import { callRow } from '../helpers/agentProposalFixture';
 import { requestAgentsPage } from '../../src/features/agents/agentsNav';
 import { resetProposalStore } from '../../src/features/agents/proposalStore';
-import { resetAgentSeeded } from '../../src/features/agents/agentSeededTabs';
-import type { AgentCallRow, CollectionTab, ConnectionRuntime } from '@shared/types';
+import type { AgentCallRow, CollectionTab, CollectionTabState, ConnectionRuntime } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
   resetProposalStore();
-  resetAgentSeeded();
   vi.restoreAllMocks();
 });
 
@@ -113,5 +111,59 @@ describe('Open as query into the launch-restored tab', () => {
     await waitFor(() => expect((document.getElementById('query-bar-filter') as HTMLTextAreaElement | null)?.value).toBe('{"status":"shipped"}'));
     await act(async () => new Promise((r) => setTimeout(r, 50)));
     expect(server.calls.filter((c) => c.startsWith('query.'))).toEqual([]);
+  });
+});
+
+describe('an Agent-seeded tab across a relaunch', () => {
+  const SEEDED: CollectionTabState = {
+    view: 'Tree',
+    builder: { projection: [], sort: '', limit: '' },
+    queryRaw: '{"status":"shipped"}',
+    page: 0,
+    pageSize: 50,
+    activeBuilderTab: 'Builder',
+    agentSeeded: true,
+  };
+
+  /**
+   * A launch with the orders tab restored in front, on an open Connection.
+   * `stored` is the tab's persisted state; each `tabs.update` merges into it
+   * through JSON, as main writes `state_json`, so a cleared field is gone.
+   */
+  function launch(stored: { state: CollectionTabState }) {
+    const ORDERS = collectionTabFixture({ id: 't-orders', dbName: 'shop', collection: 'orders', isActive: true, state: stored.state });
+    const ws = mountAgentsWorkspace({
+      tabs: [ORDERS],
+      overrides: {
+        tabs: {
+          update: async (_id: string, patch: { state: Partial<CollectionTabState> }) => {
+            stored.state = JSON.parse(JSON.stringify({ ...stored.state, ...patch.state })) as CollectionTabState;
+            return { ...ORDERS, state: stored.state };
+          },
+        } as never,
+      },
+    });
+    return watchServerCalls(ws.api);
+  }
+  const finds = (server: { calls: string[] }) => server.calls.filter((c) => c === 'query.find');
+
+  it('does not run on launch, and after the user runs it once, a later launch restores as normal', async () => {
+    const stored = { state: SEEDED };
+    let server = launch(stored);
+    await waitFor(() => expect((document.getElementById('query-bar-filter') as HTMLTextAreaElement | null)?.value).toBe('{"status":"shipped"}'));
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    expect(server.calls.filter((c) => c.startsWith('query.'))).toEqual([]);
+
+    // The user's Run: it runs, and the mark is gone from the stored state.
+    fireEvent.click(screen.getByTestId('query-run-btn'));
+    await waitFor(() => expect(finds(server)).toHaveLength(1));
+    await waitFor(() => expect('agentSeeded' in stored.state).toBe(false), { timeout: 2000 });
+    expect(stored.state.queryRaw).toBe('{"status":"shipped"}');
+
+    // Relaunch: the restore runs the user's query in front, as for any tab.
+    cleanup();
+    uninstallAtelierMock();
+    server = launch(stored);
+    await waitFor(() => expect(finds(server)).toHaveLength(1));
   });
 });
