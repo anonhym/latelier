@@ -89,13 +89,22 @@ describe('Agent metadata tools', () => {
 
   describe('list_connections', () => {
     it('adds the visible databases of an open Connection, from the same filter', async () => {
+      // Other integration files create and drop databases on the same server
+      // while this runs, so compare only the names that both list_databases
+      // reads, one before and one after, agree on.
+      const before = body<string[]>(await f.call('list_databases', { connectionId: f.connectionId }));
       const r = await f.call('list_connections');
+      const after = body<string[]>(await f.call('list_databases', { connectionId: f.connectionId }));
       const [row] = body<{ connections: Array<{ id: string; state: string; databases?: string[] | null }> }>(r).connections;
       expect(row).toMatchObject({ id: f.connectionId, state: 'available' });
       expect(row!.databases).toContain(f.dbName);
       for (const denied of ['admin', 'local', 'config']) expect(row!.databases).not.toContain(denied);
-      const listed = body<string[]>(await f.call('list_databases', { connectionId: f.connectionId }));
-      expect(row!.databases).toEqual(listed);
+      const stable = new Set(before.filter((name) => after.includes(name)));
+      expect(stable.has(f.dbName)).toBe(true);
+      expect(row!.databases!.filter((name) => stable.has(name))).toEqual([...stable]);
+      // Nothing list_connections shows may be hidden from list_databases.
+      const seen = new Set([...before, ...after]);
+      expect(row!.databases!.filter((name) => !seen.has(name))).toEqual([]);
     });
 
     it('does not connect a Dormant Connection and gives it no databases', async () => {
