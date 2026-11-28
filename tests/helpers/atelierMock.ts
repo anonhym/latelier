@@ -99,7 +99,7 @@ export function installAtelierMock(overrides: Deep<IpcApi> = {}): IpcApi {
       later: async () => ({ ok: true as const }),
       reopen: async () => ({ ok: true as const }),
       decline: async () => ({ ok: true as const }),
-      onEvent: () => () => {},
+      onChanged: () => () => {},
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),
@@ -502,7 +502,7 @@ function makePermissiveStub(): IpcApi {
       later: async () => ({ ok: true as const }),
       reopen: async () => ({ ok: true as const }),
       decline: async () => ({ ok: true as const }),
-      onEvent: () => () => {},
+      onChanged: () => () => {},
     },
     docs: {
       openExternal: async () => ({ opened: true as const }),

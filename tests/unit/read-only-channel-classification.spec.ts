@@ -148,7 +148,7 @@ const NON_MONGO_CHANNELS = new Set<string>([
   IPC_CHANNELS.agentProposalsLater,
   IPC_CHANNELS.agentProposalsReopen,
   IPC_CHANNELS.agentProposalsDecline,
-  IPC_CHANNELS.agentProposalsEvent,
+  IPC_CHANNELS.agentProposalsChangedEvent,
   IPC_CHANNELS.savedList,
   IPC_CHANNELS.savedGet,
   IPC_CHANNELS.savedCreate,

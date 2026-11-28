@@ -95,7 +95,7 @@ export function useProposalSync(): void {
   React.useEffect(() => {
     void refreshProposals();
     try {
-      return api.agentProposals.onEvent(() => void refreshProposals());
+      return api.agentProposals.onChanged(() => void refreshProposals());
     } catch (err) {
       logFailure('subscribing to Agent Proposals', err);
       return undefined;

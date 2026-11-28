@@ -2044,7 +2044,7 @@ export type AgentProposalCheck =
       targetField: string;
     };
 
-/** What `agentProposals:event` pushes: a Proposal was added or changed status. The renderer lists again. */
+/** What `agentProposals:changed-event` pushes: a Proposal was added or changed status. The renderer lists again. */
 export interface AgentProposalEvent {
   id: string;
   status: AgentProposalStatus;

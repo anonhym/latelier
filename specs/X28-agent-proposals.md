@@ -175,7 +175,7 @@ Through the 5-file contract, with a `registerAgentProposalsChannels` call in `el
 - `agentProposals:check` `{ id }` → the §5 check result
 - `agentProposals:accept` `{ id, savedFor: 'connection' | 'family' }`
 - `agentProposals:later`, `agentProposals:reopen`, `agentProposals:decline` `{ id }`
-- `agentProposals:changed-event` (push, `{ id, status }`): a Proposal was added, joined by another Agent, or changed status. The renderer lists again. Push channels end in `-event`, like `agentAccess:state-event`.
+- `agentProposals:changed-event` (push, `{ id, status }`): a Proposal was added, joined by another Agent, or changed status. The renderer lists again. Push channels end in `-event`, like `agentAccess:state-event`. Its `IPC_CHANNELS` key is `agentProposalsChangedEvent` and the renderer subscribes with `window.atelier.agentProposals.onChanged`, as `agentAccessStateEvent` pairs with `onState`.
 
 No channel takes a secret. `agentProposals:accept` adds no power the renderer lacked, since `refs:create` already accepts any pair.
 

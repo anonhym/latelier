@@ -211,10 +211,10 @@ const api: IpcApi = {
     later: (input) => call(IPC_CHANNELS.agentProposalsLater, input),
     reopen: (input) => call(IPC_CHANNELS.agentProposalsReopen, input),
     decline: (input) => call(IPC_CHANNELS.agentProposalsDecline, input),
-    onEvent: (cb) => {
+    onChanged: (cb) => {
       const listener = (_evt: unknown, event: unknown) => cb(event as Parameters<typeof cb>[0]);
-      ipcRenderer.on(IPC_CHANNELS.agentProposalsEvent, listener);
-      return () => ipcRenderer.removeListener(IPC_CHANNELS.agentProposalsEvent, listener);
+      ipcRenderer.on(IPC_CHANNELS.agentProposalsChangedEvent, listener);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.agentProposalsChangedEvent, listener);
     },
   },
 

@@ -883,7 +883,7 @@ app.whenReady().then(() => {
     appState,
     log,
     emit: (event) => {
-      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentProposalsEvent, event);
+      if (win && !win.isDestroyed()) win.webContents.send(IPC_CHANNELS.agentProposalsChangedEvent, event);
     },
   });
   agentSvc = new AgentAccessService({

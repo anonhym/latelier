@@ -419,7 +419,7 @@ export interface IpcApi {
     /** Never for this pair: declined, and the pair joins X26's Never list. */
     decline: (input: { id: string }) => Promise<{ ok: true }>;
     /** Main pushes each Proposal added or changed; returns the unsubscribe. */
-    onEvent: (cb: (event: AgentProposalEvent) => void) => () => void;
+    onChanged: (cb: (event: AgentProposalEvent) => void) => () => void;
   };
 
   /** Refuses any URL that does not start with https://www.mongodb.com/docs/. */
@@ -798,7 +798,7 @@ export const IPC_CHANNELS = {
   agentProposalsLater:        'agentProposals:later',
   agentProposalsReopen:       'agentProposals:reopen',
   agentProposalsDecline:      'agentProposals:decline',
-  agentProposalsEvent:        'agentProposals:changed-event',
+  agentProposalsChangedEvent: 'agentProposals:changed-event',
 
   // Docs-restricted external opener -----------------------------------------
   docsOpenExternal:  'docs:openExternal',
