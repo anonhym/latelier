@@ -93,8 +93,17 @@ function ProposalToast({ item, hide, onReview }: { item: ProposalItem; hide: () 
       >
         Review
       </Button>
-      {/* Later: the Proposal leaves the toasts and waits under Later in Needs you. */}
-      <Button size="compact-sm" variant="subtle" color="gray" disabled={actions.busy} onClick={() => void actions.later()}>
+      {/* Later: the toast goes at once, like Review and the ✕; the Proposal then waits under Later in Needs you. A failure says so in an error toast. */}
+      <Button
+        size="compact-sm"
+        variant="subtle"
+        color="gray"
+        disabled={actions.busy}
+        onClick={() => {
+          hide();
+          void actions.later();
+        }}
+      >
         Later
       </Button>
     </Card>

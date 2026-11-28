@@ -7,6 +7,7 @@ import { installAtelierMock, uninstallAtelierMock } from '../helpers/atelierMock
 import { agentState } from '../helpers/agentsWorkspace';
 import { proposal } from '../helpers/agentProposalFixture';
 import { AgentToastStack, type AgentToastHandlers } from '../../src/features/agents/AgentToastStack';
+import { notify } from '../../src/theme/notifications';
 import type { AgentAccessState, AgentConnectionRequest, AgentProposal } from '@shared/types';
 
 afterEach(() => {
@@ -40,8 +41,8 @@ interface Props {
   agentsMode?: boolean;
 }
 
-function mount(initial: Props) {
-  const later = vi.fn(async () => ({ ok: true as const }));
+function mount(initial: Props, opts: { later?: () => Promise<{ ok: true }> } = {}) {
+  const later = vi.fn(opts.later ?? (async () => ({ ok: true as const })));
   installAtelierMock({ agentProposals: { later, list: async () => [] } });
   const handlers: AgentToastHandlers = {
     onOpenConnection: vi.fn(),
@@ -151,14 +152,25 @@ describe('Agent toasts', () => {
     expect(cards[0]!.textContent).toContain('proposes');
   });
 
-  it('Review hands the Proposal over, and Later puts it off', async () => {
+  it('Review hands the Proposal over, and the toast goes', async () => {
     const m = mount({ state: agentState(), proposals: [], proposalsLoaded: true });
     m.update({ state: agentState(), proposals: [proposal({ id: 'p-new' })], proposalsLoaded: true });
-    fireEvent.click(screen.getByRole('button', { name: 'Later' }));
-    await waitFor(() => expect(m.later).toHaveBeenCalledWith({ id: 'p-new' }));
     fireEvent.click(screen.getByRole('button', { name: 'Review' }));
     expect(m.handlers.onReview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'proposal', key: 'proposal:p-new' }));
     expect(screen.queryAllByTestId('agent-toast-proposal')).toHaveLength(0);
     await act(async () => {});
+  });
+
+  it('Later hides the toast at once, and says so when putting the Proposal off fails', async () => {
+    const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
+    let fail!: (e: Error) => void;
+    const m = mount({ state: agentState(), proposals: [], proposalsLoaded: true }, { later: () => new Promise((_, reject) => (fail = reject)) });
+    m.update({ state: agentState(), proposals: [proposal({ id: 'p-new' })], proposalsLoaded: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }));
+    // Gone before main answers.
+    expect(screen.queryAllByTestId('agent-toast-proposal')).toHaveLength(0);
+    expect(m.later).toHaveBeenCalledWith({ id: 'p-new' });
+    await act(async () => fail(new Error('the Proposal was decided elsewhere')));
+    await waitFor(() => expect(error).toHaveBeenCalledWith(expect.stringContaining('decided elsewhere')));
   });
 });
