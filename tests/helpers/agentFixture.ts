@@ -50,12 +50,14 @@ export interface FixtureOptions {
   connect?: boolean;
   /** Share it with Agents. Default true. */
   shared?: boolean;
+  /** The Proposal service's clock. Default the real one. */
+  proposalsNow?: () => number;
 }
 
 /** Real SQLite, a real socket, a real `MongoPool` over the shared memory server, and one MCP client. */
 export async function createReadFixture(options: FixtureOptions = {}): Promise<ReadFixture> {
   const m = createAgentMongo();
-  const h = createAgentHarness({ makePool: m.makePool });
+  const h = createAgentHarness({ makePool: m.makePool, ...(options.proposalsNow ? { proposalsNow: options.proposalsNow } : {}) });
   const connectionId = randomUUID();
   h.addConnection(connectionId, 'prod', { shared: options.shared ?? true, hostPort: uriToHostPort(getSharedMongoUri()) });
   if (options.connect ?? true) await m.pool.connect(connectionId);

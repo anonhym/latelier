@@ -55,15 +55,24 @@ export interface CheckSegment {
   code?: true;
 }
 
+/** Why a Proposal that is no longer open has nothing to check. */
+const CLOSED_TEXT: Record<Extract<AgentProposalCheck, { kind: 'closed' }>['status'], string> = {
+  expired: 'This Proposal expired',
+  obsolete: 'A Reference Rule already covers this field',
+  accepted: 'This Proposal was added',
+  declined: 'This Proposal was declined',
+};
+
 /**
  * The check's sentence (X28 §5): "3 of 3 sampled documents in orders
  * resolve", "No sampled document in orders has `customerId`", "Open Shop to
- * check this relation". The sentence counts documents and names the
+ * check this relation", or why a Proposal no longer open has none. The sentence counts documents and names the
  * collection after "in": a collection's name is not always an English plural
  * to count with.
  */
 export function checkSegments(check: AgentProposalCheck): CheckSegment[] {
   if (check.kind === 'not-open') return [{ text: `Open ${check.connectionName} to check this relation` }];
+  if (check.kind === 'closed') return [{ text: CLOSED_TEXT[check.status] }];
   if (check.sampled === 0) {
     return [{ text: `No sampled document in ${check.sourceCollection} has ` }, { text: check.sourceField, code: true }];
   }
@@ -82,7 +91,7 @@ export type CheckTone = 'ok' | 'warn' | 'neutral';
 
 /** Green when a sample resolved, warning when none did, neutral when nothing was read. */
 export function checkTone(check: AgentProposalCheck): CheckTone {
-  if (check.kind === 'not-open') return 'neutral';
+  if (check.kind !== 'sampled') return 'neutral';
   return check.resolved > 0 ? 'ok' : 'warn';
 }
 
