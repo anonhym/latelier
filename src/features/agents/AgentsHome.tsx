@@ -280,7 +280,13 @@ export function AgentsHome({
         items={items}
         later={later}
         reviewing={reviewing}
-        handlers={{ onOpenConnection: openConnection, onNotNow: (item) => dismiss(item.sessionId, item.connectionId), onReview: review }}
+        handlers={{
+          onOpenConnection: openConnection,
+          onNotNow: (item) => dismiss(item.sessionId, item.connectionId),
+          onReview: review,
+          // Review goes to the session page; only one whose session was not kept opens here.
+          reviewsInPlace: (item) => item.sessionId === null,
+        }}
       />
 
       <section

@@ -18,6 +18,8 @@ export interface NeedsYouHandlers {
   onNotNow: (item: ConnectionRequestItem) => void;
   /** Review: open the Proposal with its reasons and check. */
   onReview: (item: ProposalItem) => void;
+  /** True when Review opens the Proposal under its row rather than on another page: only then is it a disclosure. */
+  reviewsInPlace: (item: ProposalItem) => boolean;
 }
 
 /** The sentence of a Connection request (X30 §8). Every name in it came from elsewhere: text only. */
@@ -130,7 +132,7 @@ function ProposalRow({
         sentence={<ProposalSentence item={item} />}
         actions={
           <>
-            <Button size="compact-sm" aria-expanded={open} onClick={() => handlers.onReview(item)}>
+            <Button size="compact-sm" aria-expanded={handlers.reviewsInPlace(item) ? open : undefined} onClick={() => handlers.onReview(item)}>
               Review
             </Button>
             {item.status === 'later' ? (

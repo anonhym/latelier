@@ -8,11 +8,14 @@ import { agentState, liveSession } from '../helpers/agentsWorkspace';
 import { AgentsHome } from '../../src/features/agents/AgentsHome';
 import { useConnectionActivity } from '../../src/features/agents/useConnectionActivity';
 import { NEEDS_YOU_EMPTY } from '../../src/features/agents/NeedsYouList';
+import { resetProposalStore, setOpenProposals } from '../../src/features/agents/proposalStore';
+import { backer, proposal } from '../helpers/agentProposalFixture';
 import type { IpcApi } from '@shared/ipc';
 import type { AgentAccessState, AgentCallSummary, AgentConnectionRequest, AgentSessionRow, ConnectionSummary } from '@shared/types';
 
 afterEach(() => {
   uninstallAtelierMock();
+  resetProposalStore();
   vi.restoreAllMocks();
 });
 
@@ -274,5 +277,29 @@ describe('Agents Home', () => {
       expect(container.querySelector('script')).toBeNull();
       expect(screen.getByTestId('needs-you-request').textContent).toContain('<img src=x onerror=alert(1)>');
     });
+  });
+});
+
+describe('Home: a Proposal in Needs you', () => {
+  it('Review goes to the session page for a kept session, and opens in place, as a disclosure, for one not kept', () => {
+    const m = mount({ state: agentState({ sessions: [liveSession({ id: 's1', tokenId: 't1' })] }) });
+    act(() =>
+      setOpenProposals([
+        proposal({ id: 'p-kept', backers: [backer({ sessionId: 's1' })] }),
+        proposal({ id: 'p-gone', createdAt: '2026-11-27T09:00:00.000Z', backers: [backer({ sessionId: null })] }),
+      ]),
+    );
+    const [kept, gone] = screen.getAllByTestId('needs-you-proposal');
+    expect(kept!.dataset.proposalId).toBe('p-kept');
+    const keptReview = within(kept!).getByRole('button', { name: 'Review' });
+    expect(keptReview.hasAttribute('aria-expanded')).toBe(false);
+    fireEvent.click(keptReview);
+    expect(m.onNavigate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'session', sessionId: 's1', proposalId: 'p-kept' }));
+
+    const goneReview = within(gone!).getByRole('button', { name: 'Review' });
+    expect(goneReview.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(goneReview);
+    expect(goneReview.getAttribute('aria-expanded')).toBe('true');
+    expect(within(gone!).getByTestId('proposal-card')).toBeTruthy();
   });
 });

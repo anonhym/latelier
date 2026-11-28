@@ -205,6 +205,7 @@ export function SessionPage({ page, state, openConnection, onOpenQuery }: Sessio
                 .dismissRequest({ sessionId: item.sessionId, connectionId: item.connectionId })
                 .catch((err: unknown) => notify.error(getErrorMessage(err, 'Could not dismiss the request.'))),
             onReview: review,
+            reviewsInPlace: () => true,
           }}
         />
         <section aria-labelledby="session-activity-heading" style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.r, minWidth: 0 }}>

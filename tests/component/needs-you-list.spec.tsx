@@ -29,7 +29,7 @@ function mount(proposals: AgentProposal[], reviewing: string | null = null) {
       check: async () => ({ kind: 'not-open' as const, connectionName: 'Shop (prod)' }),
     },
   });
-  const handlers: NeedsYouHandlers = { onOpenConnection: vi.fn(), onNotNow: vi.fn(), onReview: vi.fn() };
+  const handlers: NeedsYouHandlers = { onOpenConnection: vi.fn(), onNotNow: vi.fn(), onReview: vi.fn(), reviewsInPlace: (item) => item.proposal.id !== 'p-elsewhere' };
   render(
     <NeedsYouList
       items={needsYouItems(null, NOW, proposals, [])}
@@ -65,6 +65,14 @@ describe('Needs you', () => {
     expect(within(row).getByTestId('proposal-card')).toBeTruthy();
     fireEvent.click(review);
     expect(m.handlers.onReview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'proposal', key: 'proposal:p1' }));
+  });
+
+  it('makes Review a disclosure only where it opens the Proposal in place', () => {
+    mount([proposal({ id: 'p-here' }), proposal({ id: 'p-elsewhere', createdAt: '2026-11-27T09:00:00.000Z' })]);
+    const [here, elsewhere] = screen.getAllByTestId('needs-you-proposal');
+    expect(here!.dataset.proposalId).toBe('p-here');
+    expect(within(here!).getByRole('button', { name: 'Review' }).getAttribute('aria-expanded')).toBe('false');
+    expect(within(elsewhere!).getByRole('button', { name: 'Review' }).hasAttribute('aria-expanded')).toBe(false);
   });
 
   it('keeps Later Proposals under a collapsed Later, apart from the count', () => {
