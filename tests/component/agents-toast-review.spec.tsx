@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '../helpers/render';
 import { uninstallAtelierMock } from '../helpers/atelierMock';
 import { agentState, liveSession, mountAgentsWorkspace, token } from '../helpers/agentsWorkspace';
-import { proposal } from '../helpers/agentProposalFixture';
+import { backer, proposal } from '../helpers/agentProposalFixture';
 import { resetProposalStore } from '../../src/features/agents/proposalStore';
 import type { AgentProposal, AgentProposalsQuery } from '@shared/types';
 
@@ -47,5 +47,37 @@ describe('a Proposal toast in Databases mode', () => {
     const page = await screen.findByTestId('agents-page-session');
     expect(await within(page).findByTestId('proposal-card')).toBeTruthy();
     expect(screen.queryByTestId('agent-toast-proposal')).toBeNull();
+  });
+
+  it('Review on one whose session was not kept opens it in Home\'s Needs you', async () => {
+    let open: AgentProposal[] = [];
+    const events = new Set<() => void>();
+    const list = vi.fn(async (q: AgentProposalsQuery) => (q.before ? [] : open));
+    mountAgentsWorkspace({
+      state: agentState({ tokens: [token('t1', 'laptop-claude')] }),
+      overrides: {
+        agentProposals: {
+          list,
+          onEvent: (cb: () => void) => {
+            events.add(cb);
+            return () => events.delete(cb);
+          },
+          check: async () => ({ kind: 'not-open' as const, connectionName: 'Prod' }),
+        } as never,
+      },
+    });
+    await screen.findByRole('region', { name: 'Agent requests' });
+    await waitFor(() => expect(list).toHaveBeenCalled());
+
+    open = [proposal({ id: 'p-gone', connectionId: 'c1', backers: [backer({ sessionId: null })] })];
+    await act(async () => {
+      for (const cb of events) cb();
+    });
+    fireEvent.click(within(await screen.findByTestId('agent-toast-proposal')).getByRole('button', { name: 'Review' }));
+
+    const row = await screen.findByTestId('needs-you-proposal');
+    expect(row.dataset.proposalId).toBe('p-gone');
+    expect(within(row).getByTestId('proposal-card')).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Review' }).getAttribute('aria-expanded')).toBe('true');
   });
 });

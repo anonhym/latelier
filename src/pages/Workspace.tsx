@@ -2136,7 +2136,7 @@ function WorkspaceInner() {
                     tokenId: item.proposal.backers[0]?.tokenId ?? null,
                     proposalId: item.proposal.id,
                   }
-                : HOME_PAGE,
+                : { kind: 'home', proposalId: item.proposal.id },
             ),
           onOpenAgents: () => showAgentsPage(HOME_PAGE),
         }}

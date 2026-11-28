@@ -48,7 +48,16 @@ export function AgentsTab({
     switch (page.kind) {
       case 'home':
         body = (
-          <AgentsHome state={state} connections={connections} activity={activity} onNavigate={onNavigate} openConnection={openConnection} />
+          <AgentsHome
+            // Keyed: a Review from a toast opens its Proposal even when Home is already showing.
+            key={page.proposalId ?? ''}
+            state={state}
+            connections={connections}
+            activity={activity}
+            onNavigate={onNavigate}
+            openConnection={openConnection}
+            reviewProposalId={page.proposalId ?? null}
+          />
         );
         break;
       case 'connect':

@@ -203,6 +203,7 @@ export function AgentsHome({
   activity,
   onNavigate,
   openConnection,
+  reviewProposalId = null,
 }: {
   state: AgentAccessState;
   connections: ConnectionSummary[];
@@ -210,6 +211,8 @@ export function AgentsHome({
   activity: ReadonlyMap<string, ConnectionActivity>;
   onNavigate: (page: AgentsPage) => void;
   openConnection: (id: string) => void;
+  /** A Proposal to open for review on arrival. */
+  reviewProposalId?: string | null;
 }) {
   const now = useNow();
   const tableRef = React.useRef<HTMLElement>(null);
@@ -225,7 +228,7 @@ export function AgentsHome({
   const items = needsYouItems(state, now, proposals, state.sessions);
   const later = laterItems(proposals, now, state.sessions);
   // Review opens a Proposal in its first backer's session page; one whose session was not kept opens here.
-  const [reviewing, setReviewing] = React.useState<string | null>(null);
+  const [reviewing, setReviewing] = React.useState<string | null>(reviewProposalId);
   const review = (item: ProposalItem) => {
     if (item.sessionId === null) {
       setReviewing((id) => (id === item.proposal.id ? null : item.proposal.id));

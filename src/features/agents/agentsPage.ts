@@ -2,7 +2,8 @@ import type { AgentTokenInfo } from '@shared/types';
 
 /** What the one Agents tab shows (X30 §4–§7). */
 export type AgentsPage =
-  | { kind: 'home' }
+  /** `proposalId`: a Proposal whose session was not kept, opened for review in Needs you. */
+  | { kind: 'home'; proposalId?: string }
   | { kind: 'connect'; tokenId?: string }
   | { kind: 'setup' }
   | {
