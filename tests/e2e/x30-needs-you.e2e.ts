@@ -159,7 +159,7 @@ test('Needs you in Databases mode: a request toast connects, and Proposals are d
       await expect(strip).toHaveAttribute('data-proposal-id', customerProposal);
       await expect(strip).toContainText('E2E Agent proposes a Reference Rule: orders.customerId → customers._id');
       await expect(strip.getByTestId('proposal-reason')).toContainText('customerId <b>holds</b> customers._id');
-      await expect(strip.getByTestId('proposal-check')).toHaveText('3 of 3 sampled orders resolve');
+      await expect(strip.getByTestId('proposal-check')).toHaveText('3 of 3 sampled documents in orders resolve');
 
       // Add Reference Rule: for this Connection, and the Agent reads it as accepted.
       await strip.getByRole('button', { name: 'Add Reference Rule' }).click();

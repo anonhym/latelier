@@ -74,7 +74,7 @@ describe('the Agent proposal strip', () => {
     const reason = within(s).getByTestId('proposal-reason');
     expect(reason.querySelector('b, a')).toBeNull();
     expect(reason.textContent).toContain('See <b>this</b>\nhttps://evil.example/x');
-    await waitFor(() => expect(within(s).getByTestId('proposal-check').textContent).toBe('3 of 3 sampled orders resolve'));
+    await waitFor(() => expect(within(s).getByTestId('proposal-check').textContent).toBe('3 of 3 sampled documents in orders resolve'));
     expect(inStrip('Add Reference Rule')).toBeTruthy();
   });
 

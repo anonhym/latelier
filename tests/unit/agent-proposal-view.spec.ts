@@ -74,14 +74,17 @@ describe('backers', () => {
 
 describe('the check', () => {
   it('reads n of m sampled documents resolving', () => {
-    expect(checkText(sampled(3, 3))).toBe('3 of 3 sampled orders resolve');
-    expect(checkText(sampled(3, 1))).toBe('1 of 3 sampled orders resolve');
-    expect(checkSegments(sampled(3, 0))).toEqual([{ text: '0 of 3 sampled orders resolve' }]);
+    expect(checkText(sampled(3, 3))).toBe('3 of 3 sampled documents in orders resolve');
+    expect(checkText(sampled(3, 1))).toBe('1 of 3 sampled documents in orders resolve');
+    expect(checkSegments(sampled(3, 0))).toEqual([{ text: '0 of 3 sampled documents in orders resolve' }]);
+    // One sampled document reads in the singular.
+    expect(checkText(sampled(1, 1))).toBe('1 of 1 sampled document in orders resolves');
+    expect(checkText(sampled(1, 0))).toBe('0 of 1 sampled document in orders resolves');
   });
 
   it('names the field when no sampled document has it, as code', () => {
-    expect(checkSegments(sampled(0, 0))).toEqual([{ text: 'No sampled orders has ' }, { text: 'customerId', code: true }]);
-    expect(checkText(sampled(0, 0))).toBe('No sampled orders has customerId');
+    expect(checkSegments(sampled(0, 0))).toEqual([{ text: 'No sampled document in orders has ' }, { text: 'customerId', code: true }]);
+    expect(checkText(sampled(0, 0))).toBe('No sampled document in orders has customerId');
   });
 
   it('asks to open the Connection when it is not open', () => {

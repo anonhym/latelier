@@ -56,16 +56,19 @@ export interface CheckSegment {
 }
 
 /**
- * The check's sentence (X28 §5): "3 of 3 sampled orders resolve", "No sampled
- * orders has `customerId`", "Open Shop to check this relation". The
- * collection's name is used as it is: a name is not always an English plural.
+ * The check's sentence (X28 §5): "3 of 3 sampled documents in orders
+ * resolve", "No sampled document in orders has `customerId`", "Open Shop to
+ * check this relation". The sentence counts documents and names the
+ * collection after "in": a collection's name is not always an English plural
+ * to count with.
  */
 export function checkSegments(check: AgentProposalCheck): CheckSegment[] {
   if (check.kind === 'not-open') return [{ text: `Open ${check.connectionName} to check this relation` }];
   if (check.sampled === 0) {
-    return [{ text: `No sampled ${check.sourceCollection} has ` }, { text: check.sourceField, code: true }];
+    return [{ text: `No sampled document in ${check.sourceCollection} has ` }, { text: check.sourceField, code: true }];
   }
-  return [{ text: `${check.resolved} of ${check.sampled} sampled ${check.sourceCollection} resolve` }];
+  const one = check.sampled === 1;
+  return [{ text: `${check.resolved} of ${check.sampled} sampled ${one ? 'document' : 'documents'} in ${check.sourceCollection} ${one ? 'resolves' : 'resolve'}` }];
 }
 
 /** The check as one line of text, for a tooltip or an accessible name. */

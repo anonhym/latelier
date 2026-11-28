@@ -284,6 +284,6 @@ describe('the session page', () => {
     expect(within(needs).getAllByTestId('needs-you-proposal').map((p) => p.dataset.proposalId)).toEqual(['p1']);
     const card = await within(needs).findByTestId('proposal-card');
     expect(card.dataset.proposalId).toBe('p1');
-    await waitFor(() => expect(within(card).getByTestId('proposal-check').textContent).toBe('3 of 3 sampled orders resolve'));
+    await waitFor(() => expect(within(card).getByTestId('proposal-check').textContent).toBe('3 of 3 sampled documents in orders resolve'));
   });
 });
