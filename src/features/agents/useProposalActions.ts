@@ -69,16 +69,21 @@ export interface ProposalActions {
  */
 export function useProposalActions(proposal: AgentProposal): ProposalActions {
   const [busy, setBusy] = React.useState(false);
+  // One decision at a time: a second one asked before the first settles (a click, Escape) is dropped.
+  const inFlight = React.useRef(false);
   const pair = proposalPairText(proposal);
   const id = proposal.id;
 
   const run = React.useCallback(async (work: () => Promise<void>, failure: string) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     try {
       await work();
     } catch (err) {
       notify.error(getErrorMessage(err, failure));
     } finally {
+      inFlight.current = false;
       setBusy(false);
       void refreshProposals();
     }
@@ -102,6 +107,7 @@ export function useProposalActions(proposal: AgentProposal): ProposalActions {
     [run, id],
   );
   const decline = React.useCallback(async () => {
+    if (inFlight.current) return;
     const yes = await confirmDestructive({
       title: 'Never for this pair?',
       body: `${pair} will not be suggested again, by reference discovery or by any Agent.`,

@@ -147,7 +147,7 @@ function ProposalRow({
       />
       {open && (
         <div style={{ padding: '0 16px 12px 56px' }}>
-          <ProposalCard proposal={item.proposal} />
+          <ProposalCard proposal={item.proposal} actions={actions} />
         </div>
       )}
     </li>

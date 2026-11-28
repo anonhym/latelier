@@ -69,7 +69,7 @@ function StripBody({ proposal }: { proposal: AgentProposal }) {
           {who.rest} a Reference Rule: <ProposalPair proposal={proposal} size={T.fsSm} />
         </span>
         <CheckPill check={check} failed={failed} />
-        <ProposalDecisions proposal={proposal} check={check} order="strip" />
+        <ProposalDecisions proposal={proposal} actions={actions} check={check} order="strip" />
       </div>
       <ProposalReasons proposal={proposal} withBackers={proposal.backers.length > 1} />
     </section>

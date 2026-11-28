@@ -31,12 +31,16 @@ const sampled = (resolved: number): AgentProposalCheck => ({
  * The strip under a parent with its own key spy. Main's store is a mutable
  * list: each decision changes it, and the strip reads it back as main would.
  */
-function mount(initial: AgentProposal[], opts: { check?: AgentProposalCheck; families?: ConnectionFamily[] } = {}) {
+function mount(initial: AgentProposal[], opts: { check?: AgentProposalCheck; families?: ConnectionFamily[]; acceptGate?: Promise<void> } = {}) {
   let open = [...initial];
   const drop = (id: string) => {
     open = open.filter((p) => p.id !== id);
   };
-  const accept = vi.fn(async ({ id }: { id: string }) => (drop(id), { ruleId: 'r1', savedFor: 'connection' as const }));
+  const accept = vi.fn(async ({ id }: { id: string }) => {
+    await opts.acceptGate;
+    drop(id);
+    return { ruleId: 'r1', savedFor: 'connection' as const };
+  });
   const later = vi.fn(async ({ id }: { id: string }) => (drop(id), { ok: true as const }));
   const decline = vi.fn(async ({ id }: { id: string }) => (drop(id), { ok: true as const }));
   installAtelierMock({
@@ -148,5 +152,22 @@ describe('the Agent proposal strip', () => {
     await waitFor(() => expect(m.later).toHaveBeenCalledWith({ id: 'p1' }));
     expect(m.onParentKeyDown).not.toHaveBeenCalled();
     expect(m.accept).not.toHaveBeenCalled();
+  });
+
+  it('holds Escape and the other decisions while an Add is in flight', async () => {
+    let release!: () => void;
+    const m = mount([proposal()], { acceptGate: new Promise<void>((r) => (release = r)) });
+    fireEvent.click(inStrip('Add Reference Rule'));
+    await waitFor(() => expect(m.accept).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(inStrip('Not now'), { key: 'Escape' });
+    expect((inStrip('Not now') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(inStrip('Never for this pair'));
+    await act(async () => {});
+    expect(m.later).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await act(async () => release());
+    await waitFor(() => expect(strip()).toBeNull());
+    expect(m.later).not.toHaveBeenCalled();
+    expect(m.decline).not.toHaveBeenCalled();
   });
 });

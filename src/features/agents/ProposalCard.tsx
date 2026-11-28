@@ -4,7 +4,7 @@ import { themeVars } from '../../theme/themeVars';
 import type { AgentProposal, AgentProposalCheck } from '@shared/types';
 import { ago } from './agentsTime';
 import { addLabel, backerLine, checkSegments, checkTone, proposalPairText, proposalWho, reasonLabel } from './proposalView';
-import { useFamilyOf, useProposalActions, useProposalCheck } from './useProposalActions';
+import { useFamilyOf, useProposalCheck, type ProposalActions } from './useProposalActions';
 import { useNow } from './useNow';
 
 const T = themeVars;
@@ -99,15 +99,17 @@ export function ProposalReasons({ proposal, withBackers }: { proposal: AgentProp
 /** Add Reference Rule (or Add anyway), Save for the Family, Not now or Move back, Never for this pair. */
 export function ProposalDecisions({
   proposal,
+  actions,
   check,
   order,
 }: {
   proposal: AgentProposal;
+  /** The surface's one set of actions, so a decision in flight holds every other way out. */
+  actions: ProposalActions;
   check: AgentProposalCheck | null;
   /** The strip reads right to left (Never, Not now, Add); a card left to right. */
   order: 'card' | 'strip';
 }) {
-  const actions = useProposalActions(proposal);
   const family = useFamilyOf(proposal.connectionId);
   const add = (
     <Button key="add" size="compact-sm" disabled={actions.busy} onClick={() => void actions.accept('connection')}>
@@ -142,7 +144,7 @@ export function ProposalDecisions({
  * A Proposal opened for review (X28 §5–§6): who proposes what, their words,
  * the check (asked for now that it is open), and the decision.
  */
-export function ProposalCard({ proposal }: { proposal: AgentProposal }) {
+export function ProposalCard({ proposal, actions }: { proposal: AgentProposal; actions: ProposalActions }) {
   const { check, failed } = useProposalCheck(proposal.id);
   const who = proposalWho(proposal);
   return (
@@ -173,7 +175,7 @@ export function ProposalCard({ proposal }: { proposal: AgentProposal }) {
       <div>
         <CheckPill check={check} failed={failed} />
       </div>
-      <ProposalDecisions proposal={proposal} check={check} order="card" />
+      <ProposalDecisions proposal={proposal} actions={actions} check={check} order="card" />
     </section>
   );
 }
