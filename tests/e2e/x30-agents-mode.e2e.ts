@@ -133,6 +133,12 @@ test('Agents mode: turn on, share from Home, connect through the panel, and see 
       await expect(win.getByTestId('agents-sidebar-agent').filter({ hasText: AGENT_NAME })).toBeVisible();
       await expect(win.getByTestId('agents-sidebar-live-session')).toHaveCount(1);
 
+      // The session's page lists the call the bridge made, in its Activity.
+      await win.getByTestId('agents-sidebar-live-session').click();
+      const sessionPage = win.getByTestId('agents-page-session');
+      await expect(sessionPage.getByTestId('session-identity')).toContainText(AGENT_NAME);
+      await expect(sessionPage.getByTestId('activity-row').filter({ hasText: 'list_connections' })).toHaveCount(1);
+
       // Home: every step done, so the checklist is gone, and the status line counts the session.
       await win.getByTestId('agents-sidebar-home').click();
       await expect(win.getByTestId('agents-status-line')).toHaveText('Agent Access is on · 1 live session from 1 Agent');

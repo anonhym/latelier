@@ -5,6 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { assertBridgeBuiltOnCi, bridgeBinaryPresent } from '../helpers/bridgeBinary';
 import { isCi } from '../helpers/ci';
 import { baseConnInput, startMemoryServer, stopAllMemoryServers, withApp } from '../helpers/e2eApp';
+import { WorkspacePage } from './pages';
 
 test.afterAll(stopAllMemoryServers);
 
@@ -12,7 +13,7 @@ test.afterAll(stopAllMemoryServers);
  * X30 §8 and X28 §7, end to end, in Databases mode: an Agent's request for a
  * Connection that is not open toasts, and Open connects it; an Agent's
  * Proposals show in the strip on their collection, one is added as a
- * Reference Rule and the other declined behind the app confirm, and the
+ * Reference Rule (and its reference then follows to the customer) and the other declined behind the app confirm, and the
  * Agent reads each decision back. Main's native dialogs are answered in main
  * and the clipboard captured there, as in the X27 spec.
  *
@@ -171,6 +172,18 @@ test('Needs you in Databases mode: a request toast connects, and Proposals are d
         connectionId,
       );
       expect(rules).toEqual([expect.objectContaining({ sourceField: 'customerId', targetCollection: 'customers' })]);
+
+      // The new rule is live on orders: the first order's customerId follows to its customer.
+      const ws = new WorkspacePage(win);
+      await ws.viewTreeButton.click();
+      await win.getByRole('button', { name: 'Expand document' }).first().click();
+      await win.getByRole('button', { name: 'Open reference to customers' }).first().click();
+      const drawer = win.getByRole('complementary', { name: 'Reference drawer' });
+      await expect(drawer).toContainText(`${DB}.customers`, { timeout: 10_000 });
+      await expect(drawer).toContainText('c1');
+      await expect(drawer).not.toContainText('No matching document.');
+      await drawer.getByRole('button', { name: 'Close reference drawer' }).click();
+      await expect(drawer).toHaveCount(0);
 
       // The next one takes the strip; Never for this pair asks the app confirm first.
       await expect(strip).toHaveAttribute('data-proposal-id', sellerProposal);
