@@ -81,6 +81,7 @@ import { useStoredTabsFront } from '../features/agents/useStoredTabsFront';
 import { useConnectionActivity } from '../features/agents/useConnectionActivity';
 import { useOpenProposals, useProposalSync } from '../features/agents/proposalStore';
 import { findSeedPayload, type QuerySeed } from '../features/agents/activityRow';
+import { isAgentSeeded, markAgentSeeded } from '../features/agents/agentSeededTabs';
 import { consumeLaunchRestore, isLaunchRestoreConsumed, readLaunchTabCount, settleRestoreHint } from '../hints/launchRestore';
 import { queryRunKey } from '../utils/queryRunKey';
 import { looksLikeForeignIdField } from '../utils/foreignIdField';
@@ -516,6 +517,11 @@ function WorkspaceInner() {
       return;
     }
     if (activeCollection.state.lastRun) return;
+    // An Agent's query waits for the user's Run, even in the launch-restored tab.
+    if (isAgentSeeded(activeCollection.id)) {
+      if (restoredTabRef.current === activeCollection.id) restoredTabRef.current = null;
+      return;
+    }
     // A restored query is the user's own, so it runs only against a
     // Connection known to be connected and only when it can run as written.
     const restored =
@@ -1811,6 +1817,9 @@ function WorkspaceInner() {
           return;
         }
         const tab = await t.openCollection({ ...target, reuseExisting: true });
+        // Before the load lands: from here on the tab runs only on the user's Run.
+        markAgentSeeded(tab.id);
+        if (restoredTabRef.current === tab.id) restoredTabRef.current = null;
         pendingSavedRef.current = { kind: 'saved', tabId: tab.id, payload: findSeedPayload(seed), run: false };
         setPendingSavedTick((n) => n + 1);
       } catch (e) {

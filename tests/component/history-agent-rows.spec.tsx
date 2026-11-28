@@ -10,6 +10,7 @@ import { RecentTab } from '../../src/pages/Workspace/views/RecentTab';
 import { QueryBar } from '../../src/pages/Workspace/QueryBar';
 import { CollectionWorkspaceProvider } from '../../src/pages/Workspace/CollectionWorkspaceProvider';
 import { takeAgentsPageRequest } from '../../src/features/agents/agentsNav';
+import { isAgentSeeded, resetAgentSeeded } from '../../src/features/agents/agentSeededTabs';
 import { _resetTabRequestsForTests } from '../../src/pages/Workspace/tabRequest';
 import type { CollectionWorkspaceActions } from '../../src/pages/Workspace/context';
 import type { LegacySavedFindPayload } from '../../src/pages/Workspace/legacyBuilder';
@@ -19,6 +20,7 @@ afterEach(() => {
   uninstallAtelierMock();
   _resetTabRequestsForTests();
   takeAgentsPageRequest();
+  resetAgentSeeded();
   vi.restoreAllMocks();
 });
 
@@ -223,6 +225,8 @@ describe('History in the Filter Bar', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Load {"status":"shipped"} into the editor' }));
     await waitFor(() => expect(actions.patch).toHaveBeenCalledWith(expect.objectContaining({ queryRaw: '{"status":"shipped"}' })));
     expect(actions.run).not.toHaveBeenCalled();
+    // Marked, so the Workspace never runs it by itself later, on a connect or as the restored tab.
+    expect(isAgentSeeded('hist')).toBe(true);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
