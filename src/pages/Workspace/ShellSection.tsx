@@ -288,6 +288,9 @@ export function ShellSection({
               {agents.mode === 'agents' ? (
                 agents.sidebar
               ) : (
+              // Fills what the mode switch leaves: the navigator's own `height: 100%`
+              // would take the whole column and run over the status bar.
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <DbCollectionNavigator
                 connections={connections}
                 connectionsWithTabs={connectionsWithTabs}
@@ -328,6 +331,7 @@ export function ShellSection({
                 dialogRequest={navigatorDialogRequest}
                 onDialogRequestHandled={onNavigatorDialogHandled}
               />
+              </div>
               )}
               <div
                 style={{
